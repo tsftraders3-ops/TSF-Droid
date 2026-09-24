@@ -1,0 +1,8 @@
+{
+  "project": "TSF Droid",
+  "current_phase": "PHASE_1",
+  "completed_steps": [],
+  "active_step": "SETUP_REPO",
+  "last_ci_run_id": null,
+  "last_ci_status": null
+}
