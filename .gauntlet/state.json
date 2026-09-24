@@ -1,6 +1,6 @@
 {
   "project": "TSF Droid",
-  "current_phase": "HOTFIX_V1.0.1_OPENCODE_UI",
+  "current_phase": "COMPLETE",
   "completed_steps": [
     "PHASE_1_REPO_AND_CI",
     "PHASE_2.1_SANITIZE_REBRAND",
@@ -12,9 +12,10 @@
     "PHASE_3_GAUNTLET_CI_VERIFICATION",
     "PHASE_4.1_RELEASE_KEYSTORE_AND_SECRETS",
     "PHASE_4.2_RELEASE_WORKFLOW",
-    "PHASE_4.3_FIRST_RELEASE_V1.0.0"
+    "PHASE_4.3_FIRST_RELEASE_V1.0.0",
+    "PHASE_5_OPENCODE_ZEN_UI_SURFACE_V1.0.1"
   ],
-  "active_step": "PHASE_5_OPENCODE_ZEN_UI_SURFACE",
+  "active_step": "DONE",
   "last_ci_run_id": 36011232724,
   "last_ci_status": "SUCCESS",
   "notes": [
@@ -42,14 +43,12 @@
     "size_bytes": 73805147
   },
   "last_release": {
-    "tag": "v1.0.0",
-    "ci_run_id": 36024549691,
+    "tag": "v1.0.1",
+    "ci_run_id": 36028322625,
     "ci_status": "SUCCESS",
-    "release_apk_sha256": "d105b1703e26daaf1d7b906763220c7a2d8a477b08bd97592016d4fe141ecb35",
-    "signature_verified": "apksigner cert == keystore fingerprint 0C:20:B1:AA...:00",
     "assets": [
-      "TSF-Droid-v1.0.0-release.apk",
-      "TSF-Droid-v1.0.0-debug.apk",
+      "TSF-Droid-v1.0.1-release.apk",
+      "TSF-Droid-v1.0.1-debug.apk",
       "SHA256SUMS.txt"
     ]
   }
