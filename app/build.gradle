@@ -15,8 +15,8 @@ android {
         applicationId "com.tsfdroid.ai"
         minSdk 26
         targetSdk 36
-        versionCode 8
-        versionName "1.0.7"
+        versionCode 1
+        versionName "1.0.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -31,7 +31,7 @@ android {
     def hasSigningConfig = project.hasProperty('RELEASE_STORE_PASSWORD') &&
             project.hasProperty('RELEASE_KEY_ALIAS') &&
             project.hasProperty('RELEASE_KEY_PASSWORD') &&
-            file("${rootProject.projectDir}/opendroid-release.keystore").exists()
+            file("${rootProject.projectDir}/tsf-droid-release.keystore").exists()
 
     // Explicit opt-in for building release WITHOUT signing, so CI can exercise
     // R8/ProGuard (where reflection-dependent code breaks) without holding any
@@ -46,7 +46,7 @@ android {
     signingConfigs {
         if (hasSigningConfig) {
             release {
-                storeFile file("${rootProject.projectDir}/opendroid-release.keystore")
+                storeFile file("${rootProject.projectDir}/tsf-droid-release.keystore")
                 storePassword project.findProperty('RELEASE_STORE_PASSWORD')
                 keyAlias project.findProperty('RELEASE_KEY_ALIAS')
                 keyPassword project.findProperty('RELEASE_KEY_PASSWORD')
@@ -88,7 +88,7 @@ android {
                 throw new GradleException(
                     "Release signing is not configured. Set RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS " +
                     "and RELEASE_KEY_PASSWORD in ~/.gradle/gradle.properties (or as ORG_GRADLE_PROJECT_* " +
-                    "environment variables) and place opendroid-release.keystore at the project root " +
+                    "environment variables) and place tsf-droid-release.keystore at the project root " +
                     "(see gradle.properties.example). Refusing to sign a release build with the debug key. " +
                     "To build an unsigned release on purpose (e.g. CI compile checks), pass -PallowUnsignedRelease=true."
                 )

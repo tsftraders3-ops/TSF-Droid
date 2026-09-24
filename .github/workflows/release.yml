@@ -1,0 +1,167 @@
+name: TSF Droid Release
+
+# Cuts a signed GitHub Release with installable APKs.
+#
+# Two ways to release:
+#   1. Tag push (recommended): bump versionName/versionCode in app/build.gradle,
+#      add a CHANGELOG.md section, then:
+#        git tag v1.0.1 && git push origin v1.0.1
+#   2. Manual dispatch: Actions -> "TSF Droid Release" -> Run workflow,
+#      enter the version (e.g. 1.0.1). The workflow creates the tag for you.
+#
+# Signing comes from repo secrets (RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD,
+# RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD). Without them the workflow fails fast
+# rather than shipping an unsigned or debug-signed APK.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, e.g. 1.0.1 (tag v<version> is created at HEAD)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for changelog/git-log notes
+          ref: ${{ steps.tag.outputs.tag }}
+
+      # Fail fast (before any Gradle work) if signing secrets are missing.
+      - name: Verify signing secrets present
+        run: |
+          missing=0
+          for s in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [ -z "$(printenv "$s")" ]; then echo "::error::Secret $s is not set on this repository"; missing=1; fi
+          done
+          exit $missing
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+      # TSF Droid pins the Gradle daemon to Java 21
+      # (gradle/gradle-daemon-jvm.properties: toolchainVersion=21, jvmToolchain(21)).
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Restore release keystore
+        run: |
+          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > tsf-droid-release.keystore
+          chmod 600 tsf-droid-release.keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+
+      # Unit tests gate the release: a red test suite never ships.
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Assemble signed release + debug APKs
+        run: ./gradlew assembleRelease assembleDebug --no-daemon --stacktrace
+        env:
+          ORG_GRADLE_PROJECT_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+      # Prove the artifact is really signed with the release key, not debug.
+      - name: Verify APK signature
+        run: |
+          "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner" \
+            verify --print-certs app/build/outputs/apk/release/app-release.apk | head -5
+
+      - name: Collect and hash artifacts
+        run: |
+          mkdir -p dist
+          TAG="${{ steps.tag.outputs.tag }}"
+          cp app/build/outputs/apk/release/app-release.apk "dist/TSF-Droid-${TAG}-release.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk   "dist/TSF-Droid-${TAG}-debug.apk"
+          cd dist
+          sha256sum *.apk > SHA256SUMS.txt
+          echo "--- dist contents ---"
+          ls -la
+          cat SHA256SUMS.txt
+
+      # Curated notes come from the CHANGELOG.md section for this version
+      # (header like "## v1.0.0"); auto-notes from merged PRs are appended by gh.
+      - name: Extract changelog section
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          awk -v sec="## ${TAG}" '
+            $0 ~ sec"([ (]|$)" {flag=1; next}
+            /^## / && flag {exit}
+            flag {print}
+          ' CHANGELOG.md > /tmp/release_notes.md 2>/dev/null || true
+          if [ ! -s /tmp/release_notes.md ]; then
+            {
+              echo "## TSF Droid ${TAG}"
+              echo
+              echo "Signed release build. See CHANGELOG.md for details."
+            } > /tmp/release_notes.md
+          fi
+          echo "RELEASE_NOTES_PATH=/tmp/release_notes.md" >> "$GITHUB_ENV"
+          echo "--- notes preview ---"
+          head -20 /tmp/release_notes.md
+
+      - name: Create tag (dispatch path only)
+        if: steps.tag.outputs.created == 'true'
+        run: |
+          git config user.name "tsf-droid-release-bot"
+          git config user.email "actions@github.com"
+          git tag -a "${{ steps.tag.outputs.tag }}" -m "TSF Droid ${{ steps.tag.outputs.tag }}"
+          git push origin "${{ steps.tag.outputs.tag }}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          ARGS=( "$TAG" --title "TSF Droid $TAG" --notes-file /tmp/release_notes.md --verify-tag )
+          if [ "${{ inputs.prerelease || 'false' }}" = "true" ]; then ARGS+=( --prerelease ); fi
+          gh release create "${ARGS[@]}" dist/*

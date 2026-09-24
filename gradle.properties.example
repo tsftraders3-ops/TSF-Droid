@@ -18,8 +18,13 @@
 #        export ORG_GRADLE_PROJECT_RELEASE_KEY_ALIAS=...
 #        export ORG_GRADLE_PROJECT_RELEASE_KEY_PASSWORD=...
 #
-# The keystore itself goes at the project root as opendroid-release.keystore.
+# The keystore itself goes at the project root as tsf-droid-release.keystore.
 # It is gitignored by the *.keystore rule and must stay that way.
+#
+# In GitHub Actions (see .github/workflows/release.yml) the same three values
+# come from repo secrets RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS /
+# RELEASE_KEY_PASSWORD via ORG_GRADLE_PROJECT_* env vars, and the keystore is
+# decoded from the RELEASE_KEYSTORE_BASE64 secret.
 #
 # Without all three properties and the keystore file, release builds fail
 # loudly rather than falling back to the publicly known debug key.

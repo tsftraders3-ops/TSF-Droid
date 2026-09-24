@@ -1,6 +1,6 @@
 {
   "project": "TSF Droid",
-  "current_phase": "COMPLETE",
+  "current_phase": "RELEASE_AUTOMATION",
   "completed_steps": [
     "PHASE_1_REPO_AND_CI",
     "PHASE_2.1_SANITIZE_REBRAND",
@@ -9,14 +9,23 @@
     "PHASE_2.3_UI_IDLE_SETTLE",
     "PHASE_2.4_INTENT_SEGMENTATION",
     "PHASE_2.5_BLIND_SPOT_HANDLING",
-    "PHASE_3_GAUNTLET_CI_VERIFICATION"
+    "PHASE_3_GAUNTLET_CI_VERIFICATION",
+    "PHASE_4.1_RELEASE_KEYSTORE_AND_SECRETS",
+    "PHASE_4.2_RELEASE_WORKFLOW"
   ],
-  "active_step": "DONE",
+  "active_step": "PHASE_4.3_FIRST_RELEASE_V1.0.0",
   "last_ci_run_id": 36011232724,
   "last_ci_status": "SUCCESS",
   "notes": [
-    "Run 36008132141: compile PASS after rename; only OpenDroidDatabaseMigrationTest failed (FileNotFound) because app/schemas/com.opendroid.ai... dir was not renamed. Fixed via git mv."
+    "Run 36008132141: compile PASS after rename; only OpenDroidDatabaseMigrationTest failed (FileNotFound) because app/schemas/com.opendroid.ai... dir was not renamed. Fixed via git mv.",
+    "Phase 4: generated dedicated release keystore (RSA 2048, alias tsf-droid, 30y), stored as 4 repo secrets; keystore rebranded to tsf-droid-release.keystore; version reset to 1.0.0/versionCode 1; release.yml publishes signed release+debug APKs + SHA256SUMS on v* tags with CHANGELOG-driven notes."
   ],
+  "release": {
+    "workflow": ".github/workflows/release.yml",
+    "triggers": ["push tags v*", "workflow_dispatch"],
+    "secrets": ["RELEASE_KEYSTORE_BASE64", "RELEASE_STORE_PASSWORD", "RELEASE_KEY_ALIAS", "RELEASE_KEY_PASSWORD"],
+    "keystore_backup": "local only — user keeps offline copy"
+  },
   "artifact": {
     "name": "tsf-droid-debug",
     "sha256": "c6d5d3e92be8118a5aaa2ab238dcf9d2c3db304fb09509d48a8fa7d377f2f40b",

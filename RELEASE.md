@@ -1,118 +1,55 @@
-# OpenDroid Releases
+# TSF Droid Releases
 
-See the full release documentation and changelogs in [docs/RELEASE.md](docs/RELEASE.md).
+TSF Droid ships signed APKs through GitHub Releases. Every release artifact is
+built in public CI (GitHub Actions), unit-test gated, signed with the dedicated
+TSF Droid release key, and published with SHA-256 checksums.
 
-## v1.0.7 — Latest Release (September 4, 2026)
+## Cutting a release
 
-Current release. Sideload the APK for direct install, or use the AAB for Play Store distribution.
+1. **Bump the version** in `app/build.gradle` (`versionName`, `versionCode`).
+2. **Add a changelog section** at the top of `CHANGELOG.md` with a header
+   matching the tag (e.g. `## v1.0.1 — Summary (date)`). The workflow publishes
+   this section as the release notes.
+3. **Tag and push**:
+   ```bash
+   git tag v1.0.1
+   git push origin main v1.0.1
+   ```
+   Alternatively use **Actions → TSF Droid Release → Run workflow** and enter
+   the version; the tag is created for you. Mark pre-releases with the
+   "pre-release" input.
 
-### Highlights since v1.0.6
+The workflow (`release.yml`) then: verifies signing secrets exist → runs
+`testDebugUnitTest` → assembles signed `release` + `debug` APKs → verifies the
+APK signature with `apksigner` → generates `SHA256SUMS.txt` → extracts the
+matching `CHANGELOG.md` section → publishes the GitHub Release with both APKs.
 
-#### 🌐 Complete AI Social Media Management System
-* **Multi-Platform Management**: Autonomous AI social assistant supporting 7 major platforms: **X (Twitter)**, **Instagram**, **LinkedIn**, **Facebook**, **YouTube**, **Telegram**, and **Discord**.
-* **Unified Social Dashboard**: 10 purpose-built sub-tabs (`Overview`, `Accounts`, `Unified Inbox`, `Content Studio`, `Calendar`, `Comments`, `Campaigns`, `Analytics`, `Reports`, `Settings & Rules`).
-* **Hardware-Backed Credential Security**: Android Keystore-backed AES-256-GCM encrypted vault (`SocialCredentialStore`) with Additional Authenticated Data (AAD) cryptographic binding per platform and account (`social_cred_aad:<platform>:<accountId>`), preventing cross-account substitution attacks.
-* **Room Database Migration `MIGRATION_8_9`**: Upgraded Room schema to version 9 with 8 new relational entities and reactive DAOs (`social_accounts`, `social_posts`, `social_comments`, `social_interactions`, `social_analytics_snapshots`, `social_campaigns`, `social_automation_rules`, `social_audit_logs`).
-* **Tri-Tier Automation & Human-in-the-Loop Safety**: Configurable automation levels (`SAFE`, `APPROVAL`, `AUTONOMOUS`) enforced by `SocialRuleEngine`. Any sensitive, financial, legal, refund, security vulnerability, breach, or negative sentiment interaction strictly triggers mandatory human review.
-* **Grounded AI Intelligence Layer**:
-  * `SocialContentComposer`: Crafts platform-tailored drafts respecting character budgets and hashtag norms.
-  * `SocialInboxClassifier`: AI triage classifying interactions into categories (`LEAD`, `SUPPORT_REQUEST`, `QUESTION`, `FEEDBACK`, `SPAM`) with sentiment and priority scoring.
-  * `SocialCommentReplyEngine`: Grounded community reply generator that retrieves verified brand knowledge memories without hallucinating or inventing fake dates.
-  * `SocialScheduleWorker`: Background scheduled publishing coordinator via WorkManager.
+## Release assets
 
-#### 📁 Storage Management & Play Store Policy Compliance
-* **Storage Access Framework (SAF) Integration**: Implemented `StorageWorkspaceProvider` to resolve Google Play Console All Files Access (`MANAGE_EXTERNAL_STORAGE`) policy requirements.
-* **Granular Folder Selection**: Users can choose specific workspace folders via Android's document tree picker or operate seamlessly within app-scoped sandboxed storage without requiring broad external storage access.
-* **Permissions UX Enhancements**: Modernized `PermissionsScreen` and `PermissionModel` with folder picking options for Android 11+ (SDK 30+).
+| Artifact | Purpose |
+|---|---|
+| `TSF-Droid-vX.Y.Z-release.apk` | Signed, R8-minified build for sideloading (recommended) |
+| `TSF-Droid-vX.Y.Z-debug.apk` | Debug build with logging, for developer testing |
+| `SHA256SUMS.txt` | Checksums of every attached artifact |
 
-#### 🎨 Pure OLED Black & Classic White Theme Redesign
-* **Clean Contrast Styling**: Overhauled the entire UI theme to pure OLED black (`#000000`) in dark mode and classic pure white (`#FFFFFF`) in light mode.
-* **Zero Green Accents**: Modernized all buttons, chips, and cards to sleek obsidian/titanium monochrome styling with subtle sky sapphire active badges.
-* **Enhanced Visual Feedback & Animations**: Fluid sub-tab transitions, animated sync indicators, and responsive canvas charts (`SocialCharts.kt`).
+Historical changelogs: see [CHANGELOG.md](CHANGELOG.md).
 
-#### 🧪 LiteRT Model Compatibility & Stability
-* **Compatibility Fixes**: Resolved model verification failure when downloading LiteRT on-device models (e.g. Qwen 2.5, Gemma).
-* **Failure Marker Matching & Memory Safety**: Enhanced probe evaluation and fallback behavior for on-device inference.
+## Signing
 
-#### 🛠️ Version & Build Updates
-* **Version Bump**: Updated app version to `1.0.7` (`versionCode 8`).
-* **Comprehensive Test Suite**: Added `SocialPlatformTest`, `OpenDroidDatabaseMigrationTest` (validating schema v8 to v9 migration and data preservation), and `SocialRuleEngineTest` with 100% passing tests.
+* The release key lives in GitHub repo secrets (`RELEASE_KEYSTORE_BASE64`,
+  `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`) and is
+  decoded by CI at build time; it is never committed.
+* Locally, put the keystore at the project root as `tsf-droid-release.keystore`
+  and the three credential properties in your untracked `~/.gradle/gradle.properties`
+  (see `gradle.properties.example`).
+* Release builds **fail loudly** without signing credentials rather than falling
+  back to the publicly known debug key; CI compile-only checks can pass
+  `-PallowUnsignedRelease` explicitly.
+* Updates install over previous versions only when signed with this same key —
+  keep the keystore backup safe.
 
-### Release Assets
-* **`app-debug.apk`** — Debug build APK for developer testing & logging.
-* **`app-release.apk`** — Release APK (sideload for testing).
-* **`app-debug.aab`** — Debug Android App Bundle.
-* **`app-release.aab`** — Release Android App Bundle.
+## Continuous integration
 
-### Checksums (SHA-256)
-* **`app-debug.apk`**: `3cd060523174964465ac24a5c4f37ab4d11c4fa69f43931681b103557233fb80`
-* **`app-release.apk`**: `eef3d9c61ae7783dbc6b0cb30fe6714b94f2c74ba7c182dd1e00a05da29de11b`
-* **`app-debug.aab`**: `81461c621fc30dacb25099bdcd3382229ccdfb56f835d03d24563797d3e8c57f`
-* **`app-release.aab`**: `03186f5d4410c7f758d0ec215dc49f61aa0945bb61e5ba78c47a804611eab29b`
-
-### Build Configuration
-* **Package**: `com.opendroid.aiagent`
-* **Version Code**: 8
-* **Version Name**: 1.0.7
-* **Min SDK**: 26 (Android 8.0)
-* **Target SDK**: 36 (Android 16)
-
-### Install notes for testers
-1. Download `app-release.apk` or `app-debug.apk` from the GitHub release.
-2. Enable install from unknown sources for your browser/file manager.
-3. Sideload the APK; uninstall any prior build with a different signing key if Android blocks the update.
-4. Report issues against tag `v1.0.7`.
-
----
-
-## v1.0.6 (August 20, 2026)
-
-### Highlights since v1.0.5
-
-#### 🔄 Habit & Routine Detection Engine
-* **Proactive Pattern Recognition**: OpenDroid tracks app usage habits over time and detects repeated daily/weekly workflows (e.g., every weekday at 9:00 AM: *Gmail → Calendar → Slack → Chrome*).
-* **Proactive Automation Prompts**: Surfaces smart suggestions with confidence metrics: *"I noticed you usually do these tasks every weekday morning. Would you like me to automate them?"*
-* **Multi-Step Morning Routine Automation**: Automatically synthesizes structured morning briefings:
-  1. Read today's calendar (`LIST_CALENDAR_TODAY`)
-  2. Summarize upcoming meetings (`GET_MORNING_BRIEFING`, `section = "schedule"`)
-  3. Check important notifications (`READ_NOTIFICATIONS`)
-  4. Prepare task list from notes (`READ_NOTES`)
-  5. Read selected messages (`READ_NOTIFICATIONS`)
-  6. Deliver spoken or text morning briefing (`GET_MORNING_BRIEFING`, `section = "full"`)
-* **One-Click Approval & Macro Scheduling**: User approval converts detected routines into recurring scheduled macros in `MacroDao` and logs knowledge nodes in `PersonalGrowthEngine`.
-* **Dedicated Routines Screen**: Added modern UI screen (`RoutinesScreen.kt`) with suggestion approval cards, active routines list, template presets (*Morning Routine*, *Work Focus*, *Evening Wrap-up*), and learning analytics.
-* **Room Database Migration `MIGRATION_7_8`**: Added `habit_events` and `habit_routines` tables, upgrading schema to version 8.
-
-#### ✈️ Telegram Control & Automation
-* **Full Telegram Automation**: OpenDroid now supports end-to-end messaging and chat control on Telegram alongside WhatsApp and SMS.
-* **`SEND_TELEGRAM` & `OPEN_TELEGRAM` Actions**: Direct handling of `@username` handles, contact address book lookups, international phone numbers, and chat links (`tg://resolve`, `https://t.me/`).
-* **`TelegramAutomator`**: Automatic accessibility typing and sending across official Telegram, Telegram Web/FOSS, Plus Messenger, and NekoX.
-* **Habit Engine Integration**: Package recognition tracks Telegram workflows in routine mining.
-
-#### 🧪 LiteRT Model Compatibility & Probe Fixes
-* **Model Verification Fix**: Fixed a bug where downloaded LiteRT models (such as `Gemma 4 e2b-it` and `Qwen 2.5`) falsely reported `FORMAT_INVALID` during initialization verification.
-* **Failure Marker Matching**: Corrected probe verification logic from strict `.all` failure matching to `.any` marker matching and expanded backend-specific error classification for GPU/NPU/CPU fallbacks.
-
-#### 🛠️ Version & Build Updates
-* **Version Bump**: Updated app version to `1.0.6` (`versionCode 7`).
-* **Comprehensive Test Coverage**: Added `HabitRoutineEngineTest`, `RoutineActionsTest`, and `TelegramActionsTest` with 100% passing test suite.
-
-### Release Assets
-* **`app-debug.apk`** — Debug build APK for developer testing & logging.
-* **`app-release.apk`** — Release APK (sideload for testing).
-* **`app-debug.aab`** — Debug Android App Bundle.
-* **`app-release.aab`** — Release Android App Bundle.
-
-### Checksums (SHA-256)
-* **`app-debug.apk`**: `07025caea20b4c9e32c7889549777266605e94361985ec4ce790f988920b4d63`
-* **`app-release.apk`**: `c10b8ec614d38aab2f0bbaa254d38bc7ec7bde7b296963b74ddda86e12748a6e`
-* **`app-debug.aab`**: `e2025affd0d0f344085b16eb486295f7fca9b513cf5159a3781b9c839eb1c149`
-* **`app-release.aab`**: `de9bd177e4274cc97ec45913d2ce2e59389291bed45d0eddbd770bbe9e956f23`
-
-### Build Configuration
-* **Package**: `com.opendroid.aiagent`
-* **Version Code**: 7
-* **Version Name**: 1.0.6
-* **Min SDK**: 26 (Android 8.0)
-* **Target SDK**: 36 (Android 16)
-
+* `build-and-test.yml` runs on every push to `main`: unit tests + debug APK
+  artifact upload (`tsf-droid-debug`, 7-day retention).
+* `release.yml` runs on `v*` tags and manual dispatch as described above.
