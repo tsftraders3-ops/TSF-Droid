@@ -251,7 +251,7 @@ fun AboutScreen(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         val providers = listOf(
-                            "Google Gemini", "OpenAI (GPT-4o, etc.)", "Anthropic Claude",
+                            "OpenCode Zen (Free, keyless)", "Google Gemini", "OpenAI (GPT-4o, etc.)", "Anthropic Claude",
                             "Groq", "Mistral AI", "OpenRouter", "Together AI",
                             "Cohere", "DeepSeek", "Copilot API", "Ollama (Local)"
                         )

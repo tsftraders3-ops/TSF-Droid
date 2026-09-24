@@ -2,6 +2,7 @@ package com.tsfdroid.ai.core.llm
 
 import android.util.Log
 import com.tsfdroid.ai.core.llm.OnDeviceModelRegistry
+import com.tsfdroid.ai.core.llm.providers.OpenCodeZenProvider
 import com.tsfdroid.ai.core.util.UrlUtils
 import com.tsfdroid.ai.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
@@ -51,7 +52,8 @@ sealed interface ModelFetchOutcome {
 @Singleton
 class ModelFetcher @Inject constructor(
     private val httpClient: OkHttpClient,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val openCodeZenProvider: javax.inject.Provider<OpenCodeZenProvider>
 ) {
 
     private val tag = "ModelFetcher"
@@ -121,6 +123,15 @@ class ModelFetcher @Inject constructor(
                         headers = apiKey?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
                     )
                     ModelFetchOutcome.Success(ModelListParsers.openRouter(page, provider))
+                }
+
+                "OpenCode Zen" -> {
+                    // The provider owns discovery (single-flight, 1h TTL, failure
+                    // cooldown), so the picker rides the same cache as chat instead
+                    // of polling /models on its own schedule. The merged chain
+                    // fallback means the picker is never empty, even offline.
+                    val ids = openCodeZenProvider.get().discoverModels()
+                    ModelFetchOutcome.Success(ModelListParsers.opCodeZen(ids, provider))
                 }
 
                 "Cohere" -> {
@@ -417,6 +428,33 @@ internal object ModelListParsers {
             list.add(AIModel(id = name, displayName = name, provider = provider, isFree = true))
         }
         return list.sortedBy { it.displayName }
+    }
+
+    /**
+     * OpenCode Zen hands over an already-merged id list (live discovery + the
+     * static free chain) from [com.tsfdroid.ai.core.llm.providers.OpenCodeZenProvider];
+     * the picker only decorates: drop non-chat endpoints, flag the free tier,
+     * and sort deterministically with the chain head never buried.
+     */
+    fun opCodeZen(ids: List<String>, provider: String): List<AIModel> {
+        return ids
+            .filter { isChatCapableId(it) }
+            .map { id ->
+                AIModel(
+                    id = id,
+                    displayName = formatModelName(id),
+                    provider = provider,
+                    isFree = id.endsWith("-free")
+                )
+            }
+            .sortedWith(
+                compareByDescending<AIModel> { it.id.endsWith("-free") }
+                    .thenBy {
+                        OpenCodeZenProvider.DEFAULT_MODEL_CHAIN.indexOf(it.id)
+                            .takeIf { idx -> idx >= 0 } ?: Int.MAX_VALUE
+                    }
+                    .thenBy { it.displayName }
+            )
     }
 
     fun formatModelName(id: String): String {

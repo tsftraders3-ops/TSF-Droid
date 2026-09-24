@@ -20,6 +20,20 @@ class ProviderCatalogTest {
     }
 
     @Test
+    fun `OpenCode Zen is selectable and keyless`() {
+        // Regression: the provider shipped wired into the factory and interceptor
+        // but was absent from the Settings dropdown and the model picker, so users
+        // could never reach its free models.
+        assertTrue(ProviderCatalog.isKnown("OpenCode Zen"))
+        assertTrue(
+            "Settings dropdown must list OpenCode Zen",
+            ProviderCatalog.providers.any { it.displayName == "OpenCode Zen" }
+        )
+        assertTrue(!ProviderCatalog.requiresApiKey("OpenCode Zen"))
+        assertEquals("x-preview-f-free", ProviderCatalog.defaultModel("OpenCode Zen"))
+    }
+
+    @Test
     fun `nullable model map lazily migrates only the legacy active provider pair`() {
         val legacy = LLMConfig(
             activeProvider = "OpenAI",

@@ -1,6 +1,6 @@
 {
   "project": "TSF Droid",
-  "current_phase": "COMPLETE",
+  "current_phase": "HOTFIX_V1.0.1_OPENCODE_UI",
   "completed_steps": [
     "PHASE_1_REPO_AND_CI",
     "PHASE_2.1_SANITIZE_REBRAND",
@@ -14,12 +14,13 @@
     "PHASE_4.2_RELEASE_WORKFLOW",
     "PHASE_4.3_FIRST_RELEASE_V1.0.0"
   ],
-  "active_step": "DONE",
+  "active_step": "PHASE_5_OPENCODE_ZEN_UI_SURFACE",
   "last_ci_run_id": 36011232724,
   "last_ci_status": "SUCCESS",
   "notes": [
     "Run 36008132141: compile PASS after rename; only OpenDroidDatabaseMigrationTest failed (FileNotFound) because app/schemas/com.opendroid.ai... dir was not renamed. Fixed via git mv.",
-    "Phase 4: generated dedicated release keystore (RSA 2048, alias tsf-droid, 30y), stored as 4 repo secrets; keystore rebranded to tsf-droid-release.keystore; version reset to 1.0.0/versionCode 1; release.yml publishes signed release+debug APKs + SHA256SUMS on v* tags with CHANGELOG-driven notes."
+    "Phase 4: generated dedicated release keystore (RSA 2048, alias tsf-droid, 30y), stored as 4 repo secrets; keystore rebranded to tsf-droid-release.keystore; version reset to 1.0.0/versionCode 1; release.yml publishes signed release+debug APKs + SHA256SUMS on v* tags with CHANGELOG-driven notes.",
+    "v1.0.1 hotfix: OpenCode Zen was wired into core (catalog/factory/interceptor) but absent from the Settings dropdown (hardcoded list) and the model picker (no ModelFetcher branch) - users could not find the free models. Dropdown now derives from ProviderCatalog; picker reuses the provider's probe-suppressed discovery; key card skips the keyless provider; HelpCenter de-OpenDroid-ed."
   ],
   "release": {
     "workflow": ".github/workflows/release.yml",

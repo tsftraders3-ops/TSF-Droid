@@ -125,11 +125,16 @@ fun HelpCenterScreen(
             item {
                 PolicySection(
                     title = "SETTING UP API KEYS",
-                    content = "OpenDroid needs an LLM API key to generate responses:\n\n" +
+                    content = "TSF Droid works with a free keyless provider out of the box:\n\n" +
+                            "1. Go to Settings → Active Brain Provider\n" +
+                            "2. Pick OpenCode Zen — no API key or signup needed\n" +
+                            "3. Pick any of its free models and start asking\n\n" +
+                            "Prefer another provider? Add a key instead:\n\n" +
                             "1. Go to Settings → Provider API Keys\n" +
                             "2. Enter your API key for the provider you want to use\n" +
                             "3. Select that provider from the \"Active Brain Provider\" dropdown\n\n" +
                             "Supported providers:\n" +
+                            "• OpenCode Zen (free, no API key needed)\n" +
                             "• Google Gemini (recommended for beginners)\n" +
                             "• OpenAI (GPT-4, GPT-3.5)\n" +
                             "• Anthropic Claude\n" +

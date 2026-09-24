@@ -40,6 +40,7 @@ import com.tsfdroid.ai.data.models.resolvedAutoMode
 import com.tsfdroid.ai.core.llm.OnDeviceModelRegistry
 import com.tsfdroid.ai.core.llm.OnDeviceBackend
 import com.tsfdroid.ai.core.llm.ConnectionTestState
+import com.tsfdroid.ai.core.llm.ProviderCatalog
 import com.tsfdroid.ai.core.llm.error.LLMError
 import com.tsfdroid.ai.core.security.ProviderCredentialRecoveryState
 import com.tsfdroid.ai.data.repository.ProviderCredentialPersistenceState
@@ -88,21 +89,13 @@ fun SettingsScreen(
     val providerCredentialRecoveryState by viewModel.providerCredentialRecoveryState.collectAsState()
     val providerCredentialPersistenceState by viewModel.providerCredentialPersistenceState.collectAsState()
 
-    val providers = listOf(
-        "Google Gemini",
-        "OpenAI",
-        "Anthropic Claude",
-        "Groq",
-        "Mistral AI",
-        "OpenRouter",
-        "Together AI",
-        "Cohere",
-        "DeepSeek",
-        "Copilot API",
-        "Custom OpenAI Compatible",
-        "Ollama",
-        "On-Device AI"
-    )
+    // Single source of truth: the dropdown mirrors ProviderCatalog so a provider
+    // registered in the core layer is automatically selectable in Settings.
+    // Only the legacy compatibility aliases stay hidden — they exist so old
+    // persisted configs keep parsing, not as user-facing choices.
+    val providers = ProviderCatalog.providers
+        .map { it.displayName }
+        .filter { it != ProviderCatalog.LEGACY_ON_DEVICE && it != "LiteRT-LM (On-device)" }
 
     var providerDropdownExpanded by remember { mutableStateOf(false) }
     var keysSectionExpanded by remember { mutableStateOf(false) }
@@ -1596,7 +1589,11 @@ fun SettingsScreen(
                                 modifier = Modifier.padding(top = 16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                val inputProviders = providers.filter { it != "Ollama" && it != "On-Device AI" }
+                                // Keyless providers (OpenCode Zen) and URL-based
+                                // local backends have no credential to enter.
+                                val inputProviders = providers.filter {
+                                    it != "Ollama" && it != "On-Device AI" && it != "OpenCode Zen"
+                                }
                                 inputProviders.forEach { providerName ->
                                     val keyVal = config.apiKeys[providerName] ?: ""
                                     val connectionState = connectionResults[providerName]

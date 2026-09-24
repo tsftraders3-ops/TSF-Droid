@@ -152,4 +152,46 @@ class ModelListParsersTest {
         assertTrue(ModelListParsers.openRouter(json, "OpenRouter").isEmpty())
         assertTrue(ModelListParsers.ollama(json, "Ollama").isEmpty())
     }
+
+    @Test
+    fun `opencode zen picker keeps the free chain on top and flags the free tier`() {
+        // Merged discovery output: a live model, the static chain, and a
+        // non-chat endpoint that must not reach the picker.
+        val ids = listOf(
+            "some-live-model",
+            "x-preview-f-free",
+            "mimo-v2.5-free",
+            "hy3-free",
+            "muse-spark-1.2-contributor-free",
+            "zen-embedding-small"
+        )
+
+        val models = ModelListParsers.opCodeZen(ids, "OpenCode Zen")
+
+        // Chain order preserved inside the free tier, live extras after it.
+        assertEquals(
+            listOf(
+                "x-preview-f-free",
+                "muse-spark-1.2-contributor-free",
+                "hy3-free",
+                "mimo-v2.5-free",
+                "some-live-model"
+            ),
+            models.map { it.id }
+        )
+        // Chain entries and live extras are all "-free" suffixed here → flagged;
+        // the live non-free model keeps isFree=false.
+        assertTrue(models.filter { it.id.endsWith("-free") }.all { it.isFree })
+        assertTrue(models.first { it.id == "some-live-model" }.isFree.not())
+        assertTrue(models.none { it.id == "zen-embedding-small" })
+    }
+
+    @Test
+    fun `opencode zen picker never empties - static chain survives a filtered live list`() {
+        val models = ModelListParsers.opCodeZen(listOf("zen-guard", "x-preview-f-free"), "OpenCode Zen")
+
+        assertEquals(listOf("x-preview-f-free"), models.map { it.id })
+        assertTrue(models.first().isFree)
+        assertFalse(models.first().displayName.isBlank())
+    }
 }
