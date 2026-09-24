@@ -1,5 +1,7 @@
 package com.tsfdroid.ai.core.agent
 
+import android.graphics.BitmapFactory
+import android.util.Base64
 import android.util.Log
 import com.tsfdroid.ai.accessibility.OpenDroidAccessibilityService
 import com.tsfdroid.ai.core.llm.LLMProviderFactory
@@ -9,6 +11,21 @@ import com.tsfdroid.ai.data.models.ChatMessage
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Why the agent cannot perceive the screen. Drives the Phase 2.5 blind-spot
+ * handling: abort instead of guessing.
+ */
+enum class BlindSpot {
+    /** MediaProjection returned an effectively all-black frame — FLAG_SECURE. */
+    SECURE_FLAG_BLACK_FRAME,
+
+    /** Both the screenshot and the accessibility node tree came back empty. */
+    UNREADABLE_SCREEN
+}
+
+/** Screenshot plus an optional blind-spot classification of why it is null. */
+data class ScreenCaptureResult(val base64: String?, val blindSpot: BlindSpot?)
 
 /**
  * Vision engine that captures screenshots and analyzes them using a vision-capable LLM.
@@ -21,6 +38,68 @@ class VisionEngine @Inject constructor(
 ) {
     companion object {
         private const val TAG = "VisionEngine"
+
+        /** Fraction of sampled pixels that must be near-black to call a frame protected. */
+        private const val BLACK_FRAME_RATIO = 0.98
+
+        /** Max per-channel intensity for a sampled pixel to count as black. */
+        private const val BLACK_CHANNEL_MAX = 10
+
+        private const val SAMPLE_GRID = 16
+
+        /**
+         * Resilient blind-spot check (Phase 2.5): apps holding FLAG_SECURE
+         * (banking, DRM, private tabs) render as an all-black MediaProjection
+         * frame, and Flutter/Unity custom-rendered apps can expose an empty
+         * accessibility tree. A black frame decoded as a valid bitmap is the
+         * FLAG_SECURE signature — detect it by sampling a sparse grid so the
+         * agent reports reality instead of feeding a black rectangle to a
+         * vision model and acting on hallucinated coordinates.
+         */
+        fun isEffectivelyBlackFrame(base64: String): Boolean {
+            return runCatching {
+                val bytes = Base64.decode(base64, Base64.NO_WRAP)
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: return@runCatching false
+                var sampled = 0
+                var black = 0
+                val stepX = (bitmap.width / SAMPLE_GRID).coerceAtLeast(1)
+                val stepY = (bitmap.height / SAMPLE_GRID).coerceAtLeast(1)
+                var y = 0
+                while (y < bitmap.height) {
+                    var x = 0
+                    while (x < bitmap.width) {
+                        val pixel = bitmap.getPixel(x, y)
+                        val r = (pixel shr 16) and 0xFF
+                        val g = (pixel shr 8) and 0xFF
+                        val b = pixel and 0xFF
+                        sampled++
+                        if (r <= BLACK_CHANNEL_MAX && g <= BLACK_CHANNEL_MAX && b <= BLACK_CHANNEL_MAX) black++
+                        x += stepX
+                    }
+                    y += stepY
+                }
+                bitmap.recycle()
+                sampled > 0 && black.toDouble() / sampled >= BLACK_FRAME_RATIO
+            }.getOrDefault(false)
+        }
+    }
+
+    /**
+     * Capture with blind-spot classification. base64 is null whenever the
+     * capture failed OR the frame is FLAG_SECURE-protected (reporting a black
+     * rectangle to the vision model would only produce confident nonsense).
+     */
+    suspend fun captureScreen(): ScreenCaptureResult {
+        val base64 = captureScreenBase64()
+        if (base64 != null) {
+            if (isEffectivelyBlackFrame(base64)) {
+                Log.w(TAG, "Screenshot is an all-black frame — FLAG_SECURE content")
+                return ScreenCaptureResult(null, BlindSpot.SECURE_FLAG_BLACK_FRAME)
+            }
+            return ScreenCaptureResult(base64, null)
+        }
+        return ScreenCaptureResult(null, null)
     }
 
     /**
@@ -68,20 +147,26 @@ class VisionEngine @Inject constructor(
     suspend fun analyzeCurrentScreen(
         userQuestion: String = "What do you see on this screen?"
     ): String {
-        // Try image-based analysis first
-        val base64Image = captureScreenBase64()
+        // Image-based analysis first, with FLAG_SECURE black-frame detection.
+        val capture = captureScreen()
 
-        if (base64Image != null) {
-            return analyzeWithImage(base64Image, userQuestion)
+        if (capture.base64 != null) {
+            return analyzeWithImage(capture.base64, userQuestion)
         }
 
-        // Fallback: text-based analysis using accessibility tree
+        // Fallback: text-based analysis using accessibility tree. A black frame
+        // with a readable tree is still analyzable — FLAG_SECURE only blocks pixels.
         val screenText = getScreenText()
         if (screenText != null) {
             return analyzeWithText(screenText, userQuestion)
         }
 
-        return "Could not capture or read the screen. The Accessibility Service may need to be re-enabled in Settings > Accessibility > OpenDroid."
+        return when (capture.blindSpot) {
+            BlindSpot.SECURE_FLAG_BLACK_FRAME ->
+                "That screen is protected against capture (FLAG_SECURE) and its accessibility tree is empty, so I can neither see nor read it — and I will not blind-click into it. I can still open an app, a link, or a share sheet via Android intents if you tell me the target."
+            else ->
+                "I could not capture or read this screen. It may use a custom rendering engine like Flutter or Unity that exposes no accessibility nodes. I will not guess at coordinates — I can open an app, a link, or a share sheet via Android intents instead. The Accessibility Service may also need re-enabling in Settings > Accessibility > OpenDroid."
+        }
     }
 
     private suspend fun analyzeWithImage(
@@ -172,9 +257,9 @@ class VisionEngine @Inject constructor(
     suspend fun extractAndStructureScreenInfo(
         topic: String = "important information"
     ): String {
-        val base64Image = captureScreenBase64()
-        if (base64Image != null) {
-            return extractWithImage(base64Image, topic)
+        val capture = captureScreen()
+        if (capture.base64 != null) {
+            return extractWithImage(capture.base64, topic)
         }
 
         val screenText = getScreenText()
@@ -182,7 +267,12 @@ class VisionEngine @Inject constructor(
             return extractWithText(screenText, topic)
         }
 
-        return "Could not capture or read the screen. Please ensure the Accessibility Service is enabled in Settings > Accessibility > OpenDroid."
+        return when (capture.blindSpot) {
+            BlindSpot.SECURE_FLAG_BLACK_FRAME ->
+                "This screen's content is protected against capture (FLAG_SECURE), so there is nothing to extract. Please copy the details somewhere readable, or tell me the target and I will open it via an intent."
+            else ->
+                "Could not capture or read the screen. Please ensure the Accessibility Service is enabled in Settings > Accessibility > OpenDroid."
+        }
     }
 
     private suspend fun extractWithImage(

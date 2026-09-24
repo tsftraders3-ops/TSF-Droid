@@ -442,6 +442,16 @@ class AdvancedControlActions @Inject constructor() {
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val x = params["x"]?.toFloatOrNull() ?: return ActionResult(false, null, "x coordinate is missing or invalid")
             val y = params["y"]?.toFloatOrNull() ?: return ActionResult(false, null, "y coordinate is missing or invalid")
+            // Phase 2.5 blind-spot guard: an empty accessibility tree means the
+            // foreground app is FLAG_SECURE-protected or custom-rendered
+            // (Flutter/Unity). Coordinates computed from a black frame or a
+            // hallucinated layout would tap blindly — abort and surface the
+            // native-intent fallback instead of hanging in retry loops.
+            if (GenericAppAutomator.scrapeScreen().isBlank()) {
+                return ActionResult.UserActionRequired(
+                    "This screen is unreadable (protected with FLAG_SECURE or rendered by a custom engine like Flutter/Unity), so I'm refusing to blind-tap coordinates. Tell me the app, link, or content to open and I'll use a native Android intent instead."
+                )
+            }
             val success = GenericAppAutomator.clickCoordinates(x, y)
             return ActionResult(success, if (success) "Tapped there!" else "Couldn't tap at that spot.", null)
         }
