@@ -23,8 +23,14 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      # NOTE: default packages list includes the obsolete 'tools' package,
+      # which no longer exists in the SDK repository and fails sdkmanager.
+      # Install only valid packages; licenses accepted here let AGP
+      # auto-download any remaining platforms/build-tools it needs.
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36'
 
       - name: Cache Gradle
         uses: actions/cache@v4
