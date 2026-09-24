@@ -8,11 +8,11 @@ plugins {
 }
 
 android {
-    namespace = 'com.opendroid.ai'
+    namespace = 'com.tsfdroid.ai'
     compileSdk 36
 
     defaultConfig {
-        applicationId "com.opendroid.aiagent"
+        applicationId "com.tsfdroid.ai"
         minSdk 26
         targetSdk 36
         versionCode 8

@@ -3,14 +3,14 @@
 # ============================================
 
 # ── App classes ──
--keep class com.opendroid.ai.core.llm.** { *; }
--keep class com.opendroid.ai.data.models.** { *; }
--keep class com.opendroid.ai.data.db.entities.** { *; }
--keep class com.opendroid.ai.data.db.dao.** { *; }
--keep class com.opendroid.ai.accessibility.** { *; }
+-keep class com.tsfdroid.ai.core.llm.** { *; }
+-keep class com.tsfdroid.ai.data.models.** { *; }
+-keep class com.tsfdroid.ai.data.db.entities.** { *; }
+-keep class com.tsfdroid.ai.data.db.dao.** { *; }
+-keep class com.tsfdroid.ai.accessibility.** { *; }
 
 # Keep action schema (used by reflection/serialization)
--keep class com.opendroid.ai.actions.** { *; }
+-keep class com.tsfdroid.ai.actions.** { *; }
 
 # ── Room Database ──
 -keep class * extends androidx.room.RoomDatabase
@@ -53,7 +53,7 @@
     *** Companion;
     *** serializer(...);
 }
--keep,includedescriptorclasses class com.opendroid.ai.**$$serializer { *; }
+-keep,includedescriptorclasses class com.tsfdroid.ai.**$$serializer { *; }
 
 # ── Kotlin Coroutines ──
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}

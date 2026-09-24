@@ -7,7 +7,7 @@
         errorLine1="                &quot;/sdcard&quot;,  // typically symlinks to externalStorageRoot"
         errorLine2="                 ~~~~~~~">
         <location
-            file="src/main/java/com/opendroid/ai/actions/AdvancedControlActions.kt"
+            file="src/main/java/com/tsfdroid/ai/actions/AdvancedControlActions.kt"
             line="83"
             column="18"/>
     </issue>
@@ -18,7 +18,7 @@
         errorLine1="                        else -> message.modelBadge.uppercase(Locale.getDefault())"
         errorLine2="                                                             ~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/opendroid/ai/ui/screens/ChatScreen.kt"
+            file="src/main/java/com/tsfdroid/ai/ui/screens/ChatScreen.kt"
             line="792"
             column="62"/>
     </issue>
@@ -29,7 +29,7 @@
         errorLine1="    inner class FloatingWidgetView(context: Context) : android.widget.ImageView(context) {"
         errorLine2="                                                       ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/opendroid/ai/accessibility/OpenDroidAccessibilityService.kt"
+            file="src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt"
             line="357"
             column="56"/>
     </issue>
@@ -40,7 +40,7 @@
         errorLine1="    modifier: Modifier = Modifier"
         errorLine2="    ~~~~~~~~">
         <location
-            file="src/main/java/com/opendroid/ai/ui/screens/SettingsScreen.kt"
+            file="src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt"
             line="80"
             column="5"/>
     </issue>
@@ -51,7 +51,7 @@
         errorLine1="                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {"
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/opendroid/ai/actions/AdvancedControlActions.kt"
+            file="src/main/java/com/tsfdroid/ai/actions/AdvancedControlActions.kt"
             line="152"
             column="21"/>
     </issue>
@@ -62,7 +62,7 @@
         errorLine1="                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {"
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/opendroid/ai/core/agent/DeviceStateProvider.kt"
+            file="src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt"
             line="61"
             column="25"/>
     </issue>
@@ -73,7 +73,7 @@
         errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {"
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/opendroid/ai/core/agent/DeviceStateProvider.kt"
+            file="src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt"
             line="98"
             column="17"/>
     </issue>
@@ -84,7 +84,7 @@
         errorLine1="                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {"
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/com/opendroid/ai/actions/SystemActions.kt"
+            file="src/main/java/com/tsfdroid/ai/actions/SystemActions.kt"
             line="153"
             column="25"/>
     </issue>
