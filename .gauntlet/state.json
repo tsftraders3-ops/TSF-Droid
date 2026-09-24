@@ -1,18 +1,25 @@
 {
   "project": "TSF Droid",
-  "current_phase": "PHASE_2",
+  "current_phase": "COMPLETE",
   "completed_steps": [
     "PHASE_1_REPO_AND_CI",
     "PHASE_2.1_SANITIZE_REBRAND",
     "PHASE_2.1_CI_VERIFY",
     "PHASE_2.2_OPENCODE_ZEN",
     "PHASE_2.3_UI_IDLE_SETTLE",
-    "PHASE_2.4_INTENT_SEGMENTATION"
+    "PHASE_2.4_INTENT_SEGMENTATION",
+    "PHASE_2.5_BLIND_SPOT_HANDLING",
+    "PHASE_3_GAUNTLET_CI_VERIFICATION"
   ],
-  "active_step": "PHASE_2.5_BLIND_SPOT_HANDLING",
-  "last_ci_run_id": 36010536312,
+  "active_step": "DONE",
+  "last_ci_run_id": 36011232724,
   "last_ci_status": "SUCCESS",
   "notes": [
     "Run 36008132141: compile PASS after rename; only OpenDroidDatabaseMigrationTest failed (FileNotFound) because app/schemas/com.opendroid.ai... dir was not renamed. Fixed via git mv."
-  ]
+  ],
+  "artifact": {
+    "name": "tsf-droid-debug",
+    "sha256": "c6d5d3e92be8118a5aaa2ab238dcf9d2c3db304fb09509d48a8fa7d377f2f40b",
+    "size_bytes": 73805147
+  }
 }
