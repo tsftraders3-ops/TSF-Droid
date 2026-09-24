@@ -4,11 +4,12 @@
   "completed_steps": [
     "PHASE_1_REPO_AND_CI",
     "PHASE_2.1_SANITIZE_REBRAND",
-    "PHASE_2.1_CI_VERIFY"
+    "PHASE_2.1_CI_VERIFY",
+    "PHASE_2.2_OPENCODE_ZEN"
   ],
-  "active_step": "PHASE_2.2_OPENCODE_ZEN",
-  "last_ci_run_id": 36008132141,
-  "last_ci_status": "FAILURE_SCHEMA_DIR",
+  "active_step": "PHASE_2.3_UI_IDLE_SETTLE",
+  "last_ci_run_id": 36008909796,
+  "last_ci_status": "FAILURE_PROVIDER_CATALOG_TEST",
   "notes": [
     "Run 36008132141: compile PASS after rename; only OpenDroidDatabaseMigrationTest failed (FileNotFound) because app/schemas/com.opendroid.ai... dir was not renamed. Fixed via git mv."
   ]

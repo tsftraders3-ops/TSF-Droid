@@ -1,369 +1,392 @@
-build	Run Unit Tests	﻿2026-09-24T13:48:05.1213227Z ##[group]Run ./gradlew testDebugUnitTest --no-daemon --stacktrace
-build	Run Unit Tests	2026-09-24T13:48:05.1213815Z [36;1m./gradlew testDebugUnitTest --no-daemon --stacktrace[0m
-build	Run Unit Tests	2026-09-24T13:48:05.1278797Z shell: /usr/bin/bash -e {0}
-build	Run Unit Tests	2026-09-24T13:48:05.1279084Z env:
-build	Run Unit Tests	2026-09-24T13:48:05.1279424Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.12-1/x64
-build	Run Unit Tests	2026-09-24T13:48:05.1279992Z   JAVA_HOME_21_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.12-1/x64
-build	Run Unit Tests	2026-09-24T13:48:05.1280450Z   ANDROID_HOME: /usr/local/lib/android/sdk
-build	Run Unit Tests	2026-09-24T13:48:05.1280784Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-build	Run Unit Tests	2026-09-24T13:48:05.1281101Z ##[endgroup]
-build	Run Unit Tests	2026-09-24T13:48:05.2527968Z Fetching distribution.
-build	Run Unit Tests	2026-09-24T13:48:05.2529314Z Downloading https://services.gradle.org/distributions/gradle-9.7.0-bin.zip
-build	Run Unit Tests	2026-09-24T13:48:07.0372083Z ..............10%..............20%...............30%..............40%..............50%...............60%..............70%..............80%...............90%..............100%
-build	Run Unit Tests	2026-09-24T13:48:09.4118375Z 
-build	Run Unit Tests	2026-09-24T13:48:09.4119545Z Welcome to Gradle 9.7.0!
-build	Run Unit Tests	2026-09-24T13:48:09.4119985Z 
-build	Run Unit Tests	2026-09-24T13:48:09.4120858Z Here are the highlights of this release:
-build	Run Unit Tests	2026-09-24T13:48:09.4122016Z  - Isolated Projects graduates to incubating
-build	Run Unit Tests	2026-09-24T13:48:09.4123304Z  - Broader Configuration Cache compatibility
-build	Run Unit Tests	2026-09-24T13:48:09.4124620Z  - More source locations in problem reports
-build	Run Unit Tests	2026-09-24T13:48:09.4125307Z 
-build	Run Unit Tests	2026-09-24T13:48:09.4126811Z For more details see https://docs.gradle.org/9.7.0/release-notes.html
-build	Run Unit Tests	2026-09-24T13:48:09.4127790Z 
-build	Run Unit Tests	2026-09-24T13:48:09.7114174Z To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.7.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
-build	Run Unit Tests	2026-09-24T13:48:23.0113847Z Daemon will be stopped at the end of the build 
-build	Run Unit Tests	2026-09-24T13:48:24.6111556Z Calculating task graph as no cached configuration is available for tasks: testDebugUnitTest
-build	Run Unit Tests	2026-09-24T13:48:50.3110931Z 
-build	Run Unit Tests	2026-09-24T13:48:50.3138001Z > Configure project :app
-build	Run Unit Tests	2026-09-24T13:48:50.3140958Z WARNING: Release signing not configured. Set credentials in ~/.gradle/gradle.properties (see gradle.properties.example).
-build	Run Unit Tests	2026-09-24T13:49:22.1126557Z 
-build	Run Unit Tests	2026-09-24T13:49:22.1154196Z > Task :app:preBuild UP-TO-DATE
-build	Run Unit Tests	2026-09-24T13:49:22.1166721Z > Task :app:generateDebugAssets UP-TO-DATE
-build	Run Unit Tests	2026-09-24T13:49:22.1186745Z > Task :app:preDebugBuild UP-TO-DATE
-build	Run Unit Tests	2026-09-24T13:49:22.1216694Z > Task :app:preDebugUnitTestBuild UP-TO-DATE
-build	Run Unit Tests	2026-09-24T13:49:22.2164023Z > Task :app:generateDebugResources
-build	Run Unit Tests	2026-09-24T13:49:22.2202338Z > Task :app:generateDebugBuildConfig
-build	Run Unit Tests	2026-09-24T13:49:22.5127418Z > Task :app:packageDebugResources
-build	Run Unit Tests	2026-09-24T13:49:22.5147197Z > Task :app:mapDebugSourceSetPaths
-build	Run Unit Tests	2026-09-24T13:49:23.4118223Z > Task :app:javaPreCompileDebug
-build	Run Unit Tests	2026-09-24T13:49:23.4149240Z > Task :app:createDebugCompatibleScreenManifests
-build	Run Unit Tests	2026-09-24T13:49:23.4178410Z > Task :app:extractDeepLinksDebug
-build	Run Unit Tests	2026-09-24T13:49:30.0120671Z > Task :app:processDebugNavigationResources
-build	Run Unit Tests	2026-09-24T13:49:30.1147465Z > Task :app:checkDebugAarMetadata
-build	Run Unit Tests	2026-09-24T13:49:30.2121790Z > Task :app:compileDebugNavigationResources
-build	Run Unit Tests	2026-09-24T13:49:30.2147175Z > Task :app:javaPreCompileDebugUnitTest
-build	Run Unit Tests	2026-09-24T13:49:32.3110409Z > Task :app:mergeDebugResources
-build	Run Unit Tests	2026-09-24T13:49:34.7147264Z > Task :app:mergeDebugAssets
-build	Run Unit Tests	2026-09-24T13:49:34.8161444Z > Task :app:processDebugMainManifest
-build	Run Unit Tests	2026-09-24T13:49:35.1167123Z > Task :app:parseDebugLocalResources
-build	Run Unit Tests	2026-09-24T13:49:35.1217188Z > Task :app:processDebugManifest
-build	Run Unit Tests	2026-09-24T13:49:35.2137224Z > Task :app:processDebugManifestForPackage
-build	Run Unit Tests	2026-09-24T13:49:35.2166917Z > Task :app:generateDebugRFile
-build	Run Unit Tests	2026-09-24T13:49:35.4129668Z > Task :app:mergeDebugUnitTestManifest
-build	Run Unit Tests	2026-09-24T13:49:35.4156948Z > Task :app:processDebugUnitTestManifest
-build	Run Unit Tests	2026-09-24T13:49:36.6129968Z > Task :app:processDebugResources
-build	Run Unit Tests	2026-09-24T13:49:36.6147194Z > Task :app:packageDebugUnitTestForUnitTest
-build	Run Unit Tests	2026-09-24T13:49:36.7109723Z > Task :app:generateDebugUnitTestConfig
-build	Run Unit Tests	2026-09-24T13:50:05.1127444Z > Task :app:kspDebugKotlin
-build	Run Unit Tests	2026-09-24T13:50:35.1110060Z > Task :app:compileDebugKotlin
-build	Run Unit Tests	2026-09-24T13:51:20.7112121Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:44:19 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7136442Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:59:22 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7139776Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:66:28 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7143068Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:67:26 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7147074Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:72:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7150283Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:97:23 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7153588Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:100:19 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7157132Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:487:22 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7168423Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:494:28 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7171775Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:495:26 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7175142Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:500:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7178644Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:514:22 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7182572Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:517:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7185637Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:531:22 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7188729Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:534:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7190381Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:557:29 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7191987Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:568:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7193601Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:576:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7195524Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:587:23 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7198206Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:590:19 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7201242Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:614:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7204175Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/WhatsAppAutomator.kt:23:36 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7210431Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/WhatsAppAutomator.kt:36:40 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7213486Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/WhatsAppAutomator.kt:99:22 'fun recycle(): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7216705Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/actions/AdvancedControlActions.kt:119:50 'val isConnectedOrConnecting: Boolean' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7220493Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/actions/AdvancedControlActions.kt:317:32 'fun createCaptureSession(p0: (Mutable)List<Surface!>, p1: CameraCaptureSession.StateCallback, p2: Handler?): Unit' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7224040Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/actions/SystemActions.kt:683:38 'class WifiConfiguration : Any, Parcelable' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7227440Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/AgentLoop.kt:1314:13 Redundant creation of Json format. Creating instances for each usage can be slow.
-build	Run Unit Tests	2026-09-24T13:51:20.7230551Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:78:42 'val isConnected: Boolean' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7233547Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:145:36 'val isConnected: Boolean' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7241148Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:146:35 'val type: Int' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7244094Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:146:63 'static field TYPE_WIFI: Int' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7247721Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:147:35 'val type: Int' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7250635Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:147:63 'static field TYPE_MOBILE: Int' is deprecated. Deprecated in Java.
-build	Run Unit Tests	2026-09-24T13:51:20.7254168Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/voice/TextToSpeechEngine.kt:42:26 This declaration overrides a deprecated member but is not marked as deprecated itself. Add the '@Deprecated' annotation or suppress the diagnostic.
-build	Run Unit Tests	2026-09-24T13:51:20.7257032Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:103:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
-build	Run Unit Tests	2026-09-24T13:51:20.7259521Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:109:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
-build	Run Unit Tests	2026-09-24T13:51:20.7261855Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:129:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
-build	Run Unit Tests	2026-09-24T13:51:20.7263935Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:135:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
-build	Run Unit Tests	2026-09-24T13:51:20.7266346Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:157:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
-build	Run Unit Tests	2026-09-24T13:51:20.7268627Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:196:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
-build	Run Unit Tests	2026-09-24T13:51:20.7270708Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:225:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
-build	Run Unit Tests	2026-09-24T13:51:20.7272780Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:268:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
-build	Run Unit Tests	2026-09-24T13:51:20.7274611Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/BaseSocialAdapter.kt:22:37 Unnecessary safe call on a non-null receiver of type 'ResponseBody'.
-build	Run Unit Tests	2026-09-24T13:51:20.7276969Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/DiscordAdapter.kt:70:54 Java type mismatch: inferred type is 'Nothing?', but 'String' was expected.
-build	Run Unit Tests	2026-09-24T13:51:20.7278728Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/DiscordAdapter.kt:70:59 Unnecessary safe call on a non-null receiver of type 'String'.
-build	Run Unit Tests	2026-09-24T13:51:20.7280368Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/InstagramAdapter.kt:53:67 Java type mismatch: inferred type is 'Nothing?', but 'String' was expected.
-build	Run Unit Tests	2026-09-24T13:51:20.7282027Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/LinkedInAdapter.kt:54:55 Java type mismatch: inferred type is 'Nothing?', but 'String' was expected.
-build	Run Unit Tests	2026-09-24T13:51:20.7283650Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/XAdapter.kt:56:65 Java type mismatch: inferred type is 'Nothing?', but 'String' was expected.
-build	Run Unit Tests	2026-09-24T13:51:20.7285360Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/Navigation.kt:282:56 'val Icons.Filled.Chat: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Chat.
-build	Run Unit Tests	2026-09-24T13:51:20.7288278Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/Navigation.kt:283:56 'val Icons.Filled.List: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.List.
-build	Run Unit Tests	2026-09-24T13:51:20.7292487Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/Navigation.kt:312:26 'val LocalLifecycleOwner: ProvidableCompositionLocal<LifecycleOwner>' is deprecated. Moved to lifecycle-runtime-compose library in androidx.lifecycle.compose package.
-build	Run Unit Tests	2026-09-24T13:51:20.7297565Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/components/PlanStepCard.kt:152:71 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
-build	Run Unit Tests	2026-09-24T13:51:20.7301503Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/components/PlanStepCard.kt:165:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7305341Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/components/PlanStepCard.kt:279:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7310048Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AboutScreen.kt:50:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
-build	Run Unit Tests	2026-09-24T13:51:20.7313857Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AboutScreen.kt:193:51 'val Icons.Filled.Chat: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Chat.
-build	Run Unit Tests	2026-09-24T13:51:20.7317900Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AboutScreen.kt:194:51 'val Icons.Filled.List: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.List.
-build	Run Unit Tests	2026-09-24T13:51:20.7322218Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AutoReplySettingsScreen.kt:49:26 'val LocalLifecycleOwner: ProvidableCompositionLocal<LifecycleOwner>' is deprecated. Moved to lifecycle-runtime-compose library in androidx.lifecycle.compose package.
-build	Run Unit Tests	2026-09-24T13:51:20.7326925Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AutoReplySettingsScreen.kt:93:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
-build	Run Unit Tests	2026-09-24T13:51:20.7330967Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AutoReplySettingsScreen.kt:250:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7334930Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AutoReplySettingsScreen.kt:254:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7339340Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/BenchmarkScreen.kt:57:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
-build	Run Unit Tests	2026-09-24T13:51:20.7343194Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/ChatScreen.kt:601:69 'val Icons.Filled.Send: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Send.
-build	Run Unit Tests	2026-09-24T13:51:20.7346771Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/ChatScreen.kt:746:13 Redundant creation of Json format. Creating instances for each usage can be slow.
-build	Run Unit Tests	2026-09-24T13:51:20.7350631Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/CrashLogScreen.kt:101:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
-build	Run Unit Tests	2026-09-24T13:51:20.7354510Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/HelpCenterScreen.kt:42:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
-build	Run Unit Tests	2026-09-24T13:51:20.7358774Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/HelpCenterScreen.kt:76:57 'val Icons.Filled.HelpOutline: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.HelpOutline.
-build	Run Unit Tests	2026-09-24T13:51:20.7362668Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LicenseScreen.kt:42:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
-build	Run Unit Tests	2026-09-24T13:51:20.7366266Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:102:13 'fun TabRow(selectedTabIndex: Int, modifier: Modifier = ..., containerColor: Color = ..., contentColor: Color = ..., indicator: ComposableFunction1<List<TabPosition>, Unit> = ..., divider: ComposableFunction0<Unit> = ..., tabs: ComposableFunction0<Unit>): Unit' is deprecated. Replaced with PrimaryTabRow and SecondaryTabRow.
-build	Run Unit Tests	2026-09-24T13:51:20.7369152Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:107:36 'fun Indicator(modifier: Modifier = ..., height: Dp = ..., color: Color = ...): Unit' is deprecated. Use SecondaryIndicator instead.
-build	Run Unit Tests	2026-09-24T13:51:20.7371837Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:108:45 'fun Modifier.tabIndicatorOffset(currentTabPosition: TabPosition): Modifier' is deprecated. Solely for use alongside deprecated TabRowDefaults.Indicator method. For recommended PrimaryIndicator and SecondaryIndicator methods, please use TabIndicatorScope.tabIndicatorOffset method.
-build	Run Unit Tests	2026-09-24T13:51:20.7374388Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:113:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7376909Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:377:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7380747Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:498:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7384530Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MacrosScreen.kt:185:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7388532Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MacrosScreen.kt:424:13 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7395029Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MemoryScreen.kt:103:13 'fun ScrollableTabRow(selectedTabIndex: Int, modifier: Modifier = ..., containerColor: Color = ..., contentColor: Color = ..., edgePadding: Dp = ..., indicator: ComposableFunction1<List<TabPosition>, Unit> = ..., divider: ComposableFunction0<Unit> = ..., tabs: ComposableFunction0<Unit>): Unit' is deprecated. Replaced with PrimaryScrollableTabRow and SecondaryScrollableTabRow tab variants.
-build	Run Unit Tests	2026-09-24T13:51:20.7400779Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MemoryScreen.kt:108:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7404791Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MemoryScreen.kt:317:25 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7408727Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MemoryScreen.kt:1258:44 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
-build	Run Unit Tests	2026-09-24T13:51:20.7411151Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/NotificationHistoryScreen.kt:59:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
-build	Run Unit Tests	2026-09-24T13:51:20.7413521Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PermissionsScreen.kt:144:26 'val LocalLifecycleOwner: ProvidableCompositionLocal<LifecycleOwner>' is deprecated. Moved to lifecycle-runtime-compose library in androidx.lifecycle.compose package.
-build	Run Unit Tests	2026-09-24T13:51:20.7416456Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:79:54 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Plan'.
-build	Run Unit Tests	2026-09-24T13:51:20.7419114Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:83:43 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Plan'.
-build	Run Unit Tests	2026-09-24T13:51:20.7421864Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:101:34 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Plan'.
-build	Run Unit Tests	2026-09-24T13:51:20.7423719Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:103:36 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Plan'.
-build	Run Unit Tests	2026-09-24T13:51:20.7425493Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:224:13 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7427706Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:242:17 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7429677Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PrivacyPolicyScreen.kt:42:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
-build	Run Unit Tests	2026-09-24T13:51:20.7431676Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/RoutinesScreen.kt:61:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
-build	Run Unit Tests	2026-09-24T13:51:20.7433632Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:304:33 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7435542Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:811:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7437680Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:955:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7439667Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1198:49 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7441894Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1251:140 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
-build	Run Unit Tests	2026-09-24T13:51:20.7443886Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1289:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7445812Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1370:49 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7448221Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1417:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
-build	Run Unit Tests	2026-09-24T13:51:20.7450485Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1987:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
-build	Run Unit Tests	2026-09-24T13:51:20.7452683Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2028:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
-build	Run Unit Tests	2026-09-24T13:51:20.7454877Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2074:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
-build	Run Unit Tests	2026-09-24T13:51:20.7457310Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2115:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
-build	Run Unit Tests	2026-09-24T13:51:20.7459506Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2156:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
-build	Run Unit Tests	2026-09-24T13:51:20.7461659Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2202:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
-build	Run Unit Tests	2026-09-24T13:51:20.7463814Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2248:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
-build	Run Unit Tests	2026-09-24T13:51:20.7466094Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2294:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
-build	Run Unit Tests	2026-09-24T13:51:20.7468250Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2340:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
-build	Run Unit Tests	2026-09-24T13:51:20.7470410Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2386:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
-build	Run Unit Tests	2026-09-24T13:51:20.7472635Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/TermsOfUseScreen.kt:42:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
-build	Run Unit Tests	2026-09-24T13:51:20.7474252Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialAccountsTab.kt:201:40 Condition is always 'true'.
-build	Run Unit Tests	2026-09-24T13:51:20.7475564Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialAccountsTab.kt:228:32 Condition is always 'true'.
-build	Run Unit Tests	2026-09-24T13:51:20.7477600Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialCalendarTab.kt:175:43 'val Icons.Filled.EventNote: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.EventNote.
-build	Run Unit Tests	2026-09-24T13:51:20.7480208Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialCampaignsTab.kt:190:13 'fun LinearProgressIndicator(progress: Float, modifier: Modifier = ..., color: Color = ..., trackColor: Color = ..., strokeCap: StrokeCap = ...): Unit' is deprecated. Use the overload that takes `progress` as a lambda.
-build	Run Unit Tests	2026-09-24T13:51:20.7482436Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialContentTab.kt:155:70 'fun String.capitalize(locale: Locale): String' is deprecated. Use replaceFirstChar instead.
-build	Run Unit Tests	2026-09-24T13:51:20.7484233Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialContentTab.kt:370:67 'fun String.capitalize(locale: Locale): String' is deprecated. Use replaceFirstChar instead.
-build	Run Unit Tests	2026-09-24T13:51:20.7486347Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialOverviewTab.kt:74:42 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
-build	Run Unit Tests	2026-09-24T13:51:20.7488201Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialSettingsTab.kt:313:33 Unnecessary safe call on a non-null receiver of type 'SocialPlatform'.
-build	Run Unit Tests	2026-09-24T13:51:22.4112688Z 
-build	Run Unit Tests	2026-09-24T13:51:22.4133152Z > Task :app:processDebugJavaRes
-build	Run Unit Tests	2026-09-24T13:51:33.6111367Z > Task :app:compileDebugJavaWithJavac
-build	Run Unit Tests	2026-09-24T13:51:33.6113963Z > Task :app:hiltCollectClassesDebug
-build	Run Unit Tests	2026-09-24T13:51:36.7117204Z > Task :app:hiltAggregateDepsDebug
-build	Run Unit Tests	2026-09-24T13:51:41.5109236Z > Task :app:hiltJavaCompileDebug
-build	Run Unit Tests	2026-09-24T13:51:41.8111431Z > Task :app:bundleDebugClassesToCompileJar
-build	Run Unit Tests	2026-09-24T13:51:41.8123690Z > Task :app:kspDebugUnitTestKotlin SKIPPED
-build	Run Unit Tests	2026-09-24T13:51:43.3109621Z > Task :app:transformDebugClassesWithAsm
-build	Run Unit Tests	2026-09-24T13:51:43.6113397Z > Task :app:bundleDebugClassesToRuntimeJar
-build	Run Unit Tests	2026-09-24T13:51:57.2177473Z > Task :app:compileDebugUnitTestKotlin
-build	Run Unit Tests	2026-09-24T13:51:57.2240306Z > Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
-build	Run Unit Tests	2026-09-24T13:51:57.2291551Z > Task :app:hiltCollectClassesDebugUnitTest
-build	Run Unit Tests	2026-09-24T13:51:57.2356791Z > Task :app:copyRoomSchemas
-build	Run Unit Tests	2026-09-24T13:51:57.2390492Z > Task :app:processDebugUnitTestJavaRes
-build	Run Unit Tests	2026-09-24T13:52:01.4109666Z > Task :app:hiltAggregateDepsDebugUnitTest
-build	Run Unit Tests	2026-09-24T13:52:01.4166931Z > Task :app:hiltJavaCompileDebugUnitTest NO-SOURCE
-build	Run Unit Tests	2026-09-24T13:52:02.5121564Z > Task :app:transformDebugUnitTestClassesWithAsm
-build	Run Unit Tests	2026-09-24T13:52:32.5109701Z > Task :app:testDebugUnitTest
-build	Run Unit Tests	2026-09-24T13:52:33.6129791Z 
-build	Run Unit Tests	2026-09-24T13:52:33.6167769Z OpenDroidDatabaseMigrationTest > migration 6 to 7 preserves existing data and creates the exact crash log schema FAILED
-build	Run Unit Tests	2026-09-24T13:52:33.6169553Z     java.io.FileNotFoundException at OpenDroidDatabaseMigrationTest.kt:46
-build	Run Unit Tests	2026-09-24T13:52:33.6196499Z 
-build	Run Unit Tests	2026-09-24T13:52:33.6227307Z OpenDroidDatabaseMigrationTest > full migration chain from 1 to 7 produces the current schema and keeps data FAILED
-build	Run Unit Tests	2026-09-24T13:52:33.6236904Z     java.io.FileNotFoundException at OpenDroidDatabaseMigrationTest.kt:125
-build	Run Unit Tests	2026-09-24T13:52:33.6276285Z 
-build	Run Unit Tests	2026-09-24T13:52:33.6317483Z OpenDroidDatabaseMigrationTest > migration 6 to 7 is safe to run against an existing crash_logs table FAILED
-build	Run Unit Tests	2026-09-24T13:52:33.6337124Z     java.io.FileNotFoundException at OpenDroidDatabaseMigrationTest.kt:76
-build	Run Unit Tests	2026-09-24T13:52:33.7109070Z 
-build	Run Unit Tests	2026-09-24T13:52:33.7112888Z OpenDroidDatabaseMigrationTest > migration 8 to 9 preserves existing data and creates all 8 social tables FAILED
-build	Run Unit Tests	2026-09-24T13:52:33.7114877Z     java.io.FileNotFoundException at OpenDroidDatabaseMigrationTest.kt:154
-build	Run Unit Tests	2026-09-24T13:52:36.6173127Z 
-build	Run Unit Tests	2026-09-24T13:52:36.6216687Z 537 tests completed, 4 failed
-build	Run Unit Tests	2026-09-24T13:52:36.9116549Z 
-build	Run Unit Tests	2026-09-24T13:52:36.9116668Z 
-build	Run Unit Tests	2026-09-24T13:52:36.9137170Z FAILURE: Build failed with an exception.
-build	Run Unit Tests	2026-09-24T13:52:36.9166445Z 
-build	Run Unit Tests	2026-09-24T13:52:36.9167324Z > Task :app:testDebugUnitTest FAILED
-build	Run Unit Tests	2026-09-24T13:52:36.9186279Z 
-build	Run Unit Tests	2026-09-24T13:52:36.9188027Z [Incubating] Problems report is available at: file:///home/runner/work/TSF-Droid/TSF-Droid/build/reports/problems/problems-report.html
-build	Run Unit Tests	2026-09-24T13:52:36.9189266Z 38 actionable tasks: 38 executed
-build	Run Unit Tests	2026-09-24T13:52:36.9189997Z * What went wrong:
-build	Run Unit Tests	2026-09-24T13:52:36.9196723Z Execution failed for task ':app:testDebugUnitTest'.
-build	Run Unit Tests	2026-09-24T13:52:36.9212473Z > There were failing tests. See the report at: file:///home/runner/work/TSF-Droid/TSF-Droid/app/build/reports/tests/testDebugUnitTest/index.html
-build	Run Unit Tests	2026-09-24T13:52:36.9213661Z 
-build	Run Unit Tests	2026-09-24T13:52:36.9213970Z * Try:
-build	Run Unit Tests	2026-09-24T13:52:36.9214921Z > Run with --scan to get full insights from a Build Scan (powered by Develocity).
-build	Run Unit Tests	2026-09-24T13:52:36.9215713Z 
-build	Run Unit Tests	2026-09-24T13:52:36.9216486Z * Exception is:
-build	Run Unit Tests	2026-09-24T13:52:36.9217750Z org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:testDebugUnitTest'.
-build	Run Unit Tests	2026-09-24T13:52:36.9219792Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.lambda$executeIfValid$1(ExecuteActionsTaskExecuter.java:135)
-build	Run Unit Tests	2026-09-24T13:52:36.9221449Z 	at org.gradle.internal.Try$Failure.ifSuccessfulOrElse(Try.java:288)
-build	Run Unit Tests	2026-09-24T13:52:36.9223190Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:133)
-build	Run Unit Tests	2026-09-24T13:52:36.9225299Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:121)
-build	Run Unit Tests	2026-09-24T13:52:36.9227845Z 	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:41)
-build	Run Unit Tests	2026-09-24T13:52:36.9230188Z 	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
-build	Run Unit Tests	2026-09-24T13:52:36.9232491Z 	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
-build	Run Unit Tests	2026-09-24T13:52:36.9234815Z 	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
-build	Run Unit Tests	2026-09-24T13:52:36.9236985Z 	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
-build	Run Unit Tests	2026-09-24T13:52:36.9246747Z 	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
-build	Run Unit Tests	2026-09-24T13:52:36.9247836Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
-build	Run Unit Tests	2026-09-24T13:52:36.9248797Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
-build	Run Unit Tests	2026-09-24T13:52:36.9249726Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
-build	Run Unit Tests	2026-09-24T13:52:36.9250836Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
-build	Run Unit Tests	2026-09-24T13:52:36.9252049Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
-build	Run Unit Tests	2026-09-24T13:52:36.9253402Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
-build	Run Unit Tests	2026-09-24T13:52:36.9254346Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
-build	Run Unit Tests	2026-09-24T13:52:36.9255286Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
-build	Run Unit Tests	2026-09-24T13:52:36.9256731Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
-build	Run Unit Tests	2026-09-24T13:52:36.9257731Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
-build	Run Unit Tests	2026-09-24T13:52:36.9259042Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
-build	Run Unit Tests	2026-09-24T13:52:36.9259961Z 	at org.gradle.execution.plan.DefaultNodeExecutor.executeLocalTaskNode(DefaultNodeExecutor.java:55)
-build	Run Unit Tests	2026-09-24T13:52:36.9260992Z 	at org.gradle.execution.plan.DefaultNodeExecutor.execute(DefaultNodeExecutor.java:34)
-build	Run Unit Tests	2026-09-24T13:52:36.9261961Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:355)
-build	Run Unit Tests	2026-09-24T13:52:36.9263091Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:343)
-build	Run Unit Tests	2026-09-24T13:52:36.9264309Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:339)
-build	Run Unit Tests	2026-09-24T13:52:36.9265371Z 	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:84)
-build	Run Unit Tests	2026-09-24T13:52:36.9267315Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:339)
-build	Run Unit Tests	2026-09-24T13:52:36.9269562Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:328)
-build	Run Unit Tests	2026-09-24T13:52:36.9271395Z 	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
-build	Run Unit Tests	2026-09-24T13:52:36.9272926Z 	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
-build	Run Unit Tests	2026-09-24T13:52:36.9274502Z 	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:65)
-build	Run Unit Tests	2026-09-24T13:52:36.9276134Z 	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
-build	Run Unit Tests	2026-09-24T13:52:36.9281938Z Caused by: org.gradle.api.internal.exceptions.MarkedVerificationException: There were failing tests. See the report at: file:///home/runner/work/TSF-Droid/TSF-Droid/app/build/reports/tests/testDebugUnitTest/index.html
-build	Run Unit Tests	2026-09-24T13:52:36.9284133Z 	at org.gradle.api.tasks.testing.AbstractTestTask.executeTests(AbstractTestTask.java:616)
-build	Run Unit Tests	2026-09-24T13:52:36.9285240Z 	at org.gradle.api.tasks.testing.Test.executeTests(Test.java:772)
-build	Run Unit Tests	2026-09-24T13:52:36.9286741Z 	at com.android.build.gradle.tasks.factory.AndroidUnitTest.executeTests(AndroidUnitTest.java:203)
-build	Run Unit Tests	2026-09-24T13:52:36.9288040Z 	at org.gradle.internal.reflect.JavaMethod.invoke(JavaMethod.java:125)
-build	Run Unit Tests	2026-09-24T13:52:36.9289467Z 	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.doExecute(StandardTaskAction.java:58)
-build	Run Unit Tests	2026-09-24T13:52:36.9291192Z 	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:51)
-build	Run Unit Tests	2026-09-24T13:52:36.9292698Z 	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:29)
-build	Run Unit Tests	2026-09-24T13:52:36.9294152Z 	at org.gradle.api.internal.tasks.execution.TaskExecution$3.run(TaskExecution.java:259)
-build	Run Unit Tests	2026-09-24T13:52:36.9295647Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:30)
-build	Run Unit Tests	2026-09-24T13:52:36.9297662Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:27)
-build	Run Unit Tests	2026-09-24T13:52:36.9299469Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
-build	Run Unit Tests	2026-09-24T13:52:36.9301670Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
-build	Run Unit Tests	2026-09-24T13:52:36.9303436Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
-build	Run Unit Tests	2026-09-24T13:52:36.9305218Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
-build	Run Unit Tests	2026-09-24T13:52:36.9307172Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunner.java:48)
-build	Run Unit Tests	2026-09-24T13:52:36.9308782Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.executeAction(TaskExecution.java:244)
-build	Run Unit Tests	2026-09-24T13:52:36.9310317Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.executeActions(TaskExecution.java:227)
-build	Run Unit Tests	2026-09-24T13:52:36.9312047Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.executeWithPreviousOutputFiles(TaskExecution.java:210)
-build	Run Unit Tests	2026-09-24T13:52:36.9313992Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.execute(TaskExecution.java:176)
-build	Run Unit Tests	2026-09-24T13:52:36.9315386Z 	at org.gradle.internal.execution.steps.ExecuteStep.executeInternal(ExecuteStep.java:167)
-build	Run Unit Tests	2026-09-24T13:52:36.9316999Z 	at org.gradle.internal.execution.steps.ExecuteStep.access$000(ExecuteStep.java:47)
-build	Run Unit Tests	2026-09-24T13:52:36.9318209Z 	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:137)
-build	Run Unit Tests	2026-09-24T13:52:36.9319402Z 	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:134)
-build	Run Unit Tests	2026-09-24T13:52:36.9321021Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
-build	Run Unit Tests	2026-09-24T13:52:36.9323236Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
-build	Run Unit Tests	2026-09-24T13:52:36.9325329Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
-build	Run Unit Tests	2026-09-24T13:52:36.9327474Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
-build	Run Unit Tests	2026-09-24T13:52:36.9329380Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
-build	Run Unit Tests	2026-09-24T13:52:36.9331241Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
-build	Run Unit Tests	2026-09-24T13:52:36.9332924Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
-build	Run Unit Tests	2026-09-24T13:52:36.9334452Z 	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:134)
-build	Run Unit Tests	2026-09-24T13:52:36.9336363Z 	at org.gradle.internal.execution.steps.ExecuteStep$Mutable.execute(ExecuteStep.java:80)
-build	Run Unit Tests	2026-09-24T13:52:36.9338040Z 	at org.gradle.internal.execution.steps.CancelExecutionStep.execute(CancelExecutionStep.java:42)
-build	Run Unit Tests	2026-09-24T13:52:36.9339588Z 	at org.gradle.internal.execution.steps.TimeoutStep.executeWithoutTimeout(TimeoutStep.java:75)
-build	Run Unit Tests	2026-09-24T13:52:36.9340885Z 	at org.gradle.internal.execution.steps.TimeoutStep.execute(TimeoutStep.java:55)
-build	Run Unit Tests	2026-09-24T13:52:36.9342403Z 	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:51)
-build	Run Unit Tests	2026-09-24T13:52:36.9344264Z 	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:29)
-build	Run Unit Tests	2026-09-24T13:52:36.9346410Z 	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.executeMutable(RemovePreviousOutputsStep.java:67)
-build	Run Unit Tests	2026-09-24T13:52:36.9348374Z 	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.executeMutable(RemovePreviousOutputsStep.java:39)
-build	Run Unit Tests	2026-09-24T13:52:36.9349801Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
-build	Run Unit Tests	2026-09-24T13:52:36.9350714Z 	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:42)
-build	Run Unit Tests	2026-09-24T13:52:36.9351750Z 	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:24)
-build	Run Unit Tests	2026-09-24T13:52:36.9353089Z 	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:69)
-build	Run Unit Tests	2026-09-24T13:52:36.9354216Z 	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:46)
-build	Run Unit Tests	2026-09-24T13:52:36.9355265Z 	at org.gradle.internal.execution.steps.ResolveInputChangesStep.executeMutable(ResolveInputChangesStep.java:39)
-build	Run Unit Tests	2026-09-24T13:52:36.9357122Z 	at org.gradle.internal.execution.steps.ResolveInputChangesStep.executeMutable(ResolveInputChangesStep.java:28)
-build	Run Unit Tests	2026-09-24T13:52:36.9358672Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
-build	Run Unit Tests	2026-09-24T13:52:36.9360148Z 	at org.gradle.internal.execution.steps.BuildCacheStep.executeWithoutCache(BuildCacheStep.java:189)
-build	Run Unit Tests	2026-09-24T13:52:36.9361667Z 	at org.gradle.internal.execution.steps.BuildCacheStep.lambda$execute$1(BuildCacheStep.java:76)
-build	Run Unit Tests	2026-09-24T13:52:36.9363256Z 	at org.gradle.internal.Either$Right.fold(Either.java:176)
-build	Run Unit Tests	2026-09-24T13:52:36.9364404Z 	at org.gradle.internal.execution.caching.CachingState.fold(CachingState.java:62)
-build	Run Unit Tests	2026-09-24T13:52:36.9365710Z 	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:74)
-build	Run Unit Tests	2026-09-24T13:52:36.9367383Z 	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:49)
-build	Run Unit Tests	2026-09-24T13:52:36.9369514Z 	at org.gradle.internal.execution.steps.StoreExecutionStateStep.executeMutable(StoreExecutionStateStep.java:46)
-build	Run Unit Tests	2026-09-24T13:52:36.9371362Z 	at org.gradle.internal.execution.steps.StoreExecutionStateStep.executeMutable(StoreExecutionStateStep.java:35)
-build	Run Unit Tests	2026-09-24T13:52:36.9372825Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
-build	Run Unit Tests	2026-09-24T13:52:36.9374223Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.executeBecause(SkipUpToDateStep.java:75)
-build	Run Unit Tests	2026-09-24T13:52:36.9375828Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.lambda$execute$2(SkipUpToDateStep.java:53)
-build	Run Unit Tests	2026-09-24T13:52:36.9377548Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:53)
-build	Run Unit Tests	2026-09-24T13:52:36.9378679Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:35)
-build	Run Unit Tests	2026-09-24T13:52:36.9380513Z 	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:37)
-build	Run Unit Tests	2026-09-24T13:52:36.9382548Z 	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:27)
-build	Run Unit Tests	2026-09-24T13:52:36.9384756Z 	at org.gradle.internal.execution.steps.ResolveMutableCachingStateStep.executeDelegate(ResolveMutableCachingStateStep.java:70)
-build	Run Unit Tests	2026-09-24T13:52:36.9387227Z 	at org.gradle.internal.execution.steps.ResolveMutableCachingStateStep.executeDelegate(ResolveMutableCachingStateStep.java:32)
-build	Run Unit Tests	2026-09-24T13:52:36.9389087Z 	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:69)
-build	Run Unit Tests	2026-09-24T13:52:36.9390216Z 	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:37)
-build	Run Unit Tests	2026-09-24T13:52:36.9391202Z 	at org.gradle.internal.execution.steps.ResolveChangesStep.executeMutable(ResolveChangesStep.java:63)
-build	Run Unit Tests	2026-09-24T13:52:36.9392116Z 	at org.gradle.internal.execution.steps.ResolveChangesStep.executeMutable(ResolveChangesStep.java:34)
-build	Run Unit Tests	2026-09-24T13:52:36.9392889Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
-build	Run Unit Tests	2026-09-24T13:52:36.9393648Z 	at org.gradle.internal.execution.steps.ValidateStep$Mutable.executeDelegate(ValidateStep.java:79)
-build	Run Unit Tests	2026-09-24T13:52:36.9394467Z 	at org.gradle.internal.execution.steps.ValidateStep$Mutable.executeDelegate(ValidateStep.java:65)
-build	Run Unit Tests	2026-09-24T13:52:36.9395212Z 	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:105)
-build	Run Unit Tests	2026-09-24T13:52:36.9396399Z 	at org.gradle.internal.execution.steps.ValidateStep$Mutable.execute(ValidateStep.java:65)
-build	Run Unit Tests	2026-09-24T13:52:36.9397787Z 	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.executeMutable(CaptureMutableStateBeforeExecutionStep.java:86)
-build	Run Unit Tests	2026-09-24T13:52:36.9399067Z 	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.execute(CaptureMutableStateBeforeExecutionStep.java:65)
-build	Run Unit Tests	2026-09-24T13:52:36.9400325Z 	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.execute(CaptureMutableStateBeforeExecutionStep.java:45)
-build	Run Unit Tests	2026-09-24T13:52:36.9401529Z 	at org.gradle.internal.execution.steps.SkipEmptyMutableWorkStep.executeWithNonEmptySources(SkipEmptyMutableWorkStep.java:210)
-build	Run Unit Tests	2026-09-24T13:52:36.9402628Z 	at org.gradle.internal.execution.steps.SkipEmptyMutableWorkStep.executeMutable(SkipEmptyMutableWorkStep.java:90)
-build	Run Unit Tests	2026-09-24T13:52:36.9403634Z 	at org.gradle.internal.execution.steps.SkipEmptyMutableWorkStep.executeMutable(SkipEmptyMutableWorkStep.java:53)
-build	Run Unit Tests	2026-09-24T13:52:36.9404605Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
-build	Run Unit Tests	2026-09-24T13:52:36.9405570Z 	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsStartedStep.execute(MarkSnapshottingInputsStartedStep.java:38)
-build	Run Unit Tests	2026-09-24T13:52:36.9407063Z 	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.executeMutable(LoadPreviousExecutionStateStep.java:36)
-build	Run Unit Tests	2026-09-24T13:52:36.9408208Z 	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.executeMutable(LoadPreviousExecutionStateStep.java:23)
-build	Run Unit Tests	2026-09-24T13:52:36.9409087Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
-build	Run Unit Tests	2026-09-24T13:52:36.9409921Z 	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.executeMutable(HandleStaleOutputsStep.java:77)
-build	Run Unit Tests	2026-09-24T13:52:36.9410879Z 	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.executeMutable(HandleStaleOutputsStep.java:43)
-build	Run Unit Tests	2026-09-24T13:52:36.9411672Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
-build	Run Unit Tests	2026-09-24T13:52:36.9412591Z 	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$executeMutable$0(AssignMutableWorkspaceStep.java:34)
-build	Run Unit Tests	2026-09-24T13:52:36.9413523Z 	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:305)
-build	Run Unit Tests	2026-09-24T13:52:36.9414450Z 	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.executeMutable(AssignMutableWorkspaceStep.java:30)
-build	Run Unit Tests	2026-09-24T13:52:36.9415489Z 	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.executeMutable(AssignMutableWorkspaceStep.java:21)
-build	Run Unit Tests	2026-09-24T13:52:36.9416558Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
-build	Run Unit Tests	2026-09-24T13:52:36.9417686Z 	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
-build	Run Unit Tests	2026-09-24T13:52:36.9419173Z 	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
-build	Run Unit Tests	2026-09-24T13:52:36.9420727Z 	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
-build	Run Unit Tests	2026-09-24T13:52:36.9422834Z 	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
-build	Run Unit Tests	2026-09-24T13:52:36.9424948Z 	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
-build	Run Unit Tests	2026-09-24T13:52:36.9427043Z 	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
-build	Run Unit Tests	2026-09-24T13:52:36.9428511Z 	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
-build	Run Unit Tests	2026-09-24T13:52:36.9429896Z 	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:56)
-build	Run Unit Tests	2026-09-24T13:52:36.9431166Z 	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:38)
-build	Run Unit Tests	2026-09-24T13:52:36.9432562Z 	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:68)
-build	Run Unit Tests	2026-09-24T13:52:36.9434690Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:132)
-build	Run Unit Tests	2026-09-24T13:52:36.9435760Z 	... 30 more
-build	Run Unit Tests	2026-09-24T13:52:36.9436264Z 
-build	Run Unit Tests	2026-09-24T13:52:36.9436279Z 
-build	Run Unit Tests	2026-09-24T13:52:36.9436499Z BUILD FAILED in 4m 31s
-build	Run Unit Tests	2026-09-24T13:52:37.0137871Z Configuration cache entry stored.
-build	Run Unit Tests	2026-09-24T13:52:37.3774505Z ##[error]Process completed with exit code 1.
+build	Run Unit Tests	﻿2026-09-24T13:54:42.0833691Z ##[group]Run ./gradlew testDebugUnitTest --no-daemon --stacktrace
+build	Run Unit Tests	2026-09-24T13:54:42.0834224Z [36;1m./gradlew testDebugUnitTest --no-daemon --stacktrace[0m
+build	Run Unit Tests	2026-09-24T13:54:42.0895878Z shell: /usr/bin/bash -e {0}
+build	Run Unit Tests	2026-09-24T13:54:42.0896122Z env:
+build	Run Unit Tests	2026-09-24T13:54:42.0896441Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.12-1/x64
+build	Run Unit Tests	2026-09-24T13:54:42.0896935Z   JAVA_HOME_21_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.12-1/x64
+build	Run Unit Tests	2026-09-24T13:54:42.0897336Z   ANDROID_HOME: /usr/local/lib/android/sdk
+build	Run Unit Tests	2026-09-24T13:54:42.0897628Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+build	Run Unit Tests	2026-09-24T13:54:42.0897916Z ##[endgroup]
+build	Run Unit Tests	2026-09-24T13:54:42.2126374Z Fetching distribution.
+build	Run Unit Tests	2026-09-24T13:54:42.2127565Z Downloading https://services.gradle.org/distributions/gradle-9.7.0-bin.zip
+build	Run Unit Tests	2026-09-24T13:54:43.7665691Z ..............10%..............20%..............30%...............40%..............50%...............60%..............70%..............80%...............90%..............100%
+build	Run Unit Tests	2026-09-24T13:54:45.5800538Z 
+build	Run Unit Tests	2026-09-24T13:54:45.5816936Z Welcome to Gradle 9.7.0!
+build	Run Unit Tests	2026-09-24T13:54:45.5817530Z 
+build	Run Unit Tests	2026-09-24T13:54:45.5818099Z Here are the highlights of this release:
+build	Run Unit Tests	2026-09-24T13:54:45.5819186Z  - Isolated Projects graduates to incubating
+build	Run Unit Tests	2026-09-24T13:54:45.5820320Z  - Broader Configuration Cache compatibility
+build	Run Unit Tests	2026-09-24T13:54:45.5821279Z  - More source locations in problem reports
+build	Run Unit Tests	2026-09-24T13:54:45.5821885Z 
+build	Run Unit Tests	2026-09-24T13:54:45.5822332Z For more details see https://docs.gradle.org/9.7.0/release-notes.html
+build	Run Unit Tests	2026-09-24T13:54:45.5822792Z 
+build	Run Unit Tests	2026-09-24T13:54:45.7801203Z To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.7.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+build	Run Unit Tests	2026-09-24T13:54:53.3797681Z Daemon will be stopped at the end of the build 
+build	Run Unit Tests	2026-09-24T13:54:54.8796860Z Calculating task graph as no cached configuration is available for tasks: testDebugUnitTest
+build	Run Unit Tests	2026-09-24T13:55:21.4811986Z 
+build	Run Unit Tests	2026-09-24T13:55:21.4830831Z > Configure project :app
+build	Run Unit Tests	2026-09-24T13:55:21.4832003Z WARNING: Release signing not configured. Set credentials in ~/.gradle/gradle.properties (see gradle.properties.example).
+build	Run Unit Tests	2026-09-24T13:56:05.9794365Z 
+build	Run Unit Tests	2026-09-24T13:56:05.9796467Z > Task :app:generateDebugAssets UP-TO-DATE
+build	Run Unit Tests	2026-09-24T13:56:05.9818801Z > Task :app:preBuild UP-TO-DATE
+build	Run Unit Tests	2026-09-24T13:56:05.9821494Z > Task :app:preDebugBuild UP-TO-DATE
+build	Run Unit Tests	2026-09-24T13:56:05.9837829Z > Task :app:preDebugUnitTestBuild UP-TO-DATE
+build	Run Unit Tests	2026-09-24T13:56:06.0808302Z > Task :app:generateDebugBuildConfig
+build	Run Unit Tests	2026-09-24T13:56:06.0823154Z > Task :app:generateDebugResources
+build	Run Unit Tests	2026-09-24T13:56:06.2794040Z > Task :app:packageDebugResources
+build	Run Unit Tests	2026-09-24T13:56:06.3826256Z > Task :app:mapDebugSourceSetPaths
+build	Run Unit Tests	2026-09-24T13:56:06.8795895Z > Task :app:javaPreCompileDebug
+build	Run Unit Tests	2026-09-24T13:56:06.8802054Z > Task :app:createDebugCompatibleScreenManifests
+build	Run Unit Tests	2026-09-24T13:56:06.9795927Z > Task :app:extractDeepLinksDebug
+build	Run Unit Tests	2026-09-24T13:56:13.4806541Z > Task :app:processDebugNavigationResources
+build	Run Unit Tests	2026-09-24T13:56:13.5800407Z > Task :app:checkDebugAarMetadata
+build	Run Unit Tests	2026-09-24T13:56:13.7796190Z > Task :app:compileDebugNavigationResources
+build	Run Unit Tests	2026-09-24T13:56:13.7833045Z > Task :app:javaPreCompileDebugUnitTest
+build	Run Unit Tests	2026-09-24T13:56:15.4803916Z > Task :app:mergeDebugAssets
+build	Run Unit Tests	2026-09-24T13:56:15.5795826Z > Task :app:processDebugMainManifest
+build	Run Unit Tests	2026-09-24T13:56:15.6816656Z > Task :app:parseDebugLocalResources
+build	Run Unit Tests	2026-09-24T13:56:15.6866365Z > Task :app:generateDebugRFile
+build	Run Unit Tests	2026-09-24T13:56:15.8826540Z > Task :app:processDebugManifest
+build	Run Unit Tests	2026-09-24T13:56:15.8846077Z > Task :app:processDebugManifestForPackage
+build	Run Unit Tests	2026-09-24T13:56:15.9796943Z > Task :app:mergeDebugResources
+build	Run Unit Tests	2026-09-24T13:56:16.0794202Z > Task :app:mergeDebugUnitTestManifest
+build	Run Unit Tests	2026-09-24T13:56:16.0809537Z > Task :app:processDebugUnitTestManifest
+build	Run Unit Tests	2026-09-24T13:56:17.4796033Z > Task :app:processDebugResources
+build	Run Unit Tests	2026-09-24T13:56:17.4820293Z > Task :app:packageDebugUnitTestForUnitTest
+build	Run Unit Tests	2026-09-24T13:56:17.4835000Z > Task :app:generateDebugUnitTestConfig
+build	Run Unit Tests	2026-09-24T13:56:42.2798942Z > Task :app:kspDebugKotlin
+build	Run Unit Tests	2026-09-24T13:57:12.2795002Z > Task :app:compileDebugKotlin
+build	Run Unit Tests	2026-09-24T13:57:53.6808059Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:44:19 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.6839252Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:59:22 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.6860824Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:66:28 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.6917214Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:67:26 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.6957159Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:72:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.6972809Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:97:23 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.6997264Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/AccessibilityNodeTraversal.kt:100:19 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7017240Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:487:22 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7047278Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:494:28 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7077208Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:495:26 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7084717Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:500:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7117321Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:514:22 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7137382Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:517:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7167357Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:531:22 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7197371Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:534:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7217582Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:557:29 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7220529Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:568:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7223749Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:576:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7227432Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:587:23 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7230506Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:590:19 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7827721Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/OpenDroidAccessibilityService.kt:614:18 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7846967Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/WhatsAppAutomator.kt:23:36 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7849865Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/WhatsAppAutomator.kt:36:40 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7853075Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/accessibility/WhatsAppAutomator.kt:99:22 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7856206Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/actions/AdvancedControlActions.kt:119:50 'val isConnectedOrConnecting: Boolean' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7859928Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/actions/AdvancedControlActions.kt:317:32 'fun createCaptureSession(p0: (Mutable)List<Surface!>, p1: CameraCaptureSession.StateCallback, p2: Handler?): Unit' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7863290Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/actions/SystemActions.kt:683:38 'class WifiConfiguration : Any, Parcelable' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7866413Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/AgentLoop.kt:1314:13 Redundant creation of Json format. Creating instances for each usage can be slow.
+build	Run Unit Tests	2026-09-24T13:57:53.7869241Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:78:42 'val isConnected: Boolean' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7871837Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:145:36 'val isConnected: Boolean' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7873888Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:146:35 'val type: Int' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7876092Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:146:63 'static field TYPE_WIFI: Int' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7878800Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:147:35 'val type: Int' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7881541Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/agent/DeviceStateProvider.kt:147:63 'static field TYPE_MOBILE: Int' is deprecated. Deprecated in Java.
+build	Run Unit Tests	2026-09-24T13:57:53.7884939Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/core/voice/TextToSpeechEngine.kt:42:26 This declaration overrides a deprecated member but is not marked as deprecated itself. Add the '@Deprecated' annotation or suppress the diagnostic.
+build	Run Unit Tests	2026-09-24T13:57:53.7888999Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:103:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+build	Run Unit Tests	2026-09-24T13:57:53.7893075Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:109:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+build	Run Unit Tests	2026-09-24T13:57:53.7924192Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:129:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+build	Run Unit Tests	2026-09-24T13:57:53.7928333Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:135:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+build	Run Unit Tests	2026-09-24T13:57:53.7932077Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:157:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+build	Run Unit Tests	2026-09-24T13:57:53.7961924Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:196:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+build	Run Unit Tests	2026-09-24T13:57:53.7966017Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:225:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+build	Run Unit Tests	2026-09-24T13:57:53.7969821Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/data/db/OpenDroidDatabase.kt:268:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+build	Run Unit Tests	2026-09-24T13:57:53.7973185Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/BaseSocialAdapter.kt:22:37 Unnecessary safe call on a non-null receiver of type 'ResponseBody'.
+build	Run Unit Tests	2026-09-24T13:57:53.7976634Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/DiscordAdapter.kt:70:54 Java type mismatch: inferred type is 'Nothing?', but 'String' was expected.
+build	Run Unit Tests	2026-09-24T13:57:53.7979476Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/DiscordAdapter.kt:70:59 Unnecessary safe call on a non-null receiver of type 'String'.
+build	Run Unit Tests	2026-09-24T13:57:53.7982341Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/InstagramAdapter.kt:53:67 Java type mismatch: inferred type is 'Nothing?', but 'String' was expected.
+build	Run Unit Tests	2026-09-24T13:57:53.7985437Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/LinkedInAdapter.kt:54:55 Java type mismatch: inferred type is 'Nothing?', but 'String' was expected.
+build	Run Unit Tests	2026-09-24T13:57:53.7988284Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/social/core/adapter/XAdapter.kt:56:65 Java type mismatch: inferred type is 'Nothing?', but 'String' was expected.
+build	Run Unit Tests	2026-09-24T13:57:53.7991269Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/Navigation.kt:282:56 'val Icons.Filled.Chat: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Chat.
+build	Run Unit Tests	2026-09-24T13:57:53.7994395Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/Navigation.kt:283:56 'val Icons.Filled.List: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.List.
+build	Run Unit Tests	2026-09-24T13:57:53.7998239Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/Navigation.kt:312:26 'val LocalLifecycleOwner: ProvidableCompositionLocal<LifecycleOwner>' is deprecated. Moved to lifecycle-runtime-compose library in androidx.lifecycle.compose package.
+build	Run Unit Tests	2026-09-24T13:57:53.8002434Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/components/PlanStepCard.kt:152:71 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
+build	Run Unit Tests	2026-09-24T13:57:53.8006400Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/components/PlanStepCard.kt:165:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8009905Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/components/PlanStepCard.kt:279:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8013703Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AboutScreen.kt:50:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+build	Run Unit Tests	2026-09-24T13:57:53.8016854Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AboutScreen.kt:193:51 'val Icons.Filled.Chat: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Chat.
+build	Run Unit Tests	2026-09-24T13:57:53.8020302Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AboutScreen.kt:194:51 'val Icons.Filled.List: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.List.
+build	Run Unit Tests	2026-09-24T13:57:53.8024353Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AutoReplySettingsScreen.kt:49:26 'val LocalLifecycleOwner: ProvidableCompositionLocal<LifecycleOwner>' is deprecated. Moved to lifecycle-runtime-compose library in androidx.lifecycle.compose package.
+build	Run Unit Tests	2026-09-24T13:57:53.8028850Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AutoReplySettingsScreen.kt:93:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+build	Run Unit Tests	2026-09-24T13:57:53.8031868Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AutoReplySettingsScreen.kt:250:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8033908Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/AutoReplySettingsScreen.kt:254:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8036231Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/BenchmarkScreen.kt:57:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+build	Run Unit Tests	2026-09-24T13:57:53.8038153Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/ChatScreen.kt:601:69 'val Icons.Filled.Send: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Send.
+build	Run Unit Tests	2026-09-24T13:57:53.8039808Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/ChatScreen.kt:746:13 Redundant creation of Json format. Creating instances for each usage can be slow.
+build	Run Unit Tests	2026-09-24T13:57:53.8041552Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/CrashLogScreen.kt:101:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+build	Run Unit Tests	2026-09-24T13:57:53.8043494Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/HelpCenterScreen.kt:42:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+build	Run Unit Tests	2026-09-24T13:57:53.8046313Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/HelpCenterScreen.kt:76:57 'val Icons.Filled.HelpOutline: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.HelpOutline.
+build	Run Unit Tests	2026-09-24T13:57:53.8050036Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LicenseScreen.kt:42:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+build	Run Unit Tests	2026-09-24T13:57:53.8055627Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:102:13 'fun TabRow(selectedTabIndex: Int, modifier: Modifier = ..., containerColor: Color = ..., contentColor: Color = ..., indicator: ComposableFunction1<List<TabPosition>, Unit> = ..., divider: ComposableFunction0<Unit> = ..., tabs: ComposableFunction0<Unit>): Unit' is deprecated. Replaced with PrimaryTabRow and SecondaryTabRow.
+build	Run Unit Tests	2026-09-24T13:57:53.8060519Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:107:36 'fun Indicator(modifier: Modifier = ..., height: Dp = ..., color: Color = ...): Unit' is deprecated. Use SecondaryIndicator instead.
+build	Run Unit Tests	2026-09-24T13:57:53.8065583Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:108:45 'fun Modifier.tabIndicatorOffset(currentTabPosition: TabPosition): Modifier' is deprecated. Solely for use alongside deprecated TabRowDefaults.Indicator method. For recommended PrimaryIndicator and SecondaryIndicator methods, please use TabIndicatorScope.tabIndicatorOffset method.
+build	Run Unit Tests	2026-09-24T13:57:53.8070110Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:113:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8073701Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:377:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8077639Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/LogsScreen.kt:498:21 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8081168Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MacrosScreen.kt:185:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8084752Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MacrosScreen.kt:424:13 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8090820Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MemoryScreen.kt:103:13 'fun ScrollableTabRow(selectedTabIndex: Int, modifier: Modifier = ..., containerColor: Color = ..., contentColor: Color = ..., edgePadding: Dp = ..., indicator: ComposableFunction1<List<TabPosition>, Unit> = ..., divider: ComposableFunction0<Unit> = ..., tabs: ComposableFunction0<Unit>): Unit' is deprecated. Replaced with PrimaryScrollableTabRow and SecondaryScrollableTabRow tab variants.
+build	Run Unit Tests	2026-09-24T13:57:53.8096343Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MemoryScreen.kt:108:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8100206Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MemoryScreen.kt:317:25 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8103748Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/MemoryScreen.kt:1258:44 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+build	Run Unit Tests	2026-09-24T13:57:53.8107866Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/NotificationHistoryScreen.kt:59:44 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+build	Run Unit Tests	2026-09-24T13:57:53.8112023Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PermissionsScreen.kt:144:26 'val LocalLifecycleOwner: ProvidableCompositionLocal<LifecycleOwner>' is deprecated. Moved to lifecycle-runtime-compose library in androidx.lifecycle.compose package.
+build	Run Unit Tests	2026-09-24T13:57:53.8116042Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:79:54 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Plan'.
+build	Run Unit Tests	2026-09-24T13:57:53.8118817Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:83:43 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Plan'.
+build	Run Unit Tests	2026-09-24T13:57:53.8121596Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:101:34 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Plan'.
+build	Run Unit Tests	2026-09-24T13:57:53.8124361Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:103:36 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Plan'.
+build	Run Unit Tests	2026-09-24T13:57:53.8129688Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:224:13 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8146462Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PlanScreen.kt:242:17 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8150087Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/PrivacyPolicyScreen.kt:42:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+build	Run Unit Tests	2026-09-24T13:57:53.8153696Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/RoutinesScreen.kt:61:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+build	Run Unit Tests	2026-09-24T13:57:53.8166457Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:304:33 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8170801Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:811:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8174342Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:955:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8178264Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1198:49 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8182187Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1251:140 'val Icons.Filled.ArrowForward: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowForward.
+build	Run Unit Tests	2026-09-24T13:57:53.8185979Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1289:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8189484Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1370:49 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8192910Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1417:29 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+build	Run Unit Tests	2026-09-24T13:57:53.8236015Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:1987:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+build	Run Unit Tests	2026-09-24T13:57:53.8240137Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2028:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+build	Run Unit Tests	2026-09-24T13:57:53.8244228Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2074:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+build	Run Unit Tests	2026-09-24T13:57:53.8248562Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2115:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+build	Run Unit Tests	2026-09-24T13:57:53.8252667Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2156:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+build	Run Unit Tests	2026-09-24T13:57:53.8256987Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2202:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+build	Run Unit Tests	2026-09-24T13:57:53.8261078Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2248:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+build	Run Unit Tests	2026-09-24T13:57:53.8275673Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2294:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+build	Run Unit Tests	2026-09-24T13:57:53.8280127Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2340:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+build	Run Unit Tests	2026-09-24T13:57:53.8284178Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/SettingsScreen.kt:2386:57 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+build	Run Unit Tests	2026-09-24T13:57:53.8288584Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/TermsOfUseScreen.kt:42:57 'val Icons.Filled.ArrowBack: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ArrowBack.
+build	Run Unit Tests	2026-09-24T13:57:53.8291545Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialAccountsTab.kt:201:40 Condition is always 'true'.
+build	Run Unit Tests	2026-09-24T13:57:53.8293966Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialAccountsTab.kt:228:32 Condition is always 'true'.
+build	Run Unit Tests	2026-09-24T13:57:53.8297505Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialCalendarTab.kt:175:43 'val Icons.Filled.EventNote: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.EventNote.
+build	Run Unit Tests	2026-09-24T13:57:53.8302265Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialCampaignsTab.kt:190:13 'fun LinearProgressIndicator(progress: Float, modifier: Modifier = ..., color: Color = ..., trackColor: Color = ..., strokeCap: StrokeCap = ...): Unit' is deprecated. Use the overload that takes `progress` as a lambda.
+build	Run Unit Tests	2026-09-24T13:57:53.8336695Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialContentTab.kt:155:70 'fun String.capitalize(locale: Locale): String' is deprecated. Use replaceFirstChar instead.
+build	Run Unit Tests	2026-09-24T13:57:53.8340106Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialContentTab.kt:370:67 'fun String.capitalize(locale: Locale): String' is deprecated. Use replaceFirstChar instead.
+build	Run Unit Tests	2026-09-24T13:57:53.8343796Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialOverviewTab.kt:74:42 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+build	Run Unit Tests	2026-09-24T13:57:53.8347486Z w: file:///home/runner/work/TSF-Droid/TSF-Droid/app/src/main/java/com/tsfdroid/ai/ui/screens/social/SocialSettingsTab.kt:313:33 Unnecessary safe call on a non-null receiver of type 'SocialPlatform'.
+build	Run Unit Tests	2026-09-24T13:57:55.5805645Z 
+build	Run Unit Tests	2026-09-24T13:57:55.5856130Z > Task :app:processDebugJavaRes
+build	Run Unit Tests	2026-09-24T13:58:06.5838342Z > Task :app:compileDebugJavaWithJavac
+build	Run Unit Tests	2026-09-24T13:58:06.5886166Z > Task :app:hiltCollectClassesDebug
+build	Run Unit Tests	2026-09-24T13:58:09.6794315Z > Task :app:hiltAggregateDepsDebug
+build	Run Unit Tests	2026-09-24T13:58:15.1803204Z > Task :app:hiltJavaCompileDebug
+build	Run Unit Tests	2026-09-24T13:58:15.3828871Z > Task :app:bundleDebugClassesToCompileJar
+build	Run Unit Tests	2026-09-24T13:58:15.3886093Z > Task :app:kspDebugUnitTestKotlin SKIPPED
+build	Run Unit Tests	2026-09-24T13:58:16.7816363Z > Task :app:transformDebugClassesWithAsm
+build	Run Unit Tests	2026-09-24T13:58:17.1818064Z > Task :app:bundleDebugClassesToRuntimeJar
+build	Run Unit Tests	2026-09-24T13:58:28.0826501Z > Task :app:compileDebugUnitTestKotlin
+build	Run Unit Tests	2026-09-24T13:58:28.0856210Z > Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+build	Run Unit Tests	2026-09-24T13:58:28.0857042Z > Task :app:hiltCollectClassesDebugUnitTest
+build	Run Unit Tests	2026-09-24T13:58:28.0906136Z > Task :app:copyRoomSchemas NO-SOURCE
+build	Run Unit Tests	2026-09-24T13:58:28.1796243Z > Task :app:processDebugUnitTestJavaRes
+build	Run Unit Tests	2026-09-24T13:58:31.8794162Z > Task :app:hiltAggregateDepsDebugUnitTest
+build	Run Unit Tests	2026-09-24T13:58:31.8796157Z > Task :app:hiltJavaCompileDebugUnitTest NO-SOURCE
+build	Run Unit Tests	2026-09-24T13:58:32.5806496Z > Task :app:transformDebugUnitTestClassesWithAsm
+build	Run Unit Tests	2026-09-24T13:58:58.8795806Z 
+build	Run Unit Tests	2026-09-24T13:58:58.8796506Z > Task :app:testDebugUnitTest
+build	Run Unit Tests	2026-09-24T13:58:58.8798826Z 
+build	Run Unit Tests	2026-09-24T13:58:58.8799468Z ProviderCatalogTest > catalog has one default for every stable provider FAILED
+build	Run Unit Tests	2026-09-24T13:58:58.8800463Z     java.lang.AssertionError at ProviderCatalogTest.kt:16
+build	Run Unit Tests	2026-09-24T13:59:06.1797880Z 
+build	Run Unit Tests	2026-09-24T13:59:06.1798741Z 537 tests completed, 1 failed
+build	Run Unit Tests	2026-09-24T13:59:06.5815703Z 
+build	Run Unit Tests	2026-09-24T13:59:06.5815803Z 
+build	Run Unit Tests	2026-09-24T13:59:06.5816479Z > Task :app:testDebugUnitTest FAILED
+build	Run Unit Tests	2026-09-24T13:59:06.5817294Z 
+build	Run Unit Tests	2026-09-24T13:59:06.5818635Z [Incubating] Problems report is available at: file:///home/runner/work/TSF-Droid/TSF-Droid/build/reports/problems/problems-report.html
+build	Run Unit Tests	2026-09-24T13:59:06.5836587Z FAILURE: Build failed with an exception.
+build	Run Unit Tests	2026-09-24T13:59:06.5837243Z 
+build	Run Unit Tests	2026-09-24T13:59:06.5837650Z * What went wrong:
+build	Run Unit Tests	2026-09-24T13:59:06.5838440Z Execution failed for task ':app:testDebugUnitTest'.
+build	Run Unit Tests	2026-09-24T13:59:06.5840152Z > There were failing tests. See the report at: file:///home/runner/work/TSF-Droid/TSF-Droid/app/build/reports/tests/testDebugUnitTest/index.html
+build	Run Unit Tests	2026-09-24T13:59:06.5841274Z 
+build	Run Unit Tests	2026-09-24T13:59:06.5841578Z * Try:
+build	Run Unit Tests	2026-09-24T13:59:06.5842489Z > Run with --scan to get full insights from a Build Scan (powered by Develocity).
+build	Run Unit Tests	2026-09-24T13:59:06.5843252Z 
+build	Run Unit Tests	2026-09-24T13:59:06.5843597Z * Exception is:
+build	Run Unit Tests	2026-09-24T13:59:06.5844740Z org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:testDebugUnitTest'.
+build	Run Unit Tests	2026-09-24T13:59:06.5847690Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.lambda$executeIfValid$1(ExecuteActionsTaskExecuter.java:135)
+build	Run Unit Tests	2026-09-24T13:59:06.5849409Z 	at org.gradle.internal.Try$Failure.ifSuccessfulOrElse(Try.java:288)
+build	Run Unit Tests	2026-09-24T13:59:06.5854736Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:133)
+build	Run Unit Tests	2026-09-24T13:59:06.5856269Z 37 actionable tasks: 37 executed
+build	Run Unit Tests	2026-09-24T13:59:06.5858113Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:121)
+build	Run Unit Tests	2026-09-24T13:59:06.5860627Z 	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:41)
+build	Run Unit Tests	2026-09-24T13:59:06.5863068Z 	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+build	Run Unit Tests	2026-09-24T13:59:06.5865622Z 	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+build	Run Unit Tests	2026-09-24T13:59:06.5867998Z 	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+build	Run Unit Tests	2026-09-24T13:59:06.5870111Z 	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+build	Run Unit Tests	2026-09-24T13:59:06.5872134Z 	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+build	Run Unit Tests	2026-09-24T13:59:06.5874186Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+build	Run Unit Tests	2026-09-24T13:59:06.5876407Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+build	Run Unit Tests	2026-09-24T13:59:06.5878320Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+build	Run Unit Tests	2026-09-24T13:59:06.5880492Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+build	Run Unit Tests	2026-09-24T13:59:06.5882939Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+build	Run Unit Tests	2026-09-24T13:59:06.5885413Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+build	Run Unit Tests	2026-09-24T13:59:06.5887503Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+build	Run Unit Tests	2026-09-24T13:59:06.5890039Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+build	Run Unit Tests	2026-09-24T13:59:06.5892903Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+build	Run Unit Tests	2026-09-24T13:59:06.5894966Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+build	Run Unit Tests	2026-09-24T13:59:06.5897434Z 	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+build	Run Unit Tests	2026-09-24T13:59:06.5899728Z 	at org.gradle.execution.plan.DefaultNodeExecutor.executeLocalTaskNode(DefaultNodeExecutor.java:55)
+build	Run Unit Tests	2026-09-24T13:59:06.5901455Z 	at org.gradle.execution.plan.DefaultNodeExecutor.execute(DefaultNodeExecutor.java:34)
+build	Run Unit Tests	2026-09-24T13:59:06.5903462Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:355)
+build	Run Unit Tests	2026-09-24T13:59:06.5906142Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:343)
+build	Run Unit Tests	2026-09-24T13:59:06.5908731Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:339)
+build	Run Unit Tests	2026-09-24T13:59:06.5911079Z 	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:84)
+build	Run Unit Tests	2026-09-24T13:59:06.5913447Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:339)
+build	Run Unit Tests	2026-09-24T13:59:06.5916743Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:328)
+build	Run Unit Tests	2026-09-24T13:59:06.5918736Z 	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
+build	Run Unit Tests	2026-09-24T13:59:06.5920329Z 	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
+build	Run Unit Tests	2026-09-24T13:59:06.5921742Z 	at org.gradle.execution.plan.DefaultPlanExecutor.process(DefaultPlanExecutor.java:111)
+build	Run Unit Tests	2026-09-24T13:59:06.5923395Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.executeWithServices(DefaultTaskExecutionGraph.java:146)
+build	Run Unit Tests	2026-09-24T13:59:06.5925463Z 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.execute(DefaultTaskExecutionGraph.java:131)
+build	Run Unit Tests	2026-09-24T13:59:06.5927097Z 	at org.gradle.execution.SelectedTaskExecutionAction.execute(SelectedTaskExecutionAction.java:35)
+build	Run Unit Tests	2026-09-24T13:59:06.5929016Z 	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:54)
+build	Run Unit Tests	2026-09-24T13:59:06.5931186Z 	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:43)
+build	Run Unit Tests	2026-09-24T13:59:06.5933391Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+build	Run Unit Tests	2026-09-24T13:59:06.5935816Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+build	Run Unit Tests	2026-09-24T13:59:06.5937768Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+build	Run Unit Tests	2026-09-24T13:59:06.5939496Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+build	Run Unit Tests	2026-09-24T13:59:06.5941253Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+build	Run Unit Tests	2026-09-24T13:59:06.5943032Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+build	Run Unit Tests	2026-09-24T13:59:06.5944742Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+build	Run Unit Tests	2026-09-24T13:59:06.5946980Z 	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor.execute(BuildOperationFiringBuildWorkerExecutor.java:40)
+build	Run Unit Tests	2026-09-24T13:59:06.5949013Z 	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$executeTasks$0(DefaultBuildLifecycleController.java:323)
+build	Run Unit Tests	2026-09-24T13:59:06.5950831Z 	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:324)
+build	Run Unit Tests	2026-09-24T13:59:06.5952640Z 	at org.gradle.internal.model.StateTransitionController.lambda$tryTransition$0(StateTransitionController.java:235)
+build	Run Unit Tests	2026-09-24T13:59:06.5954250Z 	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:45)
+build	Run Unit Tests	2026-09-24T13:59:06.5956173Z 	at org.gradle.internal.model.StateTransitionController.tryTransition(StateTransitionController.java:235)
+build	Run Unit Tests	2026-09-24T13:59:06.5958348Z 	at org.gradle.internal.build.DefaultBuildLifecycleController.executeTasks(DefaultBuildLifecycleController.java:314)
+build	Run Unit Tests	2026-09-24T13:59:06.5960481Z 	at org.gradle.internal.build.DefaultBuildWorkGraphController$DefaultBuildWorkGraph.runWork(DefaultBuildWorkGraphController.java:220)
+build	Run Unit Tests	2026-09-24T13:59:06.5962748Z 	at org.gradle.internal.work.DefaultWorkerLeaseService.lambda$runAndReleaseLocks$0(DefaultWorkerLeaseService.java:302)
+build	Run Unit Tests	2026-09-24T13:59:06.5964382Z 	at org.gradle.internal.work.ResourceLockStatistics$1.measure(ResourceLockStatistics.java:43)
+build	Run Unit Tests	2026-09-24T13:59:06.5966236Z 	at org.gradle.internal.work.DefaultWorkerLeaseService.runAndReleaseLocks(DefaultWorkerLeaseService.java:300)
+build	Run Unit Tests	2026-09-24T13:59:06.5968048Z 	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocksAcquired(DefaultWorkerLeaseService.java:296)
+build	Run Unit Tests	2026-09-24T13:59:06.5969727Z 	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:288)
+build	Run Unit Tests	2026-09-24T13:59:06.5971693Z 	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:131)
+build	Run Unit Tests	2026-09-24T13:59:06.5973309Z 	at org.gradle.composite.internal.DefaultBuildController.doRun(DefaultBuildController.java:182)
+build	Run Unit Tests	2026-09-24T13:59:06.5975005Z 	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.lambda$run$0(DefaultBuildController.java:199)
+build	Run Unit Tests	2026-09-24T13:59:06.5983307Z 	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:84)
+build	Run Unit Tests	2026-09-24T13:59:06.5984965Z 	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.run(DefaultBuildController.java:199)
+build	Run Unit Tests	2026-09-24T13:59:06.5986910Z 	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:65)
+build	Run Unit Tests	2026-09-24T13:59:06.5988491Z 	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+build	Run Unit Tests	2026-09-24T13:59:06.5990973Z Caused by: org.gradle.api.internal.exceptions.MarkedVerificationException: There were failing tests. See the report at: file:///home/runner/work/TSF-Droid/TSF-Droid/app/build/reports/tests/testDebugUnitTest/index.html
+build	Run Unit Tests	2026-09-24T13:59:06.5993147Z 	at org.gradle.api.tasks.testing.AbstractTestTask.executeTests(AbstractTestTask.java:616)
+build	Run Unit Tests	2026-09-24T13:59:06.5994293Z 	at org.gradle.api.tasks.testing.Test.executeTests(Test.java:772)
+build	Run Unit Tests	2026-09-24T13:59:06.5995744Z 	at com.android.build.gradle.tasks.factory.AndroidUnitTest.executeTests(AndroidUnitTest.java:203)
+build	Run Unit Tests	2026-09-24T13:59:06.5997029Z 	at org.gradle.internal.reflect.JavaMethod.invoke(JavaMethod.java:125)
+build	Run Unit Tests	2026-09-24T13:59:06.5998404Z 	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.doExecute(StandardTaskAction.java:58)
+build	Run Unit Tests	2026-09-24T13:59:06.6000002Z 	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:51)
+build	Run Unit Tests	2026-09-24T13:59:06.6001570Z 	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:29)
+build	Run Unit Tests	2026-09-24T13:59:06.6002971Z 	at org.gradle.api.internal.tasks.execution.TaskExecution$3.run(TaskExecution.java:259)
+build	Run Unit Tests	2026-09-24T13:59:06.6004459Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:30)
+build	Run Unit Tests	2026-09-24T13:59:06.6006399Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:27)
+build	Run Unit Tests	2026-09-24T13:59:06.6008014Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+build	Run Unit Tests	2026-09-24T13:59:06.6009637Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+build	Run Unit Tests	2026-09-24T13:59:06.6011273Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+build	Run Unit Tests	2026-09-24T13:59:06.6012941Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+build	Run Unit Tests	2026-09-24T13:59:06.6014592Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunner.java:48)
+build	Run Unit Tests	2026-09-24T13:59:06.6016590Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.executeAction(TaskExecution.java:244)
+build	Run Unit Tests	2026-09-24T13:59:06.6018028Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.executeActions(TaskExecution.java:227)
+build	Run Unit Tests	2026-09-24T13:59:06.6019632Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.executeWithPreviousOutputFiles(TaskExecution.java:210)
+build	Run Unit Tests	2026-09-24T13:59:06.6021195Z 	at org.gradle.api.internal.tasks.execution.TaskExecution.execute(TaskExecution.java:176)
+build	Run Unit Tests	2026-09-24T13:59:06.6022498Z 	at org.gradle.internal.execution.steps.ExecuteStep.executeInternal(ExecuteStep.java:167)
+build	Run Unit Tests	2026-09-24T13:59:06.6023799Z 	at org.gradle.internal.execution.steps.ExecuteStep.access$000(ExecuteStep.java:47)
+build	Run Unit Tests	2026-09-24T13:59:06.6024992Z 	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:137)
+build	Run Unit Tests	2026-09-24T13:59:06.6026309Z 	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:134)
+build	Run Unit Tests	2026-09-24T13:59:06.6028155Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+build	Run Unit Tests	2026-09-24T13:59:06.6030231Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+build	Run Unit Tests	2026-09-24T13:59:06.6032119Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+build	Run Unit Tests	2026-09-24T13:59:06.6033830Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+build	Run Unit Tests	2026-09-24T13:59:06.6035677Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+build	Run Unit Tests	2026-09-24T13:59:06.6037335Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+build	Run Unit Tests	2026-09-24T13:59:06.6039001Z 	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+build	Run Unit Tests	2026-09-24T13:59:06.6040378Z 	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:134)
+build	Run Unit Tests	2026-09-24T13:59:06.6041596Z 	at org.gradle.internal.execution.steps.ExecuteStep$Mutable.execute(ExecuteStep.java:80)
+build	Run Unit Tests	2026-09-24T13:59:06.6042939Z 	at org.gradle.internal.execution.steps.CancelExecutionStep.execute(CancelExecutionStep.java:42)
+build	Run Unit Tests	2026-09-24T13:59:06.6044375Z 	at org.gradle.internal.execution.steps.TimeoutStep.executeWithoutTimeout(TimeoutStep.java:75)
+build	Run Unit Tests	2026-09-24T13:59:06.6045832Z 	at org.gradle.internal.execution.steps.TimeoutStep.execute(TimeoutStep.java:55)
+build	Run Unit Tests	2026-09-24T13:59:06.6047312Z 	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:51)
+build	Run Unit Tests	2026-09-24T13:59:06.6049010Z 	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:29)
+build	Run Unit Tests	2026-09-24T13:59:06.6050782Z 	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.executeMutable(RemovePreviousOutputsStep.java:67)
+build	Run Unit Tests	2026-09-24T13:59:06.6052600Z 	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.executeMutable(RemovePreviousOutputsStep.java:39)
+build	Run Unit Tests	2026-09-24T13:59:06.6054070Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+build	Run Unit Tests	2026-09-24T13:59:06.6055727Z 	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:42)
+build	Run Unit Tests	2026-09-24T13:59:06.6057498Z 	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:24)
+build	Run Unit Tests	2026-09-24T13:59:06.6059240Z 	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:69)
+build	Run Unit Tests	2026-09-24T13:59:06.6061111Z 	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:46)
+build	Run Unit Tests	2026-09-24T13:59:06.6062992Z 	at org.gradle.internal.execution.steps.ResolveInputChangesStep.executeMutable(ResolveInputChangesStep.java:39)
+build	Run Unit Tests	2026-09-24T13:59:06.6064864Z 	at org.gradle.internal.execution.steps.ResolveInputChangesStep.executeMutable(ResolveInputChangesStep.java:28)
+build	Run Unit Tests	2026-09-24T13:59:06.6066305Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+build	Run Unit Tests	2026-09-24T13:59:06.6067326Z 	at org.gradle.internal.execution.steps.BuildCacheStep.executeWithoutCache(BuildCacheStep.java:189)
+build	Run Unit Tests	2026-09-24T13:59:06.6068652Z 	at org.gradle.internal.execution.steps.BuildCacheStep.lambda$execute$1(BuildCacheStep.java:76)
+build	Run Unit Tests	2026-09-24T13:59:06.6069609Z 	at org.gradle.internal.Either$Right.fold(Either.java:176)
+build	Run Unit Tests	2026-09-24T13:59:06.6070517Z 	at org.gradle.internal.execution.caching.CachingState.fold(CachingState.java:62)
+build	Run Unit Tests	2026-09-24T13:59:06.6071637Z 	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:74)
+build	Run Unit Tests	2026-09-24T13:59:06.6072778Z 	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:49)
+build	Run Unit Tests	2026-09-24T13:59:06.6073832Z 	at org.gradle.internal.execution.steps.StoreExecutionStateStep.executeMutable(StoreExecutionStateStep.java:46)
+build	Run Unit Tests	2026-09-24T13:59:06.6075796Z 	at org.gradle.internal.execution.steps.StoreExecutionStateStep.executeMutable(StoreExecutionStateStep.java:35)
+build	Run Unit Tests	2026-09-24T13:59:06.6076779Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+build	Run Unit Tests	2026-09-24T13:59:06.6077840Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.executeBecause(SkipUpToDateStep.java:75)
+build	Run Unit Tests	2026-09-24T13:59:06.6078696Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.lambda$execute$2(SkipUpToDateStep.java:53)
+build	Run Unit Tests	2026-09-24T13:59:06.6079491Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:53)
+build	Run Unit Tests	2026-09-24T13:59:06.6080249Z 	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:35)
+build	Run Unit Tests	2026-09-24T13:59:06.6081271Z 	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:37)
+build	Run Unit Tests	2026-09-24T13:59:06.6082473Z 	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:27)
+build	Run Unit Tests	2026-09-24T13:59:06.6083647Z 	at org.gradle.internal.execution.steps.ResolveMutableCachingStateStep.executeDelegate(ResolveMutableCachingStateStep.java:70)
+build	Run Unit Tests	2026-09-24T13:59:06.6084772Z 	at org.gradle.internal.execution.steps.ResolveMutableCachingStateStep.executeDelegate(ResolveMutableCachingStateStep.java:32)
+build	Run Unit Tests	2026-09-24T13:59:06.6093976Z 	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:69)
+build	Run Unit Tests	2026-09-24T13:59:06.6097832Z 	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:37)
+build	Run Unit Tests	2026-09-24T13:59:06.6099571Z 	at org.gradle.internal.execution.steps.ResolveChangesStep.executeMutable(ResolveChangesStep.java:63)
+build	Run Unit Tests	2026-09-24T13:59:06.6101118Z 	at org.gradle.internal.execution.steps.ResolveChangesStep.executeMutable(ResolveChangesStep.java:34)
+build	Run Unit Tests	2026-09-24T13:59:06.6102442Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+build	Run Unit Tests	2026-09-24T13:59:06.6103772Z 	at org.gradle.internal.execution.steps.ValidateStep$Mutable.executeDelegate(ValidateStep.java:79)
+build	Run Unit Tests	2026-09-24T13:59:06.6105389Z 	at org.gradle.internal.execution.steps.ValidateStep$Mutable.executeDelegate(ValidateStep.java:65)
+build	Run Unit Tests	2026-09-24T13:59:06.6106693Z 	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:105)
+build	Run Unit Tests	2026-09-24T13:59:06.6107936Z 	at org.gradle.internal.execution.steps.ValidateStep$Mutable.execute(ValidateStep.java:65)
+build	Run Unit Tests	2026-09-24T13:59:06.6109776Z 	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.executeMutable(CaptureMutableStateBeforeExecutionStep.java:86)
+build	Run Unit Tests	2026-09-24T13:59:06.6112018Z 	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.execute(CaptureMutableStateBeforeExecutionStep.java:65)
+build	Run Unit Tests	2026-09-24T13:59:06.6114209Z 	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.execute(CaptureMutableStateBeforeExecutionStep.java:45)
+build	Run Unit Tests	2026-09-24T13:59:06.6116743Z 	at org.gradle.internal.execution.steps.SkipEmptyMutableWorkStep.executeWithNonEmptySources(SkipEmptyMutableWorkStep.java:210)
+build	Run Unit Tests	2026-09-24T13:59:06.6118663Z 	at org.gradle.internal.execution.steps.SkipEmptyMutableWorkStep.executeMutable(SkipEmptyMutableWorkStep.java:90)
+build	Run Unit Tests	2026-09-24T13:59:06.6120669Z 	at org.gradle.internal.execution.steps.SkipEmptyMutableWorkStep.executeMutable(SkipEmptyMutableWorkStep.java:53)
+build	Run Unit Tests	2026-09-24T13:59:06.6122129Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+build	Run Unit Tests	2026-09-24T13:59:06.6123833Z 	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsStartedStep.execute(MarkSnapshottingInputsStartedStep.java:38)
+build	Run Unit Tests	2026-09-24T13:59:06.6176340Z 	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.executeMutable(LoadPreviousExecutionStateStep.java:36)
+build	Run Unit Tests	2026-09-24T13:59:06.6178433Z 	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.executeMutable(LoadPreviousExecutionStateStep.java:23)
+build	Run Unit Tests	2026-09-24T13:59:06.6180273Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+build	Run Unit Tests	2026-09-24T13:59:06.6181370Z 	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.executeMutable(HandleStaleOutputsStep.java:77)
+build	Run Unit Tests	2026-09-24T13:59:06.6183102Z 	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.executeMutable(HandleStaleOutputsStep.java:43)
+build	Run Unit Tests	2026-09-24T13:59:06.6184316Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+build	Run Unit Tests	2026-09-24T13:59:06.6185992Z 	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$executeMutable$0(AssignMutableWorkspaceStep.java:34)
+build	Run Unit Tests	2026-09-24T13:59:06.6187651Z 	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:305)
+build	Run Unit Tests	2026-09-24T13:59:06.6189243Z 	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.executeMutable(AssignMutableWorkspaceStep.java:30)
+build	Run Unit Tests	2026-09-24T13:59:06.6191168Z 	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.executeMutable(AssignMutableWorkspaceStep.java:21)
+build	Run Unit Tests	2026-09-24T13:59:06.6192562Z 	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+build	Run Unit Tests	2026-09-24T13:59:06.6193890Z 	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
+build	Run Unit Tests	2026-09-24T13:59:06.6195579Z 	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
+build	Run Unit Tests	2026-09-24T13:59:06.6197332Z 	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
+build	Run Unit Tests	2026-09-24T13:59:06.6199411Z 	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
+build	Run Unit Tests	2026-09-24T13:59:06.6201599Z 	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
+build	Run Unit Tests	2026-09-24T13:59:06.6203418Z 	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
+build	Run Unit Tests	2026-09-24T13:59:06.6204763Z 	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
+build	Run Unit Tests	2026-09-24T13:59:06.6206357Z 	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:56)
+build	Run Unit Tests	2026-09-24T13:59:06.6207564Z 	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:38)
+build	Run Unit Tests	2026-09-24T13:59:06.6208995Z 	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:68)
+build	Run Unit Tests	2026-09-24T13:59:06.6213646Z 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:132)
+build	Run Unit Tests	2026-09-24T13:59:06.6214764Z 	... 61 more
+build	Run Unit Tests	2026-09-24T13:59:06.6214985Z 
+build	Run Unit Tests	2026-09-24T13:59:06.6215003Z 
+build	Run Unit Tests	2026-09-24T13:59:06.6215487Z BUILD FAILED in 4m 24s
+build	Run Unit Tests	2026-09-24T13:59:06.6793944Z Configuration cache entry stored.
+build	Run Unit Tests	2026-09-24T13:59:07.0563027Z ##[error]Process completed with exit code 1.

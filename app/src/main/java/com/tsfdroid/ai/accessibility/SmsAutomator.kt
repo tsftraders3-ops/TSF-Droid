@@ -11,6 +11,9 @@ object SmsAutomator {
         // Wait for screen transition
         delay(1500)
         
+        // UI Idle Settle Barrier: wait out residual layout churn before clicking.
+        service.awaitUiIdle()
+        
         // Common SMS app send button IDs
         val sendButtonIds = listOf(
             "com.google.android.apps.messaging:id/send_message_button",

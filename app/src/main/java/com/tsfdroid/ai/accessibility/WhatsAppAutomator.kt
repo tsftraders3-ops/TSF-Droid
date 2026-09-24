@@ -11,6 +11,10 @@ object WhatsAppAutomator {
         // Wait for WhatsApp chat screen to fully load
         // WhatsApp can be slow to render especially on first launch or when opening via deep link
         delay(3000)
+
+        // UI Idle Settle Barrier: the fixed delay above covers cold-start; this
+        // barrier additionally waits out any residual layout churn before typing.
+        service.awaitUiIdle()
         
         // Verify we're actually on a WhatsApp chat screen by checking for the input field
         var inputFieldFound = false

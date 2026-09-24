@@ -17,6 +17,9 @@ object GenericAppAutomator {
      * giving up after a single immediate try.
      */
     private suspend fun retryUntilTimeout(attempt: () -> Boolean): Boolean {
+        // UI Idle Settle Barrier: wait out animations/loads before the first probe
+        // so taps land on a stable hierarchy instead of a layout that is about to move.
+        OpenDroidAccessibilityService.getInstance()?.awaitUiIdle()
         val deadline = SystemClock.elapsedRealtime() + RETRY_TIMEOUT_MS
         while (true) {
             if (attempt()) return true
@@ -67,13 +70,18 @@ object GenericAppAutomator {
         return service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
     }
 
-    fun scroll(forward: Boolean): Boolean {
+    suspend fun scroll(forward: Boolean): Boolean {
         val service = OpenDroidAccessibilityService.getInstance() ?: return false
+        // Swiping a scrolling/animating list flings past the target row; settle first.
+        service.awaitUiIdle()
         return service.performScroll(forward)
     }
 
-    fun clickCoordinates(x: Float, y: Float): Boolean {
+    suspend fun clickCoordinates(x: Float, y: Float): Boolean {
         val service = OpenDroidAccessibilityService.getInstance() ?: return false
+        // Coordinate taps have no node to re-resolve — a stale tap simply hits
+        // whatever now occupies (x, y). The settle barrier is the only protection.
+        service.awaitUiIdle()
         return service.clickCoordinates(x, y)
     }
 }

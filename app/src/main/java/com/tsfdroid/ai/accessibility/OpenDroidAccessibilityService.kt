@@ -13,6 +13,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -31,6 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -60,6 +62,10 @@ class OpenDroidAccessibilityService : AccessibilityService() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var windowManager: WindowManager? = null
     private var floatingView: FloatingWidgetView? = null
+
+    /** ElapsedRealtime of the last hierarchy mutation event; 0L = none observed yet. */
+    @Volatile
+    private var lastUiActivityElapsedMs: Long = 0L
     private var touchTargetView: TouchTargetView? = null
     private var isButtonAdded = false
     private var isDeviceLocked = false
@@ -127,12 +133,60 @@ class OpenDroidAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            val pkg = event.packageName?.toString()
-            if (!pkg.isNullOrBlank() && pkg != packageName) {
-                habitRoutineEngine.get().recordAppOpen(pkg)
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                noteUiActivity()
+                val pkg = event.packageName?.toString()
+                if (!pkg.isNullOrBlank() && pkg != packageName) {
+                    habitRoutineEngine.get().recordAppOpen(pkg)
+                }
             }
+            // Any content mutation or scroll invalidates tap coordinates that were
+            // computed from a previous hierarchy snapshot. Track both so the idle
+            // settle barrier can wait out animations and async list loads.
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> noteUiActivity()
         }
+    }
+
+    /**
+     * UI Idle Settle Barrier.
+     *
+     * Touch injection into a hierarchy that is still mutating is the root cause
+     * of missed clicks and state desynchronization: the node (or coordinate) was
+     * captured against layout N, but dispatch lands on layout N+1 where the
+     * element moved or no longer exists.
+     *
+     * The barrier treats the accessibility event stream as the change signal:
+     * [AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED] and
+     * [AccessibilityEvent.TYPE_VIEW_SCROLLED] fire for every hierarchy mutation,
+     * so quiescence of that stream for at least [UI_SETTLE_STABLE_MS] means the
+     * view hierarchy hash is unchanged over that window (recomputing a deep hash
+     * per event would add cross-process traversal cost on exactly the frames we
+     * are trying to protect). A [UI_SETTLE_TIMEOUT_MS] hard timeout bounds the
+     * wait so an app that streams events continuously (chats, tickers, progress
+     * bars) degrades to the old no-wait behavior instead of hanging automation.
+     *
+     * @return true when the hierarchy settled before the timeout, false when the
+     *   hard timeout expired (callers should proceed anyway — the wait is best
+     *   effort, never a deadlock).
+     */
+    suspend fun awaitUiIdle(): Boolean {
+        val startElapsed = SystemClock.elapsedRealtime()
+        while (true) {
+            val now = SystemClock.elapsedRealtime()
+            val lastActivity = lastUiActivityElapsedMs
+            // 0L means no change event has been observed since the service
+            // connected: nothing is animating, dispatch immediately.
+            val quietForMs = if (lastActivity == 0L) Long.MAX_VALUE else now - lastActivity
+            if (quietForMs >= UI_SETTLE_STABLE_MS) return true
+            if (now - startElapsed >= UI_SETTLE_TIMEOUT_MS) return false
+            delay(UI_SETTLE_POLL_INTERVAL_MS)
+        }
+    }
+
+    private fun noteUiActivity() {
+        lastUiActivityElapsedMs = SystemClock.elapsedRealtime()
     }
 
     override fun onInterrupt() {
@@ -668,6 +722,14 @@ class OpenDroidAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        /** Hierarchy must be quiet this long before a gesture is dispatched. */
+        const val UI_SETTLE_STABLE_MS = 350L
+
+        /** Hard ceiling on the settle wait; automation must never hang on it. */
+        const val UI_SETTLE_TIMEOUT_MS = 2000L
+
+        private const val UI_SETTLE_POLL_INTERVAL_MS = 50L
+
         @Volatile
         private var instance: OpenDroidAccessibilityService? = null
 

@@ -13,6 +13,10 @@ object TelegramAutomator {
         // Wait for Telegram chat screen to render
         delay(2500)
 
+        // UI Idle Settle Barrier: the fixed delay above covers cold-start; this
+        // barrier additionally waits out any residual layout churn before typing.
+        service.awaitUiIdle()
+
         // Known Telegram chat input view IDs
         val inputIds = listOf(
             "org.telegram.messenger:id/chat_text_edit",
