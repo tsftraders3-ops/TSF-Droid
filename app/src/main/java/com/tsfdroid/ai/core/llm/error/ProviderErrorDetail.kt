@@ -54,7 +54,8 @@ class ProviderErrorDetail private constructor(
         TOGETHER_AI("Together AI"),
         CUSTOM_OPENAI("Custom OpenAI Compatible"),
         COPILOT("Copilot API"),
-        OLLAMA("Ollama")
+        OLLAMA("Ollama"),
+        OPENCODE_ZEN("OpenCode Zen")
     }
 
     companion object {

@@ -34,6 +34,7 @@ object ProviderCatalog {
         ProviderSpec("Together AI", "meta-llama/Llama-3-70b-chat-hf"),
         ProviderSpec("Cohere", "command-r-plus"),
         ProviderSpec("DeepSeek", "deepseek-chat"),
+        ProviderSpec("OpenCode Zen", "x-preview-f-free"),
         ProviderSpec("Copilot API", "gpt-4o"),
         ProviderSpec("Custom OpenAI Compatible", "custom-model"),
         ProviderSpec("Ollama", "llama3"),
