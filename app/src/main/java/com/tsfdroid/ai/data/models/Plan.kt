@@ -10,7 +10,11 @@ data class Plan(
     val estimatedSteps: Int,
     val steps: List<PlanStep>,
     val status: PlanStatus = PlanStatus.PENDING,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /** Intent-segmentation envelope: stable id for this segmented task. */
+    val taskId: String? = null,
+    /** True when the planner segmented a compound (multi-action) request. */
+    val isCompound: Boolean = false
 )
 
 enum class PlanStatus {

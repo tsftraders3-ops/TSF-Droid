@@ -139,6 +139,12 @@ $schema
             - Use "dependsOn" (array of stepId strings) to define sequential execution requirements.
             - Provide a valid alternative fallback action name in the "fallback" field for steps that are network-sensitive or might fail.
 
+            SECTION F2: INTENT SEGMENTATION & POLICY CONFIRMATION (MANDATORY)
+            - Set plan-level "taskId" to a short stable id for this segmented task and "isCompound" to true when the user request contains multiple actions (conjunctions like "and/then/after that").
+            - Set "target" on each step when there is a concrete segmentation target: a package id (e.g. "com.whatsapp"), an element id, or a named on-screen element.
+            - Set "critical": true on any step that transmits an SMS, places a dialer call, modifies system state (Wi-Fi/Bluetooth/brightness/volume/DND/ringer/restart/install/clear-data/file deletion or writing), or triggers a UPI payment intent.
+            - Critical steps ALWAYS require explicit user confirmation before execution. Never attempt to route around this gate by splitting a critical action into non-critical sub-steps.
+
             SECTION G: JSON RESPONSE FORMATS & TEMPLATES
             Always respond in valid JSON format matching one of these templates:
 
@@ -157,6 +163,8 @@ $schema
               "plan": {
                 "goal": "Original user goal",
                 "planId": "generate-a-uuid",
+                "taskId": "generate-a-short-task-id",
+                "isCompound": false,
                 "estimatedSteps": 1,
                 "estimatedDuration": "1 minute",
                 "steps": [
@@ -165,6 +173,8 @@ $schema
                     "order": 1,
                     "description": "Short explanation of this step",
                     "action": "ACTION_NAME_FROM_SCHEMA",
+                    "target": "package-or-element-or-empty",
+                    "critical": false,
                     "params": {
                       "param1": "value1"
                     },

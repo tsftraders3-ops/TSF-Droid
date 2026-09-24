@@ -50,8 +50,40 @@ class AutoApprovalPolicyTest {
     }
 
     @Test
-    fun `YOLO auto-approves even neverAutoApprove actions`() {
-        assertTrue(AutoApprovalPolicy.shouldAutoApprove(AutoMode.YOLO, emptySet(), plan("PAY_UPI", "DELETE_FILE")))
+    fun `YOLO auto-approves neverAutoApprove actions that are not policy-critical`() {
+        // Order/booking/notification actions remain YOLO-runnable; the Phase 2.4
+        // confirmation gate only covers communication/system/UPI-critical actions.
+        assertTrue(
+            AutoApprovalPolicy.shouldAutoApprove(AutoMode.YOLO, emptySet(), plan("ORDER_FOOD", "BOOK_UBER"))
+        )
+    }
+
+    @Test
+    fun `YOLO still requires confirmation for policy-critical actions`() {
+        // Phase 2.4 Policy Confirmation Gate: SMS, calls, system modifications,
+        // and UPI intents always require explicit user confirmation.
+        assertFalse(
+            AutoApprovalPolicy.shouldAutoApprove(AutoMode.YOLO, emptySet(), plan("PAY_UPI", "DELETE_FILE"))
+        )
+        assertFalse(AutoApprovalPolicy.shouldAutoApprove(AutoMode.YOLO, emptySet(), plan("SEND_SMS")))
+        assertFalse(AutoApprovalPolicy.shouldAutoApprove(AutoMode.YOLO, emptySet(), plan("MAKE_CALL")))
+        assertFalse(AutoApprovalPolicy.shouldAutoApprove(AutoMode.YOLO, emptySet(), plan("TOGGLE_WIFI")))
+    }
+
+    @Test
+    fun `planner-flagged critical step blocks auto-approval even for non-critical actions`() {
+        val flagged = listOf(
+            PlanStep(
+                stepId = "s0", order = 0, description = "flagged",
+                action = "WEB_SEARCH", critical = true
+            )
+        )
+        assertFalse(
+            AutoApprovalPolicy.shouldAutoApprove(AutoMode.YOLO, emptySet(), Plan("p1", "test", "1m", 1, flagged))
+        )
+        assertFalse(
+            AutoApprovalPolicy.shouldAutoApprove(AutoMode.AUTO, granted, Plan("p1", "test", "1m", 1, flagged))
+        )
     }
 
     @Test
