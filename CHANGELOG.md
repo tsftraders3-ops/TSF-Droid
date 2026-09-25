@@ -4,6 +4,64 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.0.2 — Zen wire contract + automatic model capabilities (September 25, 2026)
+
+Reverse-engineered the official OpenCode client (installed locally, source
+audited) and the models.dev registry, then rebuilt TSF Droid's OpenCode Zen
+integration to match them exactly. This fixes the `HTTP 403 FreeTierError`
+("OpenCode's free tier can only be used from within OpenCode") that v1.0.1
+users hit — our requests carried none of the provenance the endpoint checks.
+
+### Endpoint fidelity (the 403 fix)
+
+The official client authenticates its keyless tier with the literal API key
+`public` plus a set of identity headers — our v1.0.1 interceptor *stripped*
+the Authorization header and sent a generic User-Agent, which the server
+rejects. Every Zen request now carries:
+
+* `Authorization: Bearer public` (or the user's own Zen key when configured)
+* `User-Agent: opencode/latest/2.0.16/cli` — the official 4-segment shape
+* `x-opencode-project` / `x-opencode-session` / `x-opencode-request` /
+  `x-opencode-client` — minted with the upstream identifier format
+  (26 chars: 12-hex descending-timestamp head + 14 base62 chars)
+
+Verified against the live endpoint and the open-source client source
+(`sst/opencode`): `session/llm/request.ts`, `provider/provider.ts`
+(the `apiKey: "public"` anonymous loader), `schema/identifier.ts`.
+
+### Automatic model capabilities (models.dev registry)
+
+OpenCode never hardcodes model metadata; it reads the community registry at
+models.dev. TSF Droid now does the same via a new probe-suppressed
+`ModelsDevRegistry` (24h TTL, 30min failure cooldown, single-flight):
+
+* **Context windows** per model (e.g. `ling-3.0-flash-fin-free` = 262,144)
+  shown in the model picker as a "262K ctx" subtitle
+* **Reasoning capability** shown as a "reasoning" subtitle
+* **Free/paid status** derived from registry costs — anonymous (keyless) use
+  only ever offers free models, mirroring the official client
+* **Tool-call support** drives the REC (recommended) badge — agents live on
+  tool calls
+* Responses-API-only models (`provider.npm: @ai-sdk/openai`) are excluded
+  from the picker until a Responses transport ships
+
+### Error guidance
+
+A new `FREE_TIER_BLOCKED` error state replaces the misleading "rejected the
+API key": when OpenCode's server still declines anonymous requests, the chat
+error card now says exactly that and points to the optional Zen key field
+(opencode.ai console) or another provider. The Settings key card lists
+OpenCode Zen as **optional** — the keyless tier remains the default path.
+
+### Tests
+
+New gauntlet suite: identifier format + header map pins (`ZenIdentityTest`),
+registry parsing incl. free-cost and protocol filters
+(`ModelsDevRegistryParseTest`), and real-socket wire-contract coverage —
+provenance headers on the request, FreeTierError → actionable error with
+redaction guarantees, and a picker that never empties
+(`OpenCodeZenNetworkTest`).
+
 ## v1.0.1 — OpenCode Zen surfaced in the app (September 24, 2026)
 
 v1.0.0 shipped the OpenCode Zen keyless provider wired into the network and

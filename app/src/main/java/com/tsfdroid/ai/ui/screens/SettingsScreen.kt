@@ -410,11 +410,34 @@ fun SettingsScreen(
                                                     horizontalArrangement = Arrangement.SpaceBetween,
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Text(
-                                                        text = model.displayName,
-                                                        color = TextPrimary,
-                                                        fontSize = 14.sp
-                                                    )
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = model.displayName,
+                                                            color = TextPrimary,
+                                                            fontSize = 14.sp
+                                                        )
+                                                        // Capability subtitle fed by the
+                                                        // models.dev registry (OpenCode Zen).
+                                                        val caps = buildList {
+                                                            model.contextWindow?.takeIf { it > 0 }?.let {
+                                                                add(
+                                                                    if (it >= 1_000_000) {
+                                                                        String.format(java.util.Locale.US, "%.1fM ctx", it / 1_000_000.0)
+                                                                    } else {
+                                                                        "${it / 1000}K ctx"
+                                                                    }
+                                                                )
+                                                            }
+                                                            if (model.reasoning) add("reasoning")
+                                                        }
+                                                        if (caps.isNotEmpty()) {
+                                                            Text(
+                                                                text = caps.joinToString(" · "),
+                                                                color = TextSecondary,
+                                                                fontSize = 10.sp
+                                                            )
+                                                        }
+                                                    }
                                                     Row(
                                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                                                         verticalAlignment = Alignment.CenterVertically
@@ -1589,10 +1612,13 @@ fun SettingsScreen(
                                 modifier = Modifier.padding(top = 16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                // Keyless providers (OpenCode Zen) and URL-based
-                                // local backends have no credential to enter.
+                                // Keyless/URL-based local backends have no
+                                // credential to enter. OpenCode Zen stays listed:
+                                // its free tier works without a key, but an
+                                // optional Zen key unlocks paid models and better
+                                // reliability.
                                 val inputProviders = providers.filter {
-                                    it != "Ollama" && it != "On-Device AI" && it != "OpenCode Zen"
+                                    it != "Ollama" && it != "On-Device AI"
                                 }
                                 inputProviders.forEach { providerName ->
                                     val keyVal = config.apiKeys[providerName] ?: ""
@@ -1600,7 +1626,11 @@ fun SettingsScreen(
                                     SecureApiKeyField(
                                         value = keyVal,
                                         onValueChange = { viewModel.updateApiKey(providerName, it) },
-                                        label = "$providerName API Key"
+                                        label = if (providerName == "OpenCode Zen") {
+                                            "OpenCode Zen API Key (optional — free tier works without)"
+                                        } else {
+                                            "$providerName API Key"
+                                        }
                                     )
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -2578,6 +2608,7 @@ private fun connectionStatusLabel(state: ConnectionTestState?): String = when (s
         "Connected with ${state.model} · ${state.latencyMs} ms"
     is ConnectionTestState.Failed -> when (state.error) {
         LLMError.AuthInvalid -> "Key rejected"
+        LLMError.FreeTierBlocked -> "Free tier unavailable"
         LLMError.AuthMissing -> "Key required"
         LLMError.QuotaExhausted -> "Quota exhausted"
         LLMError.RateLimited -> "Rate limited"

@@ -3,6 +3,7 @@ package com.tsfdroid.ai.core.llm
 import android.util.Log
 import com.tsfdroid.ai.core.llm.OnDeviceModelRegistry
 import com.tsfdroid.ai.core.llm.providers.OpenCodeZenProvider
+import com.tsfdroid.ai.core.llm.providers.ZenModelSpec
 import com.tsfdroid.ai.core.util.UrlUtils
 import com.tsfdroid.ai.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +27,9 @@ data class AIModel(
     val contextWindow: Int? = null,
     val isRecommended: Boolean = false,
     val isPremium: Boolean = false,
-    val isFree: Boolean = false
+    val isFree: Boolean = false,
+    /** Registry-reported reasoning capability (models.dev); drives the picker badge. */
+    val reasoning: Boolean = false
 )
 
 /**
@@ -127,11 +130,9 @@ class ModelFetcher @Inject constructor(
 
                 "OpenCode Zen" -> {
                     // The provider owns discovery (single-flight, 1h TTL, failure
-                    // cooldown), so the picker rides the same cache as chat instead
-                    // of polling /models on its own schedule. The merged chain
-                    // fallback means the picker is never empty, even offline.
-                    val ids = openCodeZenProvider.get().discoverModels()
-                    ModelFetchOutcome.Success(ModelListParsers.opCodeZen(ids, provider))
+                    // cooldown) and the models.dev registry wiring; the picker just
+                    // renders whatever the provider can actually execute.
+                    ModelFetchOutcome.Success(openCodeZenProvider.get().listPickerModels())
                 }
 
                 "Cohere" -> {
@@ -431,24 +432,36 @@ internal object ModelListParsers {
     }
 
     /**
-     * OpenCode Zen hands over an already-merged id list (live discovery + the
-     * static free chain) from [com.tsfdroid.ai.core.llm.providers.OpenCodeZenProvider];
-     * the picker only decorates: drop non-chat endpoints, flag the free tier,
-     * and sort deterministically with the chain head never buried.
+     * OpenCode Zen picker translation. Ids arrive pre-merged (static free chain
+     * + live /models + models.dev registry); [specs] contributes what the
+     * registry knows — display name, context window, reasoning capability —
+     * so the picker shows automatically-maintained capabilities instead of a
+     * hardcoded table. Free models sort first with the chain head on top;
+     * non-chat endpoints never reach the picker.
      */
-    fun opCodeZen(ids: List<String>, provider: String): List<AIModel> {
+    fun opCodeZen(
+        ids: List<String>,
+        specs: Map<String, ZenModelSpec> = emptyMap(),
+        provider: String = "OpenCode Zen"
+    ): List<AIModel> {
         return ids
-            .filter { isChatCapableId(it) }
+            .filter { id -> specs[id]?.chatCompletions ?: isChatCapableId(id) }
             .map { id ->
+                val spec = specs[id]
                 AIModel(
                     id = id,
-                    displayName = formatModelName(id),
+                    displayName = spec?.name ?: formatModelName(id),
                     provider = provider,
-                    isFree = id.endsWith("-free")
+                    contextWindow = spec?.contextWindow,
+                    isFree = spec?.free ?: id.endsWith("-free"),
+                    // An agent lives on tool calls: registry-confirmed tool
+                    // calling is what earns the recommendation badge.
+                    isRecommended = spec?.toolCall == true,
+                    reasoning = spec?.reasoning ?: false
                 )
             }
             .sortedWith(
-                compareByDescending<AIModel> { it.id.endsWith("-free") }
+                compareByDescending<AIModel> { it.isFree }
                     .thenBy {
                         OpenCodeZenProvider.DEFAULT_MODEL_CHAIN.indexOf(it.id)
                             .takeIf { idx -> idx >= 0 } ?: Int.MAX_VALUE

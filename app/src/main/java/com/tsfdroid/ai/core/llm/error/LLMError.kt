@@ -17,6 +17,7 @@ import kotlin.math.roundToLong
 sealed class LLMError(val code: String) {
     data object AuthMissing : LLMError("AUTH_MISSING")
     data object AuthInvalid : LLMError("AUTH_INVALID")
+    data object FreeTierBlocked : LLMError("FREE_TIER_BLOCKED")
     data object QuotaExhausted : LLMError("QUOTA_EXHAUSTED")
     data object RateLimited : LLMError("RATE_LIMITED")
     data object ModelUnavailable : LLMError("MODEL_UNAVAILABLE")
@@ -264,6 +265,9 @@ object LLMErrorMapper {
 
         return when {
             invalidKey && (status == 400 || status == 401 || status == 403) -> LLMError.AuthInvalid
+            // OpenCode Zen's anonymous tier serves only the official client;
+            // its 403 FreeTierError needs different guidance than a bad key.
+            status == 403 && evidence.containsAny("freetiererror", "free tier") -> LLMError.FreeTierBlocked
             status == 401 || status == 403 -> LLMError.AuthInvalid
             // A 429 is retryable rate limiting unless the body specifically
             // reports exhausted credit; generic "quota" wording stays retryable.
