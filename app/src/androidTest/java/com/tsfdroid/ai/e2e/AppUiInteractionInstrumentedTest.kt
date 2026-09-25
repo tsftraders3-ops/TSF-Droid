@@ -127,16 +127,18 @@ class AppUiInteractionInstrumentedTest {
     }
 
     private fun waitTextContains(text: String, ms: Long): Boolean =
-        device.wait(Until.hasObject(By.textContains(text)), ms) != null
+        device.wait(Until.hasObject(By.textContains(text)), ms) == true
 
     private fun clickTextContains(text: String, ms: Long = 10_000): Boolean {
-        if (device.wait(Until.hasObject(By.textContains(text)), ms) == null) return false
+        // Until.hasObject conditions yield a non-null Boolean: compare against
+        // true, never against null (a timed-out wait would otherwise pass).
+        if (device.wait(Until.hasObject(By.textContains(text)), ms) != true) return false
         return runCatching { device.findObject(By.textContains(text))?.click() != null }
             .getOrDefault(false)
     }
 
     private fun clickDesc(desc: String, ms: Long = 10_000): Boolean {
-        if (device.wait(Until.hasObject(By.desc(desc)), ms) == null) return false
+        if (device.wait(Until.hasObject(By.desc(desc)), ms) != true) return false
         return runCatching { device.findObject(By.desc(desc))?.click() != null }
             .getOrDefault(false)
     }
@@ -222,18 +224,22 @@ class AppUiInteractionInstrumentedTest {
     @Test(timeout = 600_000)
     fun fullAppJourney_onboard_tabs_settings_twoLiveChats() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            // ---- 1. Launch: fresh install lands on onboarding ----
-            val onboarding = device.wait(Until.hasObject(By.textContains("Enter your name")), 45_000)
-            if (onboarding != null) {
-                shoot("01_onboarding_about_you")
-                assertTrue("name field typing failed", typeInto("Enter your name", "TSF Tester"))
-                dumpHierarchy("after_name_typed")
+            // ---- 1. Launch: capture whatever the first screen actually is ----
+            val onboarding =
+                device.wait(Until.hasObject(By.textContains("Enter your name")), 45_000) == true
+            shoot("00_first_screen")
+            dumpHierarchy("first_screen")
+            if (onboarding) {
+                val okName = typeInto("Enter your name", "TSF Tester")
+                dumpHierarchy("after_name_attempt")
+                assertTrue("name field typing failed", okName)
                 // The IME is up after typing; close it so the birthday field
                 // and "Let's Go" are clickable (back closes the IME first).
                 device.pressBack()
                 device.waitForIdle(1_000)
-                assertTrue("birthday field typing failed", typeInto("MM/DD/YYYY", "01/15/2000"))
-                dumpHierarchy("after_birthday_typed")
+                val okBirth = typeInto("MM/DD/YYYY", "01/15/2000")
+                dumpHierarchy("after_birthday_attempt")
+                assertTrue("birthday field typing failed", okBirth)
                 // IME up again after the birthday typing; close it so
                 // "Let's Go" is clickable, and leave the filled-form capture.
                 device.pressBack()
@@ -263,7 +269,7 @@ class AppUiInteractionInstrumentedTest {
             // ---- 2. Dashboard reached: Chat tab is the default ----
             assertTrue(
                 "dashboard (Chat tab) never appeared after onboarding",
-                device.wait(Until.hasObject(By.text("Chat")), 30_000) != null
+                device.wait(Until.hasObject(By.text("Chat")), 30_000) == true
             )
             device.waitForIdle(5_000)
             shoot("05_dashboard_chat_empty")

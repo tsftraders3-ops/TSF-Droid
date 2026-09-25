@@ -80,8 +80,11 @@ jobs:
             # the launch smoke captures the first usable UI state; the UI
             # journey drives onboarding, every tab, Settings and TWO live
             # chats, leaving a screenshot of each step on the device.
+            # Tests run via `am instrument` (NOT connectedAndroidTest) so the
+            # app stays installed while the screenshots are pulled — AGP's
+            # connected task uninstalls both APKs before any later step runs.
             # NOTE: single line — the runner mangles backslash continuations.
-            ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace -Pandroid.testInstrumentationRunnerArguments.class=com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest; code=$?; mkdir -p e2e-screens; adb exec-out run-as com.tsfdroid.ai ls -la files/e2e-screens 2>&1 | head -25; timeout 60 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/e2e-screens/. e2e-screens/ 2>/dev/null; timeout 90 adb exec-out run-as com.tsfdroid.ai tar cf - files/e2e-screens 2>/dev/null | tar xf - -C e2e-screens --strip-components=2 || true; ls -la e2e-screens | head -25; exit $code
+            ./gradlew installDebug installDebugAndroidTest --no-daemon --stacktrace || exit 1; timeout 1200 adb shell am instrument -w -e class com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner; code=$?; mkdir -p e2e-screens; timeout 60 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/e2e-screens/. e2e-screens/ 2>/dev/null; timeout 90 adb exec-out run-as com.tsfdroid.ai tar cf - files/e2e-screens 2>/dev/null | tar xf - -C e2e-screens --strip-components=2 || true; ls -la e2e-screens | head -30; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb uninstall com.tsfdroid.ai.test >/dev/null 2>&1; exit $code
 
       - name: Capture screen on failure
         if: failure()
