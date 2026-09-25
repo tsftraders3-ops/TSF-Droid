@@ -11,6 +11,7 @@ import org.json.JSONObject
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.annotation.VisibleForTesting
 
 /**
  * One model's capabilities as published by the community registry
@@ -24,8 +25,21 @@ data class ZenModelSpec(
     val maxOutput: Int,
     val reasoning: Boolean,
     val toolCall: Boolean,
+    /**
+     * Named reasoning effort levels the model exposes, verbatim from the
+     * registry — `variants` keys when present (e.g. "high", "low"), or
+     * ["toggle"] when the model exposes a simple reasoning on/off switch.
+     * Empty when the model has no levelled reasoning control.
+     */
+    val reasoningLevels: List<String>,
     /** True when the model costs nothing at the registry (input AND output are 0). */
     val free: Boolean,
+    /**
+     * Registry-flagged retired model (`status: "deprecated"`). Deprecated
+     * models are kept parseable but excluded from the picker and the model
+     * hierarchy, mirroring the official client's own filtering.
+     */
+    val deprecated: Boolean,
     /**
      * True when the model speaks the OpenAI chat-completions dialect, which is
      * the protocol TSF Droid's Zen transport implements. Registry entries whose
@@ -83,7 +97,7 @@ class ModelsDevRegistry @Inject constructor(
     }
 
     private fun fetchRegistry(): Map<String, ZenModelSpec> {
-        val request = Request.Builder().url(REGISTRY_URL).get().build()
+        val request = Request.Builder().url(registryUrl).get().build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("models.dev HTTP ${response.code}")
             val body = response.body.string()
@@ -91,6 +105,10 @@ class ModelsDevRegistry @Inject constructor(
             return parse(body)
         }
     }
+
+    /** Test seam: registry tests redirect the URL to a local MockWebServer. */
+    @VisibleForTesting
+    internal var registryUrl: String = REGISTRY_URL
 
     companion object {
         private const val TAG = "ModelsDevRegistry"
@@ -134,8 +152,10 @@ class ModelsDevRegistry @Inject constructor(
                         maxOutput = limit.optInt("output").takeIf { it > 0 } ?: 0,
                         reasoning = obj.optBoolean("reasoning"),
                         toolCall = obj.optBoolean("tool_call"),
+                        reasoningLevels = parseReasoningLevels(obj),
                         free = inputCost == 0.0 && outputCost == 0.0,
                         chatCompletions = npm == null || npm == CHAT_COMPLETIONS_SDK,
+                        deprecated = obj.optString("status") == STATUS_DEPRECATED,
                         inputModalities = obj.optJSONObject("modalities")
                             ?.optJSONArray("input")
                             ?.let { array -> (0 until array.length()).mapNotNull { array.optString(it) } }
@@ -146,5 +166,29 @@ class ModelsDevRegistry @Inject constructor(
         }
 
         private const val CHAT_COMPLETIONS_SDK = "@ai-sdk/openai-compatible"
+        private const val STATUS_DEPRECATED = "deprecated"
+
+        /**
+         * Reasoning-level extraction, mirroring how the OpenCode client
+         * surfaces per-model reasoning controls: named `variants` win
+         * (each key is an effort level), otherwise a `reasoning_options`
+         * entry of type "toggle" collapses to the single "toggle" level.
+         * Anything else means the model has no levelled control.
+         */
+        internal fun parseReasoningLevels(model: JSONObject): List<String> {
+            val variants = model.optJSONObject("variants")
+            if (variants != null) {
+                val keys = variants.keys().asSequence().toList()
+                if (keys.isNotEmpty()) return keys.sorted()
+            }
+            val options = model.optJSONArray("reasoning_options")
+            if (options != null) {
+                for (i in 0 until options.length()) {
+                    val option = options.optJSONObject(i) ?: continue
+                    if (option.optString("type") == "toggle") return listOf("toggle")
+                }
+            }
+            return emptyList()
+        }
     }
 }

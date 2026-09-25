@@ -29,7 +29,13 @@ data class AIModel(
     val isPremium: Boolean = false,
     val isFree: Boolean = false,
     /** Registry-reported reasoning capability (models.dev); drives the picker badge. */
-    val reasoning: Boolean = false
+    val reasoning: Boolean = false,
+    /**
+     * Registry-reported reasoning effort levels (models.dev variants /
+     * reasoning_options) — the same automatic metadata the OpenCode client
+     * reads. Empty when the model has no levelled reasoning control.
+     */
+    val reasoningLevels: List<String> = emptyList()
 )
 
 /**
@@ -457,7 +463,8 @@ internal object ModelListParsers {
                     // An agent lives on tool calls: registry-confirmed tool
                     // calling is what earns the recommendation badge.
                     isRecommended = spec?.toolCall == true,
-                    reasoning = spec?.reasoning ?: false
+                    reasoning = spec?.reasoning ?: false,
+                    reasoningLevels = spec?.reasoningLevels.orEmpty()
                 )
             }
             .sortedWith(

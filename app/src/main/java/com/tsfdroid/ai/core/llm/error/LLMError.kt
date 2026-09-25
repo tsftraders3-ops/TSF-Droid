@@ -160,7 +160,7 @@ object LLMErrorMapper {
             model = model,
             status = httpStatus,
             retryable = category == LLMError.RateLimited ||
-                category == LLMError.ServerError ||
+                (category == LLMError.ServerError && httpStatus != 426) ||
                 httpStatus == 408,
             retryAfterMillis = parseRetryAfter(
                 headers.entries.firstOrNull { it.key.equals("Retry-After", ignoreCase = true) }?.value
@@ -262,12 +262,39 @@ object LLMErrorMapper {
             "model_deprecated",
             "not_found_error"
         )
+        // OpenCode Zen reports a retired, disabled, or non-hierarchical model
+        // as HTTP 401 with `type=ModelError` ("Model x is not supported") —
+        // a model-level rejection, never a key problem. v1.0.x classified
+        // every 401 as AuthInvalid and told users to fix an API key that
+        // did not exist.
+        val zenModelRejection = evidence.containsAny(
+            "modelerror",
+            "not supported",
+            "no provider available",
+            "model disabled",
+            "trial ended"
+        )
+        // Region-gated models answer 403 type=RegionError: the model cannot
+        // serve THIS user, so the actionable category is model-unavailable,
+        // not a key problem.
+        val zenRegionRejection = evidence.containsAny(
+            "regionerror",
+            "not available in your region"
+        )
 
         return when {
             invalidKey && (status == 400 || status == 401 || status == 403) -> LLMError.AuthInvalid
             // OpenCode Zen's anonymous tier serves only the official client;
             // its 403 FreeTierError needs different guidance than a bad key.
             status == 403 && evidence.containsAny("freetiererror", "free tier") -> LLMError.FreeTierBlocked
+            status == 401 && zenModelRejection -> LLMError.ModelUnavailable
+            status == 403 && zenRegionRejection -> LLMError.ModelUnavailable
+            // The endpoint enforces a minimum client version (426 with
+            // type=UpgradeRequired when the pinned CLI version ages out).
+            // Retrying cannot succeed until the client version is bumped,
+            // so the exception is explicitly non-retryable below.
+            provider == ProviderErrorDetail.Provider.OPENCODE_ZEN &&
+                (status == 426 || evidence.containsAny("upgraderequired")) -> LLMError.ServerError
             status == 401 || status == 403 -> LLMError.AuthInvalid
             // A 429 is retryable rate limiting unless the body specifically
             // reports exhausted credit; generic "quota" wording stays retryable.

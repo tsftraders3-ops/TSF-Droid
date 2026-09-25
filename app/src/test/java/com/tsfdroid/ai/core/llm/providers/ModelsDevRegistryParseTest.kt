@@ -59,6 +59,15 @@ class ModelsDevRegistryParseTest {
             "limit": {"context": 1048576, "output": 65536},
             "cost": {"input": 0, "output": 0}
           },
+          "qwen3.6-plus-free": {
+            "id": "qwen3.6-plus-free",
+            "name": "Qwen3.6 Plus Free",
+            "reasoning": true,
+            "tool_call": true,
+            "status": "deprecated",
+            "limit": {"context": 262144, "output": 65536},
+            "cost": {"input": 0, "output": 0}
+          },
           "broken-entry": {
             "id": "broken-entry",
             "name": "No Context Limit"
@@ -73,7 +82,7 @@ class ModelsDevRegistryParseTest {
     fun `context windows and reasoning come from the registry, not a hardcoded table`() {
         val specs = ModelsDevRegistry.parse(registryBody)
 
-        assertEquals(3, specs.size)
+        assertEquals(4, specs.size)
         val ling = specs.getValue("ling-3.0-flash-fin-free")
         assertEquals(262144, ling.contextWindow)
         assertEquals(32768, ling.maxOutput)
@@ -105,6 +114,43 @@ class ModelsDevRegistryParseTest {
     fun `entries without a usable context limit are dropped`() {
         val specs = ModelsDevRegistry.parse(registryBody)
         assertNull(specs["broken-entry"])
+    }
+
+    @Test
+    fun `deprecated models are flagged so the picker and chain can drop them`() {
+        val specs = ModelsDevRegistry.parse(registryBody)
+
+        val retired = specs.getValue("qwen3.6-plus-free")
+        assertTrue("a deprecated model must be flagged", retired.deprecated)
+        assertFalse(specs.getValue("ling-3.0-flash-fin-free").deprecated)
+    }
+
+    @Test
+    fun `reasoning levels come from reasoning_options toggle or named variants`() {
+        val specs = ModelsDevRegistry.parse(registryBody)
+
+        // ling advertises a reasoning toggle in the live registry
+        assertEquals(listOf("toggle"), specs.getValue("ling-3.0-flash-fin-free").reasoningLevels)
+        // paid models without any reasoning control have no levels
+        assertTrue(specs.getValue("gpt-5.4").reasoningLevels.isEmpty())
+    }
+
+    @Test
+    fun `named variants keys become the reasoning effort levels`() {
+        val specs = ModelsDevRegistry.parse(
+            """
+            {"opencode": {"id": "opencode", "npm": "@ai-sdk/openai-compatible", "models": {
+              "reasoning-model": {
+                "id": "reasoning-model", "name": "Reasoning Model",
+                "limit": {"context": 100000, "output": 10000},
+                "reasoning": true, "reasoning_options": [{"type": "toggle"}],
+                "variants": {"high": {}, "low": {}, "medium": {}}
+              }
+            }}}
+            """.trimIndent()
+        )
+
+        assertEquals(listOf("high", "low", "medium"), specs.getValue("reasoning-model").reasoningLevels)
     }
 
     @Test

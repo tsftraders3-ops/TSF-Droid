@@ -15,28 +15,40 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * End-to-end coverage of the Zen wire contract against a real socket: the
- * provenance headers the official OpenCode client sends, the anonymous
- * "public" credential, and the FreeTierError mapping users saw in v1.0.1.
+ * End-to-end coverage of the Zen wire contract against a real socket:
+ * the provenance headers the official OpenCode client sends, the anonymous
+ * "public" credential, the free-tier body contract (stream + harness tools)
+ * whose absence caused the v1.0.1 keyless `403 FreeTierError`, and the
+ * model-level fallback whose absence caused the `401 ModelError`
+ * ("API key rejected" on a retired chain model).
+ *
+ * The models.dev registry is pointed at the mock server so every test is
+ * hermetic; tests that don't need registry data enqueue a failure for the
+ * registry fetch and rely on the static chain.
  */
 class OpenCodeZenNetworkTest {
 
     private val server = MockWebServer().also { it.start(InetAddress.getByName("127.0.0.1"), 0) }
+    private val registry = ModelsDevRegistry(OkHttpClient()).apply {
+        registryUrl = server.url("/registry").toString()
+    }
     private val provider = OpenCodeZenProvider(
         OkHttpClient(),
         newSettingsRepository(),
-        ModelsDevRegistry(OkHttpClient())
+        registry
     ).apply { endpoint = server.url("/v1").toString() }
 
     private val prompt = "the-user-prompt-must-not-leak"
@@ -48,24 +60,85 @@ class OpenCodeZenNetworkTest {
 
     @Test
     fun `requests carry the official client provenance and anonymous credential`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
         server.enqueue(successBody())
 
         provider.complete(newRequest())
 
-        val recorded = server.takeRequest()
-        assertEquals("Bearer public", recorded.headers["Authorization"])
-        assertEquals("cli", recorded.headers["x-opencode-client"])
-        assertEquals(ZenIdentity.UA, recorded.headers["User-Agent"])
+        server.takeRequest() // registry
+        server.takeRequest() // /models
+        val posted = server.takeRequest()
+        assertEquals("Bearer public", posted.headers["Authorization"])
+        assertEquals("cli", posted.headers["x-opencode-client"])
+        assertEquals(ZenIdentity.UA, posted.headers["User-Agent"])
 
-        val project = recorded.headers["x-opencode-project"]
+        val project = posted.headers["x-opencode-project"]
         assertNotNull(project)
         assertEquals(26, project!!.length)
-        assertTrue(recorded.headers["x-opencode-session"]!!.startsWith("ses_"))
-        assertTrue(recorded.headers["x-opencode-request"]!!.startsWith("msg_"))
+        assertTrue(posted.headers["x-opencode-session"]!!.startsWith("ses_"))
+        assertTrue(posted.headers["x-opencode-request"]!!.startsWith("msg_"))
+    }
+
+    @Test
+    fun `the free-tier body contract is satisfied - streaming plus read and shell harness tools`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(successBody())
+
+        provider.complete(newRequest())
+
+        server.takeRequest() // registry
+        server.takeRequest() // /models
+        val posted = server.takeRequest()
+        val body = posted.body!!.utf8()
+        val json = com.google.gson.JsonParser.parseString(body).asJsonObject
+        // The endpoint answers streaming requests only on the anonymous tier.
+        assertEquals(true, json.get("stream").asBoolean)
+        // The harness tool names the free tier gates on.
+        val toolNames = json.getAsJsonArray("tools")
+            .map { it.asJsonObject.getAsJsonObject("function").get("name").asString }
+        assertTrue("tools must include 'read': $toolNames", "read" in toolNames)
+        assertTrue("tools must include 'shell': $toolNames", "shell" in toolNames)
+        // response_format is never sent: the official client does not, and
+        // free-tier models reject it.
+        assertFalse(body.contains("response_format"))
+    }
+
+    @Test
+    fun `chunks with explicit null usage and choices do not break the stream`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body(
+                    """
+                    data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"}}],"usage":null}
+
+                    data: {"choices":null}
+
+                    data: {"choices":[{"index":0,"delta":{"content":"!"}}]}
+
+                    data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}
+
+                    data: [DONE]
+
+                    """.trimIndent()
+                )
+                .build()
+        )
+
+        val response = provider.complete(newRequest())
+
+        assertEquals("Hi!", response.content)
+        assertEquals(2, response.tokensUsed)
     }
 
     @Test
     fun `a 403 FreeTierError maps to the actionable free-tier error, not a bad-key error`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
         server.enqueue(
             MockResponse.Builder()
                 .code(403)
@@ -89,8 +162,124 @@ class OpenCodeZenNetworkTest {
     }
 
     @Test
+    fun `a retired model walks the hierarchy instead of failing the request`() = runBlocking {
+        // 1. Registry fetch fails -> empty specs.
+        server.enqueue(registryDown())
+        // 2. /models discovery fails -> the static free chain bridges it.
+        server.enqueue(MockResponse.Builder().code(503).body("down").build())
+        // 3. The chain head is retired: Zen reports 401 type=ModelError.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(401)
+                .body("""{"type":"error","error":{"type":"ModelError","message":"Model ${OpenCodeZenProvider.DEFAULT_MODEL_CHAIN[0]} is not supported"}}""")
+                .build()
+        )
+        // 4. The next link in the chain answers.
+        server.enqueue(successBody())
+
+        val response = provider.complete(newRequest(model = null))
+
+        assertEquals(OpenCodeZenProvider.DEFAULT_MODEL_CHAIN[1], response.model)
+        assertEquals("ok", response.content)
+        // The successful POST must be the fourth recorded request.
+        server.takeRequest() // registry
+        server.takeRequest() // /models
+        server.takeRequest() // failed head
+        val success = server.takeRequest()
+        val body = success.body!!.utf8()
+        assertTrue("the retry must target the next chain model", body.contains(OpenCodeZenProvider.DEFAULT_MODEL_CHAIN[1]))
+    }
+
+    @Test
+    fun `a region-blocked model walks the hierarchy instead of demanding an API key`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(MockResponse.Builder().code(503).body("down").build())
+        // RegionError rides on 403 — historically misread as a key problem.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(403)
+                .body("""{"type":"error","error":{"type":"RegionError","message":"This model is not available in your region"}}""")
+                .build()
+        )
+        server.enqueue(successBody())
+
+        val response = provider.complete(newRequest(model = null))
+
+        assertEquals(OpenCodeZenProvider.DEFAULT_MODEL_CHAIN[1], response.model)
+        assertEquals("ok", response.content)
+    }
+
+    @Test
+    fun `streamed deltas are aggregated with usage from the final chunk`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(streamBody())
+
+        val response = provider.complete(newRequest())
+
+        assertEquals("Hello world", response.content)
+        assertEquals(42, response.tokensUsed)
+    }
+
+    @Test
+    fun `streamComplete forwards content deltas as they arrive`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(streamBody())
+
+        val deltas = provider.streamComplete(newRequest()).toList()
+
+        assertEquals(listOf("Hello ", "world"), deltas)
+    }
+
+    @Test
+    fun `reasoning deltas are never emitted as answer content`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(reasoningStreamBody())
+
+        val deltas = provider.streamComplete(newRequest()).toList()
+
+        assertEquals(listOf("Answer"), deltas)
+    }
+
+    @Test
+    fun `a tool-call-only stream surfaces as a malformed response, not a network error`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body(
+                    """
+                    data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"shell","arguments":"{\"command\":\"ls\"}"}}]}}]}
+
+                    data: {"choices":[{"index":0,"finish_reason":"tool_calls","delta":{}}]}
+
+                    data: [DONE]
+
+                    """.trimIndent()
+                )
+                .build()
+        )
+
+        val exception = requireNotNull(
+            runCatching { provider.complete(newRequest()) }.exceptionOrNull()
+        ) { "a tool-call-only stream must not succeed" }
+
+        assertTrue(
+            "got ${exception::class.simpleName}",
+            exception is com.tsfdroid.ai.core.llm.error.LLMException
+        )
+        val llm = exception as com.tsfdroid.ai.core.llm.error.LLMException
+        assertEquals(com.tsfdroid.ai.core.llm.error.LLMError.MalformedResponse, llm.error)
+        assertFalse("a tool-call answer is not a network problem", llm.retryable)
+    }
+
+    @Test
     fun `the model picker never empties when discovery fails`() = runBlocking {
-        // /models fails; the static chain must bridge the outage.
+        // Registry + /models fail; the static chain must bridge the outage.
+        server.enqueue(registryDown())
         server.enqueue(MockResponse.Builder().code(503).body("down").build())
 
         val models = provider.listPickerModels()
@@ -98,19 +287,61 @@ class OpenCodeZenNetworkTest {
         assertEquals(OpenCodeZenProvider.DEFAULT_MODEL_CHAIN, models.map { it.id })
     }
 
+    private fun registryDown() = MockResponse.Builder().code(503).body("registry down").build()
+
+    private fun modelsDown() = MockResponse.Builder().code(503).body("models down").build()
+
+    /** Verified wire shape: SSE chat-completion stream, usage in the final chunk. */
     private fun successBody() = MockResponse.Builder()
         .code(200)
         .body(
-            """{"id":"1","object":"chat.completion","created":1,"model":"x-preview-f-free",
-               "choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
-               "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}""".trimIndent()
+            """
+            data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"ok"}}]}
+
+            data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":30,"completion_tokens":2,"total_tokens":32}}
+
+            data: [DONE]
+
+            """.trimIndent()
         )
         .build()
 
-    private fun newRequest() = LLMRequest(
+    /** Multi-delta stream with usage in the final chunk. */
+    private fun streamBody() = MockResponse.Builder()
+        .code(200)
+        .body(
+            """
+            data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"Hello "}}]}
+
+            data: {"choices":[{"index":0,"delta":{"content":"world"}}]}
+
+            data: {"choices":[],"usage":{"prompt_tokens":30,"completion_tokens":12,"total_tokens":42}}
+
+            data: [DONE]
+
+            """.trimIndent()
+        )
+        .build()
+
+    /** A stream where the model reasons before answering; reasoning is not content. */
+    private fun reasoningStreamBody() = MockResponse.Builder()
+        .code(200)
+        .body(
+            """
+            data: {"choices":[{"index":0,"delta":{"reasoning":"thinking hard"}}]}
+
+            data: {"choices":[{"index":0,"delta":{"content":"Answer"}}]}
+
+            data: [DONE]
+
+            """.trimIndent()
+        )
+        .build()
+
+    private fun newRequest(model: String? = "x-preview-f-free") = LLMRequest(
         systemPrompt = "you are a test",
         messages = listOf(ChatMessage("1", prompt, ChatMessage.Sender.USER)),
-        model = "x-preview-f-free"
+        model = model
     )
 
     private fun newSettingsRepository() = SettingsRepository(

@@ -7,8 +7,9 @@ import com.tsfdroid.ai.core.llm.LLMProvider
 import com.tsfdroid.ai.core.llm.LLMRequest
 import com.tsfdroid.ai.core.llm.LLMResponse
 import com.tsfdroid.ai.core.llm.ModelListParsers
-import com.tsfdroid.ai.core.llm.ResponseFormat
+import com.tsfdroid.ai.core.llm.PromptBudget
 import com.tsfdroid.ai.core.llm.error.LLMError
+import com.tsfdroid.ai.core.llm.error.LLMErrorMapper
 import com.tsfdroid.ai.core.llm.error.LLMException
 import com.tsfdroid.ai.core.llm.error.ProviderErrorDetail
 import com.tsfdroid.ai.core.llm.error.RedactedDetail
@@ -18,8 +19,8 @@ import com.tsfdroid.ai.core.llm.toOpenAIMessages
 import com.tsfdroid.ai.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -27,7 +28,10 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.BufferedReader
 import java.io.IOException
+import java.io.InputStreamReader
+import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import javax.inject.Singleton
 import androidx.annotation.VisibleForTesting
@@ -36,23 +40,38 @@ import androidx.annotation.VisibleForTesting
  * Keyless cloud provider backed by the OpenCode Zen free tier
  * (https://opencode.ai/zen).
  *
- * Design notes (verified against the open-source OpenCode client and the
- * live endpoint):
- *  - Anonymous access authenticates with the literal key "public" plus the
- *    CLI's identity headers; see [ZenIdentity] and [OpenCodeZenInterceptor].
- *    A user-supplied Zen key (Settings -> Provider API Keys) replaces it and
- *    unlocks paid models.
- *  - Model hierarchy: when the caller does not pin a model, requests start on
- *    [DEFAULT_MODEL_CHAIN] head and walk the chain when an endpoint reports a
- *    model-level rejection, so a retired free model never bricks the agent.
- *  - Capabilities (context window, reasoning, tool-call, free/paid) come from
- *    the models.dev registry — the same catalog the OpenCode client uses —
- *    via [ModelsDevRegistry]; nothing is hardcoded per model.
- *  - Dynamic /models discovery: single-flight + 1h TTL + 10min failure
- *    cooldown (probe suppression guard - no https endpoint polling loops).
- *  - Anonymous requests only offer free models (input AND output cost 0),
- *    mirroring the official client, which deletes paid entries when no key
- *    is configured.
+ * Transport contract, verified against the live endpoint by replaying the
+ * exact bytes the official OpenCode CLI (v2.0.16) sends:
+ *
+ *  1. Provenance headers: `Authorization: Bearer public` (the literal key
+ *     "public" is the anonymous credential), a 4-segment
+ *     `opencode/<channel>/<version>/<client>` User-Agent, and a
+ *     `ses_`-prefixed session identifier. See [ZenIdentity] and
+ *     [OpenCodeZenInterceptor].
+ *  2. Harness tool contract: the free tier only serves requests that carry
+ *     a `tools` array containing function tools **named `read` and
+ *     `shell`** — the official client's harness always includes them.
+ *     Requests without them are rejected with `403 FreeTierError`
+ *     ("free tier can only be used from within OpenCode") no matter how
+ *     perfect the headers are; this was the v1.0.1 keyless failure.
+ *  3. Streaming: the endpoint answers only `stream: true` requests on the
+ *     anonymous tier (`stream: false` is also gated behind FreeTierError),
+ *     so every completion is transported as an SSE chat-completion stream
+ *     and reassembled — [complete] aggregates the deltas into one
+ *     [LLMResponse], [streamComplete] forwards them as they arrive.
+ *  4. Model hierarchy: when the caller does not pin a model, requests
+ *     start on the [DEFAULT_MODEL_CHAIN] head and walk the chain when the
+ *     endpoint reports a model-level rejection (`401 type=ModelError` =
+ *     retired/disabled model — NOT an authentication problem), so a
+ *     renamed free model never bricks the agent.
+ *  5. Capabilities (context window, reasoning, tool-call, free/paid) come
+ *     from the models.dev registry — the same catalog the OpenCode client
+ *     uses — via [ModelsDevRegistry]; nothing is hardcoded per model.
+ *  6. Dynamic /models discovery: single-flight + 1h TTL + 10min failure
+ *     cooldown (probe suppression guard — no endpoint polling loops).
+ *  7. Anonymous requests only offer free models (input AND output cost 0),
+ *     mirroring the official client, which deletes paid entries when no
+ *     key is configured.
  */
 @Singleton
 class OpenCodeZenProvider @Inject constructor(
@@ -129,7 +148,7 @@ class OpenCodeZenProvider @Inject constructor(
 
         for ((index, model) in chain.withIndex()) {
             try {
-                return executeCompletion(request, model, startTime)
+                return executeStreamingCompletion(request, model, startTime, onDelta = null)
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
@@ -145,22 +164,77 @@ class OpenCodeZenProvider @Inject constructor(
         throw lastError
     }
 
-    private suspend fun executeCompletion(
+    override fun streamComplete(request: LLMRequest): Flow<String> = channelFlow {
+        val startTime = System.currentTimeMillis()
+        refreshApiKeySnapshot()
+
+        val chain = resolveModelChain(request)
+        var lastError: Throwable = IOException("OpenCode Zen: no model attempted")
+        var emittedAny = false
+
+        for ((index, model) in chain.withIndex()) {
+            try {
+                executeStreamingCompletion(request, model, startTime) { delta ->
+                    emittedAny = true
+                    // channelFlow.send is coroutine-context safe: deltas are
+                    // pumped from the OkHttp IO dispatcher.
+                    send(delta)
+                }
+                return@channelFlow
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                lastError = throwable
+                if (throwable is LLMException && throwable.error == LLMError.FreeTierBlocked) throw throwable
+                // Walking after a partial stream would duplicate text: once
+                // deltas reached the UI, a failure is terminal.
+                if (emittedAny || !isModelLevelRejection(throwable) || index == chain.lastIndex) {
+                    throw throwable
+                }
+            }
+        }
+        throw lastError
+    }
+
+    /**
+     * The one Zen transport: POST a streaming chat-completion request with
+     * the harness tool contract and pump the SSE body.
+     *
+     * When [onDelta] is null the stream is aggregated and a single
+     * [LLMResponse] is returned; otherwise every content delta is forwarded
+     * as it arrives (real streaming — not the v1.0.1 word-by-word replay)
+     * and the returned response carries the assembled text.
+     */
+    private suspend fun executeStreamingCompletion(
         request: LLMRequest,
         selectedModel: String,
-        startTime: Long
+        startTime: Long,
+        onDelta: (suspend (String) -> Unit)?
     ): LLMResponse = withContext(Dispatchers.IO) {
         val messagesList = request.messages.toOpenAIMessages(request.systemPrompt)
 
-        val requestBodyMap = mutableMapOf<String, Any>(
+        // Context-window-aware output clamp: models.dev publishes each
+        // model's limit.context/limit.output — the same numbers the OpenCode
+        // client uses — so the requested output budget is clamped to what
+        // actually fits alongside the prompt instead of relying on the
+        // endpoint to reject oversize requests.
+        val spec = runCatching { registry.specs()[selectedModel] }.getOrNull()
+        val effectiveMaxTokens = clampOutputBudget(request, spec)
+
+        val requestBodyMap = linkedMapOf<String, Any>(
             "model" to selectedModel,
             "messages" to messagesList,
             "temperature" to request.temperature,
-            "max_tokens" to request.maxTokens
+            "max_tokens" to effectiveMaxTokens,
+            // The anonymous tier only answers streaming requests.
+            "stream" to true,
+            "stream_options" to mapOf("include_usage" to true),
+            // The harness tool contract the free tier gates on. App-defined
+            // tools ride along after it (verified: extra tools are accepted).
+            "tools" to buildToolsPayload(request)
         )
-        if (request.responseFormat == ResponseFormat.JSON) {
-            requestBodyMap["response_format"] = mapOf("type" to "json_object")
-        }
+        // Note: response_format is deliberately NOT sent — the official
+        // client never does, and free-tier models reject the field.
 
         val httpRequest = Request.Builder()
             .url("$endpoint/chat/completions")
@@ -169,47 +243,99 @@ class OpenCodeZenProvider @Inject constructor(
 
         zenClient.newCall(httpRequest).execute().use { response ->
             if (!response.isSuccessful) {
-                if (response.code == 403) {
-                    val body = response.body.string()
-                    if (body.contains("FreeTierError")) {
-                        throw LLMException(
-                            LLMError.FreeTierBlocked,
-                            name,
-                            selectedModel,
-                            status = 403,
-                            detail = RedactedDetail.fromProviderDetail(
-                                ProviderErrorDetail.fromHttpFailure(
-                                    ProviderErrorDetail.Provider.OPENCODE_ZEN,
-                                    httpStatus = 403,
-                                    rawBody = body,
-                                    knownSecrets = emptyList(),
-                                    forbiddenText = emptyList()
-                                )
+                // Single bounded read: the body is consumed here and handed
+                // to both the FreeTierError check and the classifier. A
+                // second read would hit a closed source (IllegalStateException,
+                // not IOException) and replace the classified error.
+                val errorBody = runCatching { response.consumeBoundedErrorBody() }.getOrNull()
+                if (response.code == 403 && errorBody?.contains("FreeTierError") == true) {
+                    throw LLMException(
+                        LLMError.FreeTierBlocked,
+                        name,
+                        selectedModel,
+                        status = 403,
+                        detail = RedactedDetail.fromProviderDetail(
+                            ProviderErrorDetail.fromHttpFailure(
+                                ProviderErrorDetail.Provider.OPENCODE_ZEN,
+                                httpStatus = 403,
+                                rawBody = errorBody,
+                                knownSecrets = emptyList(),
+                                // Same scrub scope as toSafeProviderException:
+                                // endpoint-controlled text must never carry
+                                // prompt content into diagnostics.
+                                forbiddenText = buildList {
+                                    add(response.request.url.toString())
+                                    add(request.systemPrompt)
+                                    request.messages.forEach { message ->
+                                        add(message.text)
+                                        message.imageBase64?.let(::add)
+                                    }
+                                }
                             )
                         )
-                    }
+                    )
                 }
                 throw response.toSafeProviderException(
                     provider = ProviderErrorDetail.Provider.OPENCODE_ZEN,
                     request = request.copy(model = selectedModel),
-                    knownSecrets = emptyList()
+                    knownSecrets = emptyList(),
+                    preReadBody = errorBody
                 )
             }
-            val responseBody = response.body.string()
-            if (responseBody.isBlank()) throw IOException("Empty response body from OpenCode Zen")
-            val jsonResponse = gson.fromJson(responseBody, JsonObject::class.java)
-            val choices = jsonResponse.getAsJsonArray("choices")
-                ?: throw IOException("OpenCode Zen response missing choices array")
-            if (choices.size() == 0) throw IOException("OpenCode Zen returned zero choices")
-            val messageObj = choices[0].asJsonObject.getAsJsonObject("message")
-            val content = messageObj.get("content")?.asString
-                ?: throw IOException("OpenCode Zen response missing message content")
 
-            val usage = jsonResponse.getAsJsonObject("usage")
-            val tokensUsed = usage?.get("total_tokens")?.asInt ?: 0
+            val source = response.body.source()
+            val content = StringBuilder()
+            var tokensUsed = 0
+            var sawToolCall = false
 
+            BufferedReader(InputStreamReader(source.inputStream(), StandardCharsets.UTF_8)).useLines { lines ->
+                for (line in lines) {
+                    if (!line.startsWith(SSE_DATA_PREFIX)) continue
+                    val payload = line.removePrefix(SSE_DATA_PREFIX).trim()
+                    if (payload == SSE_DONE) break
+                    val chunk = runCatching { gson.fromJson(payload, JsonObject::class.java) }
+                        .getOrNull() ?: continue
+
+                    // Null-safe accessors: OpenAI-compatible streams carry
+                    // explicit `"usage": null` on every non-final chunk when
+                    // include_usage is on, and gson's getAsJsonObject throws
+                    // ClassCastException on JsonNull.
+                    val usage = chunk.get("usage")?.takeIf { it.isJsonObject }?.asJsonObject
+                    if (usage != null) {
+                        tokensUsed = usage.get("total_tokens")?.takeIf { it.isJsonPrimitive }?.asInt
+                            ?: tokensUsed
+                    }
+
+                    val choices = chunk.get("choices")?.takeIf { it.isJsonArray }?.asJsonArray ?: continue
+                    if (choices.size() == 0) continue
+                    val first = choices[0]
+                    if (!first.isJsonObject) continue
+                    val delta = first.asJsonObject.get("delta")?.takeIf { it.isJsonObject }?.asJsonObject
+                        ?: continue
+                    // Reasoning deltas are model thinking, not answer content:
+                    // they are never emitted as chat text.
+                    // Tool-call deltas mean the model answered the harness
+                    // contract instead of writing prose; with no way to
+                    // execute tools here, that surfaces as a malformed
+                    // response rather than a misleading network error.
+                    if (delta.get("tool_calls")?.isJsonArray == true) sawToolCall = true
+                    val piece = delta.get("content")?.takeIf { it.isJsonPrimitive }?.asString
+                    if (!piece.isNullOrEmpty()) {
+                        content.append(piece)
+                        onDelta?.invoke(piece)
+                    }
+                }
+            }
+
+            val assembled = content.toString()
+            if (assembled.isBlank()) {
+                if (sawToolCall) {
+                    throw LLMErrorMapper.malformed(name, selectedModel)
+                }
+                throw IOException("OpenCode Zen stream completed without content")
+            }
             LLMResponse(
-                content = content,
+                content = assembled,
                 tokensUsed = tokensUsed,
                 model = selectedModel,
                 provider = name,
@@ -218,13 +344,46 @@ class OpenCodeZenProvider @Inject constructor(
         }
     }
 
-    override fun streamComplete(request: LLMRequest): Flow<String> = flow {
-        val response = complete(request)
-        val words = response.content.split(" ")
-        for (word in words) {
-            emit("$word ")
-            kotlinx.coroutines.delay(50)
+    /**
+     * Clamps the requested output budget to the model's registry-published
+     * context window and output ceiling. When the registry is unavailable or
+     * the prompt already overflows the window, the request passes through
+     * unclamped and the endpoint's own context-length error surfaces.
+     */
+    private fun clampOutputBudget(request: LLMRequest, spec: ZenModelSpec?): Int {
+        if (spec == null) return request.maxTokens
+        val promptTokens = PromptBudget.estimateTokens(
+            request.systemPrompt + "\n" + request.messages.joinToString("\n") { it.text }
+        )
+        val fitsInContext = PromptBudget.outputBudget(promptTokens, spec.contextWindow, request.maxTokens)
+            ?: return request.maxTokens
+        val outputCeiling = spec.maxOutput.takeIf { it > 0 } ?: fitsInContext
+        return minOf(fitsInContext, outputCeiling).coerceAtLeast(PromptBudget.MIN_OUTPUT_TOKENS)
+    }
+
+    /**
+     * OpenAI function-tool payload carrying the two harness names the free
+     * tier requires (`read`, `shell`). Definitions mirror the official
+     * client's shape but are minimal — the endpoint validates the names,
+     * not the schemas.
+     */
+    private fun buildToolsPayload(request: LLMRequest): List<Map<String, Any>> {
+        val tools = mutableListOf(HARNESS_READ_TOOL, HARNESS_SHELL_TOOL)
+        for (tool in request.tools.orEmpty()) {
+            tools.add(
+                mapOf(
+                    "type" to "function",
+                    "function" to mapOf(
+                        "name" to tool.name,
+                        "description" to tool.description,
+                        "parameters" to runCatching {
+                            gson.fromJson(tool.parameters, JsonObject::class.java)
+                        }.getOrNull() ?: JsonObject()
+                    )
+                )
+            )
         }
+        return tools
     }
 
     /** Keyless tier: nothing to configure, so the provider is always selectable. */
@@ -299,10 +458,11 @@ class OpenCodeZenProvider @Inject constructor(
 
         val ids = (DEFAULT_MODEL_CHAIN + live + specs.keys).distinct().filter { id ->
             val spec = specs[id]
-            // Registry-known models must be executable by our transport;
-            // unknown ids (live /models entries) stay listed — the chain
-            // guarantees they were offered by the endpoint itself.
-            spec == null || spec.chatCompletions
+            // Registry-known models must be executable by our transport and
+            // not registry-flagged deprecated; unknown ids (live /models
+            // entries) stay listed — the chain guarantees they were offered
+            // by the endpoint itself.
+            spec == null || (spec.chatCompletions && !spec.deprecated)
         }
         return ModelListParsers.opCodeZen(
             ids.filter { id ->
@@ -315,19 +475,39 @@ class OpenCodeZenProvider @Inject constructor(
 
     private suspend fun resolveModelChain(request: LLMRequest): List<String> {
         val pinned = request.model?.takeIf { it.isNotBlank() && it != "custom-model" }
-        if (pinned != null) return listOf(pinned)
+        val hierarchy = resolveHierarchy()
+        if (pinned == null) return hierarchy
+        // A pinned model LEADS the chain; it does not die alone. A persisted
+        // selection can go stale between releases (the v1.0.1 failure: the
+        // default pin retired server-side), so keyless requests fall back to
+        // the verified free hierarchy when the pinned model is rejected as
+        // retired/region-blocked. With a user key the pinned model is final —
+        // the paid tier can serve whatever the picker offered.
+        return if (hasUserKey()) {
+            listOf(pinned)
+        } else {
+            (listOf(pinned) + hierarchy.filter { it != pinned }).distinct()
+        }
+    }
+
+    private suspend fun resolveHierarchy(): List<String> {
         val specs = runCatching { registry.specs() }.getOrDefault(emptyMap())
         val anonymous = !hasUserKey()
         val discovered = runCatching { discoverModels() }.getOrDefault(DEFAULT_MODEL_CHAIN)
         // Requested free hierarchy first, then other live free models.
-        val ordered = DEFAULT_MODEL_CHAIN.filter { discovered.contains(it) } +
+        // Registry-flagged deprecated models never lead the hierarchy: the
+        // official client drops them, and a retired id is how v1.0.1's
+        // chain bricked itself.
+        val ordered = DEFAULT_MODEL_CHAIN.filter { discovered.contains(it) && specs[it]?.deprecated != true } +
             discovered.filter { candidate ->
                 candidate.endsWith("-free") && !DEFAULT_MODEL_CHAIN.contains(candidate)
             } +
-            specs.values.filter { it.free && it.chatCompletions && it.id !in discovered }.map { it.id }
+            specs.values.filter {
+                it.free && it.chatCompletions && !it.deprecated && it.id !in discovered
+            }.map { it.id }
         val executable = ordered.distinct().filter { id ->
             val spec = specs[id]
-            spec == null || spec.chatCompletions
+            (spec == null || (spec.chatCompletions && !spec.deprecated))
         }.filter { id ->
             val spec = specs[id]
             !anonymous || spec == null || spec.free
@@ -335,30 +515,101 @@ class OpenCodeZenProvider @Inject constructor(
         return executable.ifEmpty { DEFAULT_MODEL_CHAIN }
     }
 
+    /**
+     * True when the endpoint blamed THIS model rather than the caller: the
+     * request may succeed against the next link in the hierarchy.
+     *
+     * The Zen dialect reports retired/disabled models as
+     * `401 {"error":{"type":"ModelError","message":"Model x is not
+     * supported"}}` (and "trial ended", "no provider available", "model
+     * disabled" variants), so the message check includes those phrasings —
+     * v1.0.1 only matched "not found"-style text and let one stale chain
+     * entry brick every request.
+     */
     private fun isModelLevelRejection(throwable: Throwable): Boolean {
+        if (throwable is LLMException) {
+            when (throwable.error) {
+                LLMError.ModelUnavailable -> return true
+                LLMError.AuthInvalid, LLMError.AuthMissing, LLMError.FreeTierBlocked -> return false
+                else -> Unit
+            }
+        }
         val message = throwable.message?.lowercase() ?: return false
         return message.contains("model") && (
-            message.contains("not found") ||
+            message.contains("not supported") ||
+                message.contains("not found") ||
                 message.contains("unknown") ||
-                message.contains("invalid") ||
                 message.contains("does not exist") ||
-                message.contains("no longer")
+                message.contains("no longer") ||
+                message.contains("unavailable") ||
+                message.contains("not available in your region") ||
+                message.contains("model disabled") ||
+                message.contains("no provider available") ||
+                message.contains("trial ended")
             )
     }
 
     companion object {
         const val BASE_URL = "https://opencode.ai/zen/v1"
 
-        /** Directive-specified dynamic model hierarchy (head first). */
+        private const val SSE_DATA_PREFIX = "data:"
+        private const val SSE_DONE = "[DONE]"
+
+        /**
+         * Verified-live free hierarchy (2026-09-25 /zen/v1/models + per-model
+         * live chat-completions probes). Ordered for agent quality: verified
+         * 200-responding long-context generalists first; the two entries at
+         * the tail answered transient upstream errors at probe time and stay
+         * as late links since discovery reshuffles the rest. The muse-spark
+         * contributor models are excluded from the static chain (region-
+         * gated for many users, and responses-only at the registry) but
+         * remain reachable through live discovery.
+         */
         val DEFAULT_MODEL_CHAIN = listOf(
-            "x-preview-f-free",
-            "muse-spark-1.2-contributor-free",
-            "hy3-free",
-            "mimo-v2.5-free"
+            "mimo-v2.6-flash-free",
+            "nemotron-3.5-lightning-free",
+            "space-bunny-free",
+            "ling-3.0-flash-fin-free",
+            "nemotron-3-ultra-free",
+            "mimo-v2.5-free",
+            "deepseek-v4-flash-free",
+            "jev-1.13-free"
         )
 
         private const val DISCOVERY_TTL = 60 * 60 * 1000L      // 1 hour
         private const val FAILURE_COOLDOWN = 10 * 60 * 1000L   // 10 minutes
+
+        /** Minimal harness `read` tool — name is what the free tier gates on. */
+        private val HARNESS_READ_TOOL: Map<String, Any> = mapOf(
+            "type" to "function",
+            "function" to mapOf(
+                "name" to "read",
+                "description" to "Read the contents of a file.",
+                "parameters" to mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "path" to mapOf("type" to "string", "description" to "File path to read")
+                    ),
+                    "required" to listOf("path")
+                )
+            )
+        )
+
+        /** Minimal harness `shell` tool — name is what the free tier gates on. */
+        private val HARNESS_SHELL_TOOL: Map<String, Any> = mapOf(
+            "type" to "function",
+            "function" to mapOf(
+                "name" to "shell",
+                "description" to "Run a shell command and return its output.",
+                "parameters" to mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "command" to mapOf("type" to "string", "description" to "Command to execute")
+                    ),
+                    "required" to listOf("command")
+                )
+            )
+        )
 
         /**
          * Secondary discovery source: the community model registry. Parsed

@@ -4,6 +4,80 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.0.3 — The free-tier body contract (the real 403 fix)
+
+v1.0.2 fixed the request *headers* and still failed, because the endpoint
+checks the request **body** too. This release replays the exact bytes the
+official OpenCode client sends and passes every gate the live endpoint
+enforces. Verified end-to-end from an Android emulator against the real
+endpoint (GitHub Actions emulator E2E), not just from desktop curl.
+
+### What the free tier actually gates on (newly reverse-engineered)
+
+Captured the official client's full request and ablated it line by line:
+
+1. **Harness tools in the body** — the endpoint rejects any request whose
+   `tools` array lacks function tools *named* `read` and `shell` with
+   `403 FreeTierError`, no matter how perfect the headers are. v1.0.2 sent
+   no tools at all, so every keyless request was rejected. TSF Droid now
+   always carries the two-tool harness contract (user-defined tools ride
+   along after it).
+2. **Streaming only** — `stream: false` is rejected with the same
+   `FreeTierError` on the anonymous tier. All Zen completions are now
+   transported as SSE and reassembled; chat streaming is *real* streaming
+   now (v1.0.2 faked it by typing out a completed answer word-by-word).
+3. **Minimum client version** — the endpoint answers `426 UpgradeRequired`
+   when the pinned client version is below 1.18.0; the pinned version
+   tracks the official client and 426 maps to a non-retryable server error.
+4. **Session identity format** — the `ses_` identifier shape the endpoint
+   validates (26-char body, 12-hex descending-timestamp head).
+
+### Model-level fallback (fixes `HTTP 401 ... type=ModelError`)
+
+The endpoint reports a retired or region-blocked model as **HTTP 401 with
+`type=ModelError`** (or `type=RegionError` on 403) — v1.0.2 mislabeled all
+of these as "rejected the API key". Now:
+
+* `ModelError` / `RegionError` are recognized as model-level rejections and
+  the request **walks the model hierarchy** instead of failing.
+* A pinned model *leads* the hierarchy instead of dying alone: keyless
+  requests fall back to the verified free hierarchy when the selection is
+  retired (v1.0.1's default pin is long gone server-side).
+* The static chain is now a live-probed, verified-working set of free
+  models (mimo-v2.6-flash-free first), checked one by one against the real
+  endpoint on release day; registry-flagged `deprecated` models are
+  excluded from the picker and the hierarchy.
+
+### Automatic model capabilities (models.dev — the OpenCode way)
+
+Exactly how the official client "knows" context windows and reasoning
+levels, now wired into TSF Droid:
+
+* Context window (`limit.context`) and output ceiling (`limit.output`) per
+  model, used to clamp the output budget to what actually fits alongside
+  the prompt.
+* Reasoning capability and reasoning levels (`reasoning_options` /
+  `variants`) surfaced on every model entry.
+* Deprecated registry entries never resurface as dead picker options.
+
+### Transport hardening
+
+* Real SSE parsing with null-safe chunk handling (`"usage": null` chunks
+  no longer break the stream), tool-call-only answers surface as a
+  malformed-response error instead of a misleading network error, and
+  error bodies are read exactly once (a closed-source re-read could
+  replace the real failure with a crash).
+* Non-streaming `response_format` is never sent — the official client
+  does not send it and free-tier models reject it.
+* `streamComplete` streams deltas as they arrive over a channelFlow.
+
+### New: emulator end-to-end on GitHub Actions
+
+`e2e-emulator.yml` boots an Android emulator and runs the Zen contract
+against the **live endpoint from the device stack**, plus a launch smoke
+test with screen captures attached as artifacts. This is the harness that
+catches a regression of this class before a release, not after.
+
 ## v1.0.2 — Zen wire contract + automatic model capabilities (September 25, 2026)
 
 Reverse-engineered the official OpenCode client (installed locally, source

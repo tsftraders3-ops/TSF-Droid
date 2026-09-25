@@ -30,7 +30,7 @@ class ProviderCatalogTest {
             ProviderCatalog.providers.any { it.displayName == "OpenCode Zen" }
         )
         assertTrue(!ProviderCatalog.requiresApiKey("OpenCode Zen"))
-        assertEquals("x-preview-f-free", ProviderCatalog.defaultModel("OpenCode Zen"))
+        assertEquals("mimo-v2.6-flash-free", ProviderCatalog.defaultModel("OpenCode Zen"))
     }
 
     @Test

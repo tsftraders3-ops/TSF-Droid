@@ -157,7 +157,8 @@ class ProviderErrorDetail private constructor(
 internal fun Response.toSafeProviderException(
     provider: ProviderErrorDetail.Provider,
     request: LLMRequest,
-    knownSecrets: Iterable<String>
+    knownSecrets: Iterable<String>,
+    preReadBody: String? = null
 ): LLMException {
     val forbiddenText = buildList {
         add(this@toSafeProviderException.request.url.toString())
@@ -167,9 +168,16 @@ internal fun Response.toSafeProviderException(
             message.imageBase64?.let(::add)
         }
     }
-    val rawBody = try {
+    // Callers that already consumed the body (single-read discipline) pass
+    // [preReadBody]; reading again would hit a closed source.
+    val rawBody = preReadBody ?: try {
         consumeBoundedErrorBody()
     } catch (_: IOException) {
+        null
+    } catch (_: IllegalStateException) {
+        // A caller that already consumed the body without passing it leaves
+        // the source closed; okio's failure is ISE, not IOException, and it
+        // must never replace the classified provider error.
         null
     }
     return LLMErrorMapper.fromHttpFailure(

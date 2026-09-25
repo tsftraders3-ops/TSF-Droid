@@ -1,0 +1,99 @@
+name: TSF Droid Emulator E2E
+
+# End-to-end verification on a real Android emulator:
+#  1. The keyless OpenCode Zen contract is exercised from Android's TLS stack
+#     through the app's own provider (the verification no unit test can
+#     substitute — the free-tier gate rejects bad client fingerprints at the
+#     endpoint, which is exactly how v1.0.1 failed in the field).
+#  2. MainActivity launch smoke through Hilt + splash + navigation.
+# Screen captures are attached as artifacts so failures can be seen, not guessed.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'app/src/main/**'
+      - 'app/src/androidTest/**'
+      - 'app/build.gradle'
+      - '.github/workflows/e2e-emulator.yml'
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Gradle daemon is pinned to Java 21 (gradle/gradle-daemon-jvm.properties).
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build app and instrumentation APKs
+        run: ./gradlew assembleDebug assembleDebugAndroidTest --no-daemon --stacktrace
+
+      - name: Run E2E suite on emulator (live OpenCode Zen endpoint)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          ram-size: '3072M'
+          disk-size: '8G'
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            adb shell settings put global window_animation_scale 0.2
+            adb shell settings put global transition_animation_scale 0.2
+            # The Zen E2E cases hit the real endpoint over the emulator NAT;
+            # the launch smoke captures the first usable UI state.
+            adb shell screencap -p /sdcard/launch_screen.png
+            adb pull /sdcard/launch_screen.png e2e-launch-screen.png || true
+            ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace \
+              -Pandroid.testInstrumentationRunnerArguments.class=com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest
+
+      - name: Capture screen on failure
+        if: failure()
+        run: |
+          adb exec-out screencap -p > e2e-failure.png || true
+          adb logcat -d > e2e-logcat.txt || true
+          if [ -d app/build/outputs/androidTest-results ]; then
+            mkdir -p e2e-results
+            cp -r app/build/outputs/androidTest-results/* e2e-results/ || true
+          fi
+
+      - name: Upload E2E artifacts (screens, logcat, results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsf-droid-e2e-artifacts
+          path: |
+            e2e-launch-screen.png
+            e2e-failure.png
+            e2e-logcat.txt
+            e2e-results/
+          if-no-files-found: ignore
+          retention-days: 14

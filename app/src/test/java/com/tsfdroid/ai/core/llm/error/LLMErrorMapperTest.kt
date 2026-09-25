@@ -200,5 +200,36 @@ class LLMErrorMapperTest {
         assertFalse(SecretRegistry.snapshot().contains(candidate))
     }
 
+    @Test
+    fun `a Zen retired model 401 ModelError is a model problem, not a key problem`() {
+        // The exact body the endpoint returns for a stale chain model.
+        val retiredModel = LLMErrorMapper.fromHttpFailure(
+            provider = ProviderErrorDetail.Provider.OPENCODE_ZEN,
+            model = "hy3-free",
+            httpStatus = 401,
+            rawBody = """{"type":"error","error":{"type":"ModelError","message":"Model hy3-free is not supported"}}"""
+        )
+        assertEquals(LLMError.ModelUnavailable, retiredModel.error)
+
+        // A genuinely bad key on the same endpoint still reads as an auth error.
+        val badKey = LLMErrorMapper.fromHttpFailure(
+            provider = ProviderErrorDetail.Provider.OPENCODE_ZEN,
+            model = "mimo-v2.6-flash-free",
+            httpStatus = 401,
+            rawBody = """{"type":"error","error":{"type":"AuthError","message":"Invalid API key"}}"""
+        )
+        assertEquals(LLMError.AuthInvalid, badKey.error)
+
+        // The endpoint enforcing a newer client surfaces as a server error.
+        val upgrade = LLMErrorMapper.fromHttpFailure(
+            provider = ProviderErrorDetail.Provider.OPENCODE_ZEN,
+            model = "mimo-v2.6-flash-free",
+            httpStatus = 426,
+            rawBody = """{"type":"error","error":{"type":"UpgradeRequired","message":"OpenCode 1.18.0 or higher required"}}"""
+        )
+        assertEquals(LLMError.ServerError, upgrade.error)
+        assertFalse("a client-version gate cannot succeed on retry", upgrade.retryable)
+    }
+
     private data class Case(val status: Int, val body: String, val error: LLMError)
 }

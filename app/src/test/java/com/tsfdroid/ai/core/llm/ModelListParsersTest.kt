@@ -159,7 +159,7 @@ class ModelListParsersTest {
         // non-chat endpoint that must not reach the picker.
         val ids = listOf(
             "some-live-model",
-            "x-preview-f-free",
+            "mimo-v2.6-flash-free",
             "mimo-v2.5-free",
             "hy3-free",
             "muse-spark-1.2-contributor-free",
@@ -171,10 +171,10 @@ class ModelListParsersTest {
         // Chain order preserved inside the free tier, live extras after it.
         assertEquals(
             listOf(
-                "x-preview-f-free",
-                "muse-spark-1.2-contributor-free",
-                "hy3-free",
+                "mimo-v2.6-flash-free",
                 "mimo-v2.5-free",
+                "hy3-free",
+                "muse-spark-1.2-contributor-free",
                 "some-live-model"
             ),
             models.map { it.id }
