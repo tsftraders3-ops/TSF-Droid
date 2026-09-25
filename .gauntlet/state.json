@@ -1,6 +1,6 @@
 {
   "project": "TSF Droid",
-  "current_phase": "ZEN_WIRE_CONTRACT_V1.0.2",
+  "current_phase": "COMPLETE",
   "completed_steps": [
     "PHASE_1_REPO_AND_CI",
     "PHASE_2.1_SANITIZE_REBRAND",
@@ -14,9 +14,10 @@
     "PHASE_4.2_RELEASE_WORKFLOW",
     "PHASE_4.3_FIRST_RELEASE_V1.0.0",
     "PHASE_5_OPENCODE_ZEN_UI_SURFACE_V1.0.1",
-    "PHASE_6_OPENCODE_REVERSE_ENGINEERING"
+    "PHASE_6_OPENCODE_REVERSE_ENGINEERING",
+    "PHASE_6.2_V1.0.2_RELEASED"
   ],
-  "active_step": "PHASE_6.2_V1.0.2_RELEASE",
+  "active_step": "DONE",
   "last_ci_run_id": 36011232724,
   "last_ci_status": "SUCCESS",
   "notes": [
@@ -45,13 +46,14 @@
     "size_bytes": 73805147
   },
   "last_release": {
-    "tag": "v1.0.1",
-    "ci_run_id": 36028322625,
+    "tag": "v1.0.2",
+    "ci_run_id": 36088540705,
     "ci_status": "SUCCESS",
     "assets": [
-      "TSF-Droid-v1.0.1-release.apk",
-      "TSF-Droid-v1.0.1-debug.apk",
+      "TSF-Droid-v1.0.2-release.apk",
+      "TSF-Droid-v1.0.2-debug.apk",
       "SHA256SUMS.txt"
-    ]
+    ],
+    "test_suite": "557 unit tests green (5 gauntlet CI loops to green)"
   }
 }
