@@ -186,6 +186,8 @@ class AgentCapabilityE2EInstrumentedTest {
                 if (t.startsWith("Always allow")) continue
                 if (t.startsWith("Execute ")) continue // plan-card step labels
                 if (t.startsWith("•")) continue
+                if (t == "THINKING") continue // collapsible section label
+                if (t.startsWith("Requires Plan")) continue // top-bar status
                 val isStatusLine = agentStatusPrefixes.any { t.startsWith(it) }
                 if (predicate == null) {
                     if (isStatusLine) continue
@@ -277,16 +279,19 @@ class AgentCapabilityE2EInstrumentedTest {
                 // each retry re-finds the node fresh (stale-node safe).
                 continue
             }
-            // A direct reply (no plan) is also a valid outcome.
-            replied = device.findObjects(By.text(Pattern.compile(".+")))
-                .any {
-                    runCatching { it.applicationPackage }.getOrNull() == appPackage &&
-                        it.text.trim() !in baseline &&
-                        it.text.trim().isNotEmpty() &&
-                        it.text.trim() !in nonReplyTexts &&
-                        !it.text.trim().startsWith(chatPlaceholder)
+            // A direct reply (no plan) is also a valid outcome — but ONLY
+            // trust new text when the agent is NOT mid-turn: the top-bar
+            // status ("Analyzing…", "Requires Plan Approval", "Speaking…")
+            // and the live-thinking trace change while planning, and the
+            // loop-4 evidence shows those pseudo-replies broke the wait
+            // before the approval card ever appeared.
+            if (!agentBusyOnScreen()) {
+                val reply = waitNewText(baseline, timeoutMs = 1_000)
+                if (reply != null) {
+                    replied = true
+                    break
                 }
-            if (replied) break
+            }
             runCatching { Thread.sleep(3_000) }
         }
         dumpHierarchy("${taskTag}_after_send")
@@ -296,6 +301,22 @@ class AgentCapabilityE2EInstrumentedTest {
         )
         return baseline
     }
+
+    /**
+     * True while the top-bar status line shows the agent is mid-turn.
+     * Used to gate the direct-reply detection in [sendTask]: new text nodes
+     * that appear while busy (status subtitle changes, live-thinking trace)
+     * are not replies.
+     */
+    private fun agentBusyOnScreen(): Boolean =
+        device.findObjects(By.text(Pattern.compile(".+")))
+            .filter { runCatching { it.applicationPackage }.getOrNull() == appPackage }
+            .map { it.text.trim() }
+            .any { t ->
+                t.startsWith("Analyzing") || t.startsWith("Requires Plan") ||
+                    t.startsWith("Executing") || t.startsWith("Speaking") ||
+                    t.startsWith("Planning")
+            }
 
     /**
      * Taps the plan-approval card's "Approve & Run" button and VERIFIES the
