@@ -298,7 +298,11 @@ class AdvancedControlActions @Inject constructor() {
             }
             document.finishPage(page)
 
-            return document.use { it.toByteArray() }
+            // PdfDocument has no toByteArray(): stream into a buffer, then close.
+            val out = java.io.ByteArrayOutputStream()
+            document.writeTo(out)
+            document.close()
+            return out.toByteArray()
         }
     }
 

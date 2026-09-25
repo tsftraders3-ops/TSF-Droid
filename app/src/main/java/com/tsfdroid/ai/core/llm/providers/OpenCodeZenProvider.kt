@@ -6,6 +6,7 @@ import com.tsfdroid.ai.core.llm.AIModel
 import com.tsfdroid.ai.core.llm.LLMProvider
 import com.tsfdroid.ai.core.llm.LLMRequest
 import com.tsfdroid.ai.core.llm.LLMResponse
+import com.tsfdroid.ai.core.llm.LLMStreamEvent
 import com.tsfdroid.ai.core.llm.ModelListParsers
 import com.tsfdroid.ai.core.llm.PromptBudget
 import com.tsfdroid.ai.core.llm.error.LLMError

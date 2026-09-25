@@ -21,7 +21,7 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
 
     steps:
       - name: Checkout
@@ -79,12 +79,15 @@ jobs:
             # The Zen E2E cases hit the real endpoint over the emulator NAT;
             # the launch smoke captures the first usable UI state; the UI
             # journey drives onboarding, every tab, Settings and TWO live
-            # chats, leaving a screenshot of each step on the device.
+            # chats; the capability E2E gives the agent COMPLEX tasks (answer
+            # a capability audit, write an HTML website file, fetch real data
+            # from example.com in-app, generate a real PDF) and verifies the
+            # artifacts on the device filesystem — the v1.0.5 field failures.
             # Tests run via `am instrument` (NOT connectedAndroidTest) so the
             # app stays installed while the screenshots are pulled — AGP's
             # connected task uninstalls both APKs before any later step runs.
             # NOTE: single line — the runner mangles backslash continuations.
-            ./gradlew installDebug installDebugAndroidTest --no-daemon --stacktrace || exit 1; out=$(timeout 1200 adb shell am instrument -w -e class com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner); code=$?; echo "$out" | tail -20; echo "$out" | grep -qE "FAILURES|INSTRUMENTATION_FAILED" && code=1; mkdir -p e2e-screens; timeout 60 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/e2e-screens/. e2e-screens/ 2>/dev/null; timeout 90 adb exec-out run-as com.tsfdroid.ai tar cf - files/e2e-screens 2>/dev/null | tar xf - -C e2e-screens --strip-components=2 || true; ls -la e2e-screens | head -30; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb uninstall com.tsfdroid.ai.test >/dev/null 2>&1; exit $code
+            ./gradlew installDebug installDebugAndroidTest --no-daemon --stacktrace || exit 1; out=$(timeout 2400 adb shell am instrument -w -e class com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest,com.tsfdroid.ai.e2e.AgentCapabilityE2EInstrumentedTest com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner); code=$?; echo "$out" | tail -20; echo "$out" | grep -qE "FAILURES|INSTRUMENTATION_FAILED" && code=1; mkdir -p e2e-screens; timeout 60 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/e2e-screens/. e2e-screens/ 2>/dev/null; timeout 90 adb exec-out run-as com.tsfdroid.ai tar cf - files/e2e-screens 2>/dev/null | tar xf - -C e2e-screens --strip-components=2 || true; ls -la e2e-screens | head -30; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb uninstall com.tsfdroid.ai.test >/dev/null 2>&1; exit $code
 
       - name: Capture screen on failure
         if: failure()

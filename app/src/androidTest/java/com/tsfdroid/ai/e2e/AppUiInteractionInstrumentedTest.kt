@@ -40,7 +40,7 @@ class AppUiInteractionInstrumentedTest {
     private lateinit var device: UiDevice
     private lateinit var appPackage: String
 
-    private val chatPlaceholder = "Ask OpenDroid to run an autonomous task"
+    private val chatPlaceholder = "Ask TSF Droid to run an autonomous task"
     private val messageOne = "Reply with exactly: E2E hello"
     private val messageTwo = "What is 2+2? Answer with just the number"
 

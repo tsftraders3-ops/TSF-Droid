@@ -559,7 +559,7 @@ class AgentLoop @Inject constructor(
             // dozens per second and every write rewrites the message row.
             // Content deltas always flush immediately (the visible reply is
             // the deliverable); thinking flushes at most every 300ms.
-            fun persistReply(force: Boolean) {
+            suspend fun persistReply(force: Boolean) {
                 val now = System.currentTimeMillis()
                 if (!force && now - lastDbWriteAt < 300) return
                 lastDbWriteAt = now
