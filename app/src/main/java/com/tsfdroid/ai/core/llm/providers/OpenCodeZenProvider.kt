@@ -13,6 +13,7 @@ import com.tsfdroid.ai.core.llm.error.LLMErrorMapper
 import com.tsfdroid.ai.core.llm.error.LLMException
 import com.tsfdroid.ai.core.llm.error.ProviderErrorDetail
 import com.tsfdroid.ai.core.llm.error.RedactedDetail
+import com.tsfdroid.ai.core.llm.error.consumeBoundedErrorBody
 import com.tsfdroid.ai.core.llm.error.toSafeProviderException
 import com.tsfdroid.ai.core.llm.network.OpenCodeZenInterceptor
 import com.tsfdroid.ai.core.llm.toOpenAIMessages
@@ -352,10 +353,8 @@ class OpenCodeZenProvider @Inject constructor(
      */
     private fun clampOutputBudget(request: LLMRequest, spec: ZenModelSpec?): Int {
         if (spec == null) return request.maxTokens
-        val promptTokens = PromptBudget.estimateTokens(
-            request.systemPrompt + "\n" + request.messages.joinToString("\n") { it.text }
-        )
-        val fitsInContext = PromptBudget.outputBudget(promptTokens, spec.contextWindow, request.maxTokens)
+        val promptText = request.systemPrompt + "\n" + request.messages.joinToString("\n") { it.text }
+        val fitsInContext = PromptBudget.outputBudget(promptText, spec.contextWindow, request.maxTokens)
             ?: return request.maxTokens
         val outputCeiling = spec.maxOutput.takeIf { it > 0 } ?: fitsInContext
         return minOf(fitsInContext, outputCeiling).coerceAtLeast(PromptBudget.MIN_OUTPUT_TOKENS)
@@ -376,9 +375,9 @@ class OpenCodeZenProvider @Inject constructor(
                     "function" to mapOf(
                         "name" to tool.name,
                         "description" to tool.description,
-                        "parameters" to runCatching {
+                        "parameters" to (runCatching {
                             gson.fromJson(tool.parameters, JsonObject::class.java)
-                        }.getOrNull() ?: JsonObject()
+                        }.getOrNull() ?: JsonObject())
                     )
                 )
             )
