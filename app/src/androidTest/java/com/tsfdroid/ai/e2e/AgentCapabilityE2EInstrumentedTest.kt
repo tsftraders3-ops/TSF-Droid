@@ -153,7 +153,7 @@ class AgentCapabilityE2EInstrumentedTest {
     }
 
     private fun visibleTexts(): Set<String> =
-        device.findObjects(By.text(Pattern.compile(".+")))
+        device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))
             .filter { runCatching { it.applicationPackage }.getOrNull() == appPackage }
             .map { it.text.trim() }
             .filter { it.isNotEmpty() }
@@ -175,7 +175,11 @@ class AgentCapabilityE2EInstrumentedTest {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             device.runWatchers()
-            for (obj in device.findObjects(By.text(Pattern.compile(".+")))) {
+            // DOTALL matters: multi-line bubbles (data-output summaries like
+            // "Content of …\nExample Domain\n…") do NOT match a plain ".+"
+            // full-match pattern — the loop-5 fetch evidence showed the bubble
+            // on screen the whole 300s while the scan never saw it.
+            for (obj in device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))) {
                 if (runCatching { obj.applicationPackage }.getOrNull() != appPackage) continue
                 val t = obj.text.trim()
                 if (t.isEmpty() || t in baseline || t in nonReplyTexts || t in extraExcluded) continue
