@@ -111,13 +111,18 @@ class AppUiInteractionInstrumentedTest {
 
     private fun shoot(step: String) {
         runCatching {
-            val dir = File(
-                InstrumentationRegistry.getInstrumentation()
-                    .targetContext.getExternalFilesDir(null),
-                "e2e-screens"
-            )
-            dir.mkdirs()
-            device.takeScreenshot(File(dir, "$step.png"), 1.0f, 90)
+            val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+            // Internal dir always works and is pullable via `run-as`;
+            // the external dir is mirrored for the direct `adb pull`.
+            val internal = File(ctx.filesDir, "e2e-screens")
+            val external = ctx.getExternalFilesDir(null)?.let { File(it, "e2e-screens") }
+            internal.mkdirs()
+            external?.mkdirs()
+            val f = File(internal, "$step.png")
+            device.takeScreenshot(f, 1.0f, 90)
+            external?.let { target ->
+                runCatching { if (f.exists()) f.copyTo(File(target, "$step.png"), overwrite = true) }
+            }
         }
     }
 
@@ -175,20 +180,30 @@ class AppUiInteractionInstrumentedTest {
         return clickDesc("Send", 8_000)
     }
 
+    /**
+     * Types into the field identified by visible [selectorText] (usually the
+     * placeholder). Clicks to focus, injects the value as key events via
+     * [Instrumentation.sendStringSync] — ACTION_SET_TEXT (UiObject2.setText)
+     * throws on Compose placeholder nodes — and verifies the value landed;
+     * one retry falls back to setText for exotic fields.
+     */
     private fun typeInto(selectorText: String, value: String): Boolean {
-        val field = device.wait(Until.findObject(By.textContains(selectorText)), 8_000)
-            ?: return false
-        runCatching { field.click() }
-        device.waitForIdle(2_000)
-        val target = device.findObject(By.textContains(selectorText)) ?: return false
-        // setText is void: force the lambda result to Boolean explicitly so
-        // getOrDefault(false) cannot widen to Any.
-        val ok = runCatching {
-            target.setText(value)
-            true
-        }.getOrDefault(false)
-        device.waitForIdle(2_000)
-        return ok
+        repeat(2) { attempt ->
+            val field = device.wait(Until.findObject(By.textContains(selectorText)), 6_000)
+                ?: return false
+            runCatching { field.click() }
+            device.waitForIdle(1_500)
+            runCatching {
+                if (attempt == 0) {
+                    InstrumentationRegistry.getInstrumentation().sendStringSync(value)
+                } else {
+                    field.setText(value)
+                }
+            }
+            device.waitForIdle(1_500)
+            if (device.hasObject(By.textContains(value))) return true
+        }
+        return false
     }
 
     // ---------- the journey ----------
