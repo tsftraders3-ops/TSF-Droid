@@ -52,6 +52,15 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      # ubuntu-latest exposes nested KVM but the runner user lacks permission;
+      # without this the emulator falls back to software emulation and boots
+      # in 12+ minutes (or never).
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Build app and instrumentation APKs
         run: ./gradlew assembleDebug assembleDebugAndroidTest --no-daemon --stacktrace
 
@@ -63,15 +72,12 @@ jobs:
           target: google_apis
           ram-size: '3072M'
           disk-size: '8G'
+          emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            adb shell settings put global window_animation_scale 0.2
-            adb shell settings put global transition_animation_scale 0.2
             # The Zen E2E cases hit the real endpoint over the emulator NAT;
             # the launch smoke captures the first usable UI state.
-            adb shell screencap -p /sdcard/launch_screen.png
-            adb pull /sdcard/launch_screen.png e2e-launch-screen.png || true
             ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace \
               -Pandroid.testInstrumentationRunnerArguments.class=com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest
 
@@ -84,14 +90,12 @@ jobs:
             mkdir -p e2e-results
             cp -r app/build/outputs/androidTest-results/* e2e-results/ || true
           fi
-
       - name: Upload E2E artifacts (screens, logcat, results)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tsf-droid-e2e-artifacts
           path: |
-            e2e-launch-screen.png
             e2e-failure.png
             e2e-logcat.txt
             e2e-results/
