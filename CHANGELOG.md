@@ -4,6 +4,54 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.0.4 — Reasoning-model hardening (the unreadable-response fix)
+
+v1.0.3 got keyless auth working — and immediately surfaced the *next* layer:
+free-tier models like `mimo-v2.6-flash-free` are reasoning models that answer
+differently than the models the parser was built against. Field reports showed
+`MALFORMED_RESPONSE` banners and `PLAN_GENERATION` failures on requests that
+v1.0.3 successfully delivered to the endpoint.
+
+### Fixes
+
+1. **Tool-call answers no longer kill the turn** — reasoning models holding the
+   harness tool contract sometimes answer with `tool_calls` (for `read`/`shell`)
+   instead of writing the plan. The app cannot execute OpenAI tool calls, so
+   v1.0.3 surfaced this as "returned an unreadable response". Now:
+   every request sends `tool_choice: "none"` (live-verified the free-tier gate
+   still accepts it with the mandatory harness tools), and a tool-call-only
+   answer triggers one corrective re-ask with an explicit no-tools instruction
+   before a `MalformedResponse` can surface.
+2. **Gate-evolution fallback** — if the endpoint ever starts rejecting the
+   `tool_choice` field (403 FreeTierError or 400), the request degrades to the
+   exact official-client body once instead of failing. Bounded: at most 4
+   attempts, never a loop.
+3. **Plan parser speaks reasoning-model** — answers wrapped in `<think>` blocks
+   (closed *or* unterminated), fenced, or narrated around prose are all parsed
+   via a new balanced-JSON extraction (`PlanResponseSanitizer`, unit-tested).
+   The first brace-balanced JSON object in mixed text is recovered.
+4. **Clarifying questions stopped being errors** — when a model answers a
+   genuinely ambiguous goal in prose ("can call someone if I tell u the name?"
+   → the model asks who to call), the answer routes into the existing
+   ASK_USER / CHAT action protocol instead of failing with "Could not parse a
+   valid plan from LLM response". One zero-temperature corrective re-ask with
+   a strict JSON-only contract backs that up.
+5. **PLAY_YOUTUBE / PLAY_MUSIC no longer self-report FAILED** — the YouTube
+   action opens the *search results* page, where playback only starts after
+   the user taps a video; a media-session verification could never pass there,
+   so every step failed even though YouTube opened correctly. The step now
+   succeeds with an honest "tap a video to start playback" hint when autoplay
+   cannot be confirmed.
+
+### Verification
+
+- New unit tests: tool-call corrective retry (recovery + terminal paths),
+  `tool_choice:"none"` wire assertion, gate-fallback body shape, reasoning/
+  prose plan fixtures, media-verification degradation (13 new/updated cases).
+- Live A/B against the real endpoint (this repo's tooling): `tool_choice`
+  accepted by the gate, mimo emits clean plan JSON with reasoning in a
+  separate delta field.
+
 ## v1.0.3 — The free-tier body contract (the real 403 fix)
 
 v1.0.2 fixed the request *headers* and still failed, because the endpoint

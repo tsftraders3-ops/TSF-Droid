@@ -71,7 +71,16 @@ class MediaActions @Inject constructor(
                 if (playbackVerifier.awaitVerifiedPlayback(context, normalizedApp, query)) {
                     ActionResult(true, if (query.isNotEmpty()) "Playing '$query' for you!" else "Music is playing!", null)
                 } else {
-                    ActionResult(false, null, "The music app opened, but playback could not be verified.")
+                    // v1.0.4: the app DID open with the requested search —
+                    // autoplay varies by app/account state (and some apps
+                    // never expose a media session), so unverified playback
+                    // is a soft outcome, not a step failure.
+                    ActionResult(
+                        true,
+                        if (query.isNotEmpty()) "Opened $normalizedApp searching for '$query'. Tap the track if it didn't start."
+                        else "Music app is open — tap play if nothing started.",
+                        null
+                    )
                 }
             } catch (e: Exception) {
                 Log.e("PlayMusic", "Music action failed: ${e.javaClass.simpleName}")
@@ -167,14 +176,30 @@ class MediaActions @Inject constructor(
                     if (playbackVerifier.awaitVerifiedPlayback(context, "youtube", query)) {
                         ActionResult(true, if (query.isNotEmpty()) "Playing '$query' on YouTube!" else "YouTube is playing!", null)
                     } else {
-                        ActionResult(false, null, "YouTube opened, but playback could not be verified.")
+                        // v1.0.4: we open YouTube's SEARCH RESULTS page, where
+                        // playback starts only after the user taps a video —
+                        // a media session never appears on this screen, so
+                        // strict verification here always failed the step.
+                        // The requested state (YouTube open + search done) was
+                        // reached; report success with the one-tap hint.
+                        ActionResult(
+                            true,
+                            if (query.isNotEmpty()) "Opened YouTube searching for '$query'. Tap a video to start playback."
+                            else "YouTube is open — tap a video to play it.",
+                            null
+                        )
                     }
                 } else {
                     val browserIntent = Intent(Intent.ACTION_VIEW, uri).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     context.startActivity(browserIntent)
-                    ActionResult(false, null, "The YouTube app isn't installed; I opened the search in your browser, but playback could not be verified.")
+                    ActionResult(
+                        true,
+                        if (query.isNotEmpty()) "YouTube isn't installed, so I opened the search for '$query' in your browser."
+                        else "YouTube isn't installed; I opened the search in your browser.",
+                        null
+                    )
                 }
             } catch (e: Exception) {
                 Log.e("PlayYoutube", "YouTube action failed: ${e.javaClass.simpleName}")

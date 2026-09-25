@@ -205,6 +205,17 @@ class OpenCodeZenProvider @Inject constructor(
      * [LLMResponse] is returned; otherwise every content delta is forwarded
      * as it arrives (real streaming — not the v1.0.1 word-by-word replay)
      * and the returned response carries the assembled text.
+     *
+     * Bounded self-healing attempts (v1.0.4), each observed against
+     * reasoning models on the free tier — never a loop, at most 4 posts:
+     *
+     *  1. gated body with `tool_choice: "none"` (live-verified accepted);
+     *  2. if the gate or a model backend rejects that field
+     *     (FreeTierError / 400), the exact official-client body once;
+     *  3. if the model still answers the harness contract (`tool_calls`)
+     *     instead of the user, one re-ask with an explicit no-tools
+     *     instruction;
+     *  4. if that re-ask itself hits a body-rejection, the plain body once.
      */
     private suspend fun executeStreamingCompletion(
         request: LLMRequest,
@@ -212,7 +223,65 @@ class OpenCodeZenProvider @Inject constructor(
         startTime: Long,
         onDelta: (suspend (String) -> Unit)?
     ): LLMResponse = withContext(Dispatchers.IO) {
-        val messagesList = request.messages.toOpenAIMessages(request.systemPrompt)
+        val gated = runStreamAttempt(request, selectedModel, onDelta, sendToolChoice = true, appendNoToolGuard = false)
+        val first = if (gated.bodyRejected) {
+            runStreamAttempt(request, selectedModel, onDelta, sendToolChoice = false, appendNoToolGuard = false)
+        } else {
+            gated
+        }
+
+        var pump = first
+        var answeredWithTools = first.answeredWithToolCalls
+        if (first.answeredWithToolCalls) {
+            pump = runStreamAttempt(request, selectedModel, onDelta, sendToolChoice = true, appendNoToolGuard = true)
+            if (pump.bodyRejected) {
+                pump = runStreamAttempt(request, selectedModel, onDelta, sendToolChoice = false, appendNoToolGuard = true)
+            }
+            answeredWithTools = answeredWithTools || pump.sawToolCall
+        }
+
+        val assembled = pump.content
+        if (assembled.isBlank()) {
+            if (answeredWithTools) {
+                throw LLMErrorMapper.malformed(name, selectedModel)
+            }
+            throw IOException("OpenCode Zen stream completed without content")
+        }
+        LLMResponse(
+            content = assembled,
+            tokensUsed = pump.tokensUsed,
+            model = selectedModel,
+            provider = name,
+            latencyMs = System.currentTimeMillis() - startTime
+        )
+    }
+
+    /** Aggregated result of one SSE stream pump. */
+    private class StreamPump(
+        val content: String,
+        val tokensUsed: Int,
+        val sawToolCall: Boolean,
+        val bodyRejected: Boolean
+    ) {
+        /** Tool-call answer with zero prose: the corrective-retry trigger. */
+        val answeredWithToolCalls: Boolean
+            get() = sawToolCall && content.isBlank() && !bodyRejected
+    }
+
+    private suspend fun runStreamAttempt(
+        request: LLMRequest,
+        selectedModel: String,
+        onDelta: (suspend (String) -> Unit)?,
+        sendToolChoice: Boolean,
+        appendNoToolGuard: Boolean
+    ): StreamPump = withContext(Dispatchers.IO) {
+        val messagesList = request.messages.toOpenAIMessages(request.systemPrompt).toMutableList()
+        if (appendNoToolGuard) {
+            // Trailing user-role guard keeps the wire shape identical to a
+            // normal turn; a system message after user turns is normalized
+            // differently across compatible backends.
+            messagesList.add(mapOf("role" to "user", "content" to NO_TOOLS_GUARD))
+        }
 
         // Context-window-aware output clamp: models.dev publishes each
         // model's limit.context/limit.output — the same numbers the OpenCode
@@ -234,6 +303,13 @@ class OpenCodeZenProvider @Inject constructor(
             // tools ride along after it (verified: extra tools are accepted).
             "tools" to buildToolsPayload(request)
         )
+        if (sendToolChoice) {
+            // The app never executes OpenAI tool calls, so the model must
+            // answer in prose/JSON even with tools present. Live-verified
+            // (2026-09-25): the free-tier gate accepts `tool_choice: "none"`
+            // with the mandatory read+shell harness tools.
+            requestBodyMap["tool_choice"] = "none"
+        }
         // Note: response_format is deliberately NOT sent — the official
         // client never does, and free-tier models reject the field.
 
@@ -250,6 +326,16 @@ class OpenCodeZenProvider @Inject constructor(
                 // not IOException) and replace the classified error.
                 val errorBody = runCatching { response.consumeBoundedErrorBody() }.getOrNull()
                 if (response.code == 403 && errorBody?.contains("FreeTierError") == true) {
+                    if (sendToolChoice) {
+                        // Signal the caller to retry without tool_choice
+                        // before this becomes a user-facing failure.
+                        return@withContext StreamPump(
+                            content = "",
+                            tokensUsed = 0,
+                            sawToolCall = false,
+                            bodyRejected = true
+                        )
+                    }
                     throw LLMException(
                         LLMError.FreeTierBlocked,
                         name,
@@ -274,6 +360,18 @@ class OpenCodeZenProvider @Inject constructor(
                                 }
                             )
                         )
+                    )
+                }
+                if (response.code == 400 && sendToolChoice) {
+                    // A per-model backend may not accept tool_choice even when
+                    // the gate does: degrade to the official-client body once.
+                    // A genuine bad request (context overflow, malformed
+                    // messages) reproduces on the retry and is rethrown then.
+                    return@withContext StreamPump(
+                        content = "",
+                        tokensUsed = 0,
+                        sawToolCall = false,
+                        bodyRejected = true
                     )
                 }
                 throw response.toSafeProviderException(
@@ -313,12 +411,13 @@ class OpenCodeZenProvider @Inject constructor(
                     if (!first.isJsonObject) continue
                     val delta = first.asJsonObject.get("delta")?.takeIf { it.isJsonObject }?.asJsonObject
                         ?: continue
-                    // Reasoning deltas are model thinking, not answer content:
-                    // they are never emitted as chat text.
+                    // Reasoning deltas (`reasoning` / `reasoning_content`) are
+                    // model thinking, not answer content: they are never
+                    // emitted as chat text.
                     // Tool-call deltas mean the model answered the harness
-                    // contract instead of writing prose; with no way to
-                    // execute tools here, that surfaces as a malformed
-                    // response rather than a misleading network error.
+                    // contract instead of writing prose; the caller retries
+                    // once with a no-tools instruction before surfacing this
+                    // as a malformed response.
                     if (delta.get("tool_calls")?.isJsonArray == true) sawToolCall = true
                     val piece = delta.get("content")?.takeIf { it.isJsonPrimitive }?.asString
                     if (!piece.isNullOrEmpty()) {
@@ -328,19 +427,11 @@ class OpenCodeZenProvider @Inject constructor(
                 }
             }
 
-            val assembled = content.toString()
-            if (assembled.isBlank()) {
-                if (sawToolCall) {
-                    throw LLMErrorMapper.malformed(name, selectedModel)
-                }
-                throw IOException("OpenCode Zen stream completed without content")
-            }
-            LLMResponse(
-                content = assembled,
+            StreamPump(
+                content = content.toString(),
                 tokensUsed = tokensUsed,
-                model = selectedModel,
-                provider = name,
-                latencyMs = System.currentTimeMillis() - startTime
+                sawToolCall = sawToolCall,
+                bodyRejected = false
             )
         }
     }
@@ -553,6 +644,11 @@ class OpenCodeZenProvider @Inject constructor(
 
         private const val SSE_DATA_PREFIX = "data:"
         private const val SSE_DONE = "[DONE]"
+
+        /** Trailed onto the corrective re-ask when a model answers with tool_calls. */
+        private const val NO_TOOLS_GUARD =
+            "Tool calls are not available in this session. Do not call any tools. " +
+                "Answer the user's request directly in plain text or JSON."
 
         /**
          * Verified-live free hierarchy (2026-09-25 /zen/v1/models + per-model

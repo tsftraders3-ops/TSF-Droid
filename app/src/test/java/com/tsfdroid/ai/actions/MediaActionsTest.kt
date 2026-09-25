@@ -33,14 +33,17 @@ class MediaActionsTest {
     }
 
     @Test
-    fun `launch without verified playback is reported as failure`() = runBlocking {
+    fun `launch without verified playback stays a success with a tap hint`() = runBlocking {
         val verifier = RecordingVerifier(result = false)
         registerSpotifyHandler()
 
         val result = playMusic(verifier, mapOf("query" to "Daft Punk", "app" to "spotify"))
 
-        assertFalse(result.success)
-        assertEquals("The music app opened, but playback could not be verified.", result.error)
+        // v1.0.4: the app opened with the requested search — unverified
+        // autoplay is a soft outcome, not a step failure.
+        assertTrue(result.success)
+        assertTrue(result.message!!.contains("spotify"))
+        assertTrue(result.message!!.contains("Daft Punk"))
     }
 
     @Test
@@ -52,6 +55,32 @@ class MediaActionsTest {
         assertFalse(result.success)
         assertEquals("That music app is not supported.", result.error)
         assertFalse(verifier.called)
+    }
+
+    @Test
+    fun `youtube search page with unverified playback stays a success with tap hint`() = runBlocking {
+        val verifier = RecordingVerifier(result = false)
+        registerYoutubeHandler()
+
+        val result = playYoutube(verifier, "kiya baat hai")
+
+        // v1.0.4: we open YouTube's SEARCH RESULTS page — playback starts
+        // only after the user taps a video, so strict verification here
+        // always failed the step (the v1.0.3 FAILED log the user saw).
+        assertTrue(result.success)
+        assertTrue(result.message!!.contains("kiya baat hai"))
+        assertTrue(result.message!!.contains("Tap a video"))
+    }
+
+    @Test
+    fun `youtube verified playback still reports playing`() = runBlocking {
+        val verifier = RecordingVerifier(result = true)
+        registerYoutubeHandler()
+
+        val result = playYoutube(verifier, "lofi beats")
+
+        assertTrue(result.success)
+        assertTrue(result.message!!.contains("Playing 'lofi beats'"))
     }
 
     @Test
@@ -78,6 +107,30 @@ class MediaActionsTest {
         .getActions()
         .first { it.name == "PLAY_MUSIC" }
         .execute(params, context)
+
+    private suspend fun playYoutube(
+        verifier: RecordingVerifier,
+        query: String
+    ): ActionResult = MediaActions(verifier)
+        .getActions()
+        .first { it.name == "PLAY_YOUTUBE" }
+        .execute(mapOf("query" to query), context)
+
+    @Suppress("DEPRECATION")
+    private fun registerYoutubeHandler() {
+        val resolveInfo = ResolveInfo().apply {
+            activityInfo = ActivityInfo().apply {
+                packageName = "com.google.android.youtube"
+                name = "com.google.android.youtube.app.honeycomb.Shell$HomeActivity"
+            }
+        }
+        val query = java.net.URLEncoder.encode("kiya baat hai", "UTF-8")
+        val intent = android.content.Intent(
+            android.content.Intent.ACTION_VIEW,
+            android.net.Uri.parse("https://www.youtube.com/results?search_query=$query")
+        ).apply { setPackage("com.google.android.youtube") }
+        shadowOf(context.packageManager).addResolveInfoForIntent(intent, resolveInfo)
+    }
 
     @Suppress("DEPRECATION")
     private fun registerSpotifyHandler() {

@@ -139,15 +139,27 @@ class OpenCodeZenNetworkTest {
     fun `a 403 FreeTierError maps to the actionable free-tier error, not a bad-key error`() = runBlocking {
         server.enqueue(registryDown())
         server.enqueue(modelsDown())
-        server.enqueue(
-            MockResponse.Builder()
-                .code(403)
-                .body("""{"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode"}}""")
-                .build()
-        )
+        // v1.0.4: the first attempt carries tool_choice:"none". A FreeTierError
+        // on it triggers exactly one bounded fallback to the official-client
+        // body (no tool_choice) before the block is surfaced.
+        server.enqueue(freeTier403())
+        server.enqueue(freeTier403())
 
         val thrown = runCatching { provider.complete(newRequest()) }
             .exceptionOrNull()
+
+        server.takeRequest() // registry
+        server.takeRequest() // /models
+        val firstPosted = server.takeRequest()
+        assertTrue(
+            "the primary attempt should carry tool_choice",
+            firstPosted.body!!.utf8().contains("tool_choice")
+        )
+        val secondPosted = server.takeRequest()
+        assertFalse(
+            "the fallback attempt must match the official-client body",
+            secondPosted.body!!.utf8().contains("tool_choice")
+        )
 
         assertNotNull(thrown)
         val exception = thrown!!
@@ -244,36 +256,69 @@ class OpenCodeZenNetworkTest {
     }
 
     @Test
-    fun `a tool-call-only stream surfaces as a malformed response, not a network error`() = runBlocking {
+    fun `a tool-call answer triggers one corrective re-ask that recovers the turn`() = runBlocking {
         server.enqueue(registryDown())
         server.enqueue(modelsDown())
-        server.enqueue(
-            MockResponse.Builder()
-                .code(200)
-                .body(
-                    """
-                    data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"shell","arguments":"{\"command\":\"ls\"}"}}]}}]}
+        server.enqueue(toolCallsOnlyBody())
+        server.enqueue(successBody())
 
-                    data: {"choices":[{"index":0,"finish_reason":"tool_calls","delta":{}}]}
+        val response = provider.complete(newRequest())
 
-                    data: [DONE]
-
-                    """.trimIndent()
-                )
-                .build()
+        // v1.0.4: a tool-call answer is retried once with an explicit
+        // no-tools instruction instead of failing the turn immediately.
+        assertEquals("ok", response.content)
+        server.takeRequest() // registry
+        server.takeRequest() // /models
+        server.takeRequest() // first attempt: tool-call answer
+        val retry = server.takeRequest()
+        val retryBody = retry.body!!.utf8()
+        assertTrue(
+            "the re-ask must carry the no-tools instruction",
+            retryBody.contains("Do not call any tools")
         )
+        assertTrue(
+            "the re-ask stays on the gated wire shape",
+            retryBody.contains("tool_choice")
+        )
+    }
+
+    @Test
+    fun `a persistent tool-call answer surfaces as a malformed response after the retry`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(toolCallsOnlyBody())
+        server.enqueue(toolCallsOnlyBody())
 
         val exception = requireNotNull(
             runCatching { provider.complete(newRequest()) }.exceptionOrNull()
-        ) { "a tool-call-only stream must not succeed" }
+        ) { "a persistent tool-call answer must not succeed" }
 
-        assertTrue(
-            "got ${exception::class.simpleName}",
-            exception is com.tsfdroid.ai.core.llm.error.LLMException
-        )
         val llm = exception as com.tsfdroid.ai.core.llm.error.LLMException
         assertEquals(com.tsfdroid.ai.core.llm.error.LLMError.MalformedResponse, llm.error)
         assertFalse("a tool-call answer is not a network problem", llm.retryable)
+        // Exactly two completion POSTs: the original + one corrective re-ask.
+        server.takeRequest() // registry
+        server.takeRequest() // /models
+        server.takeRequest()
+        server.takeRequest()
+    }
+
+    @Test
+    fun `a free-tier request carries tool_choice none so models answer in prose`() = runBlocking {
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(successBody())
+
+        provider.complete(newRequest())
+
+        server.takeRequest() // registry
+        server.takeRequest() // /models
+        val posted = server.takeRequest()
+        val json = com.google.gson.JsonParser.parseString(posted.body!!.utf8()).asJsonObject
+        // Live-verified (2026-09-25) that the gate accepts tool_choice:"none"
+        // alongside the harness tools; it prevents reasoning models from
+        // answering the harness contract with tool calls the app cannot run.
+        assertEquals("none", json.get("tool_choice")?.asString)
     }
 
     @Test
@@ -290,6 +335,26 @@ class OpenCodeZenNetworkTest {
     private fun registryDown() = MockResponse.Builder().code(503).body("registry down").build()
 
     private fun modelsDown() = MockResponse.Builder().code(503).body("models down").build()
+
+    private fun freeTier403() = MockResponse.Builder()
+        .code(403)
+        .body("""{"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode"}}""")
+        .build()
+
+    /** A stream where the model answers the harness contract with tool calls. */
+    private fun toolCallsOnlyBody() = MockResponse.Builder()
+        .code(200)
+        .body(
+            """
+            data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"shell","arguments":"{\"command\":\"ls\"}"}}]}}]}
+
+            data: {"choices":[{"index":0,"finish_reason":"tool_calls","delta":{}}]}
+
+            data: [DONE]
+
+            """.trimIndent()
+        )
+        .build()
 
     /** Verified wire shape: SSE chat-completion stream, usage in the final chunk. */
     private fun successBody() = MockResponse.Builder()

@@ -3,6 +3,7 @@ package com.tsfdroid.ai.core.agent
 import android.content.Context
 import com.tsfdroid.ai.actions.ActionDispatcher
 import com.tsfdroid.ai.actions.base.ActionResult
+import com.tsfdroid.ai.core.llm.LLMProvider
 import com.tsfdroid.ai.core.llm.LLMProviderFactory
 import com.tsfdroid.ai.core.llm.LLMRequest
 import com.tsfdroid.ai.core.llm.LLMResponse
@@ -625,6 +626,54 @@ class AgentLoop @Inject constructor(
         }
     }
 
+    /**
+     * Appended to the system prompt on the corrective re-ask after an
+     * unparseable plan answer. Reasoning models occasionally return malformed
+     * JSON or narrate around the schema; one zero-temperature retry with an
+     * explicit output contract recovers the turn instead of surfacing a
+     * planning error.
+     */
+    private val PLAN_RETRY_SUFFIX =
+        "\n\nSTRICT OUTPUT MODE: Reply with ONLY the raw JSON plan object — " +
+            "no markdown fences, no explanation, no tool calls, no text before " +
+            "or after the JSON."
+
+    /**
+     * One LLM planning call plus a single corrective re-ask when the answer
+     * cannot be parsed into a plan. Bounded: at most one extra request, and
+     * the original parse failure is the one that propagates.
+     */
+    private suspend fun completeAndParsePlan(
+        provider: LLMProvider,
+        request: LLMRequest,
+        userGoal: String,
+        reportLatency: suspend (LLMResponse) -> Unit
+    ): Plan {
+        val first = provider.complete(request)
+        reportLatency(first)
+        try {
+            return parsePlanFromLlmResponse(first.content, userGoal)
+        } catch (firstFailure: IllegalArgumentException) {
+            val corrective = request.copy(
+                systemPrompt = request.systemPrompt + PLAN_RETRY_SUFFIX,
+                messages = request.messages + ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    text = "Your previous reply was not valid plan JSON. " +
+                        "Respond with ONLY the JSON plan object now.",
+                    sender = ChatMessage.Sender.USER
+                ),
+                temperature = 0.0f
+            )
+            val second = provider.complete(corrective)
+            reportLatency(second)
+            try {
+                return parsePlanFromLlmResponse(second.content, userGoal)
+            } catch (_: IllegalArgumentException) {
+                throw firstFailure
+            }
+        }
+    }
+
     private suspend fun generatePlan(userMsg: ChatMessage, context: Context, sessionId: String) {
         try {
             val provider = llmProviderFactory.getActiveProvider()
@@ -671,7 +720,8 @@ class AgentLoop @Inject constructor(
                         Critic Safety & Edge Case Report: ${criticResponse.content}
                     """.trimIndent()
 
-                    val mergeResponse = provider.complete(
+                    completeAndParsePlan(
+                        provider,
                         LLMRequest(
                             systemPrompt = mergePrompt,
                             messages = listOf(
@@ -685,24 +735,24 @@ class AgentLoop @Inject constructor(
                             temperature = 0.1f,
                             maxTokens = 1500,
                             responseFormat = ResponseFormat.JSON
-                        )
+                        ),
+                        userMsg.text,
+                        ::reportLocalPlanningLatency
                     )
-                    reportLocalPlanningLatency(mergeResponse)
-
-                    parsePlanFromLlmResponse(mergeResponse.content, userMsg.text)
                 }
             } else {
-                val response = provider.complete(
+                completeAndParsePlan(
+                    provider,
                     LLMRequest(
                         systemPrompt = sysPrompt,
                         messages = listOf(userMsg),
                         temperature = 0.1f,
                         maxTokens = 1500,
                         responseFormat = ResponseFormat.JSON
-                    )
+                    ),
+                    userMsg.text,
+                    ::reportLocalPlanningLatency
                 )
-                reportLocalPlanningLatency(response)
-                parsePlanFromLlmResponse(response.content, userMsg.text)
             }
 
             planManager.startNewPlan(plan, context, PlanStatus.PROPOSED)
@@ -1572,59 +1622,78 @@ class AgentLoop @Inject constructor(
         return NetworkErrorFormatter.toUserMessage(technical)
     }
 
+    /**
+     * Parses the model's answer into an executable [Plan].
+     *
+     * v1.0.4 hardening for reasoning models on the free tier: answers may
+     * arrive wrapped in `<think>` blocks, fenced, or preceded by narration,
+     * and a genuinely ambiguous goal can legitimately come back as a
+     * clarifying question. Parsing therefore walks progressively looser
+     * candidates, and a prose answer is routed into CHAT/ASK_USER instead of
+     * failing the turn with "Could not parse a valid plan".
+     */
     private fun parsePlanFromLlmResponse(raw: String, userGoal: String): Plan {
-        val stripped = stripMarkdownFences(raw)
+        val sanitized = PlanResponseSanitizer.stripReasoningBlocks(raw)
+        val stripped = stripMarkdownFences(sanitized)
 
-        // Prefer wrapper action before unwrapping plan — handles {"action":"...","plan":null}.
-        try {
-            val root = json.parseToJsonElement(stripped)
-            if (root is JsonObject) {
-                val action = root["action"]?.jsonPrimitive?.contentOrNull
-                    ?.takeIf { it.isNotBlank() && it != "null" }
-                val planElement = root["plan"]
-                val hasPlanObject = planElement is JsonObject
+        // Richest first: the sanitized text itself, then the first balanced
+        // JSON object found inside mixed prose.
+        val candidates = linkedSetOf(stripped)
+        extractFirstJsonObject(stripped)?.let { candidates.add(it) }
 
-                if (action != null && !hasPlanObject) {
-                    val params = jsonObjectToStringMap(root["params"]?.jsonObject)
-                    return buildSingleStepPlan(userGoal, action, params)
-                }
+        for (candidate in candidates.filter { it.isNotBlank() }) {
+            // Prefer wrapper action before unwrapping plan — handles {"action":"...","plan":null}.
+            try {
+                val root = json.parseToJsonElement(candidate)
+                if (root is JsonObject) {
+                    val action = root["action"]?.jsonPrimitive?.contentOrNull
+                        ?.takeIf { it.isNotBlank() && it != "null" }
+                    val planElement = root["plan"]
+                    val hasPlanObject = planElement is JsonObject
 
-                if (hasPlanObject) {
-                    return normalizePlan(json.decodeFromString<Plan>(planElement.toString()))
-                }
-            }
-        } catch (_: Exception) {
-            // Fall through to direct Plan parsing
-        }
-
-        val cleaned = cleanPlanJson(raw)
-        try {
-            return normalizePlan(json.decodeFromString<Plan>(cleaned))
-        } catch (_: Exception) {
-            // Continue with wrapper/single-action parsing below
-        }
-
-        val root = json.parseToJsonElement(cleaned)
-        if (root is JsonObject) {
-            root["plan"]?.let { planElement ->
-                if (planElement is JsonObject) {
-                    try {
-                        return normalizePlan(json.decodeFromString<Plan>(planElement.toString()))
-                    } catch (_: Exception) {
-                        // fall through
+                    if (action != null && !hasPlanObject) {
+                        val params = jsonObjectToStringMap(root["params"]?.jsonObject)
+                        return buildSingleStepPlan(userGoal, action, params)
                     }
+
+                    if (hasPlanObject) {
+                        return normalizePlan(json.decodeFromString<Plan>(planElement.toString()))
+                    }
+
+                    // A bare plan object at the root.
+                    return normalizePlan(json.decodeFromString<Plan>(candidate))
                 }
+            } catch (_: Exception) {
+                // Fall through to the cleaner / next candidate
             }
 
-            val action = root["action"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() && it != "null" }
-            if (action != null) {
-                val params = jsonObjectToStringMap(root["params"]?.jsonObject)
-                return buildSingleStepPlan(userGoal, action, params)
+            val cleaned = cleanPlanJson(candidate)
+            try {
+                return normalizePlan(json.decodeFromString<Plan>(cleaned))
+            } catch (_: Exception) {
+                // Continue with remaining candidates
             }
+        }
+
+        // Prose answer that never became JSON: the model either asked a
+        // clarifying question or answered conversationally. Both are valid
+        // agent outcomes — surface them through the action protocol instead
+        // of an error. JSON-shaped text that failed every parse above still
+        // throws: converting corrupt JSON into a fake reply would hide bugs.
+        PlanResponseSanitizer.classifyProseReply(sanitized)?.let { (action, params) ->
+            return buildSingleStepPlan(userGoal, action, params)
         }
 
         throw IllegalArgumentException("Could not parse a valid plan from LLM response")
     }
+
+    /**
+     * Text-shaping helpers (reasoning-strip, balanced-JSON extraction, prose
+     * classification) live in [PlanResponseSanitizer] so they can be unit
+     * tested without constructing the full agent loop.
+     */
+    private fun extractFirstJsonObject(text: String): String? =
+        PlanResponseSanitizer.extractFirstJsonObject(text)
 
     private fun stripMarkdownFences(raw: String): String {
         var content = raw.trim()
