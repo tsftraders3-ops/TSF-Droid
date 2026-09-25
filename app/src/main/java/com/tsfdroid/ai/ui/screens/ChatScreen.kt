@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -42,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -83,6 +85,9 @@ fun ChatScreen(
     // happening here. See ChatViewModel.visibleAgentState.
     val visibleAgentState by viewModel.visibleAgentState.collectAsState()
     val chatError by viewModel.chatError.collectAsState()
+    // v1.0.5: live reasoning-model thinking trace (what the agent is thinking
+    // right now) — rendered under the thinking indicator while it streams.
+    val liveThinking by viewModel.liveThinking.collectAsState()
     // Id of whichever chat (if any) has a task actively running, regardless of which
     // chat is currently displayed - drives the chat-picker's "still running" indicator.
     val runningSessionId by viewModel.runningSessionId.collectAsState()
@@ -198,7 +203,7 @@ fun ChatScreen(
                 title = {
                     Column {
                         Text(
-                            text = "OPENDROID",
+                            text = "TSF DROID",
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary,
@@ -382,7 +387,7 @@ fun ChatScreen(
                     // visibleAgentState.
                     if (visibleAgentState is AgentState.Thinking) {
                         item {
-                            ThinkingBubble()
+                            ThinkingBubble(liveThinking = liveThinking)
                         }
                     }
 
@@ -565,7 +570,7 @@ fun ChatScreen(
                                 TextField(
                                     value = inputQuery,
                                     onValueChange = { inputQuery = it; voiceError = null },
-                                    placeholder = { Text("Ask OpenDroid to run an autonomous task...", color = TextSecondary, fontSize = 14.sp) },
+                                    placeholder = { Text("Ask TSF Droid to run an autonomous task...", color = TextSecondary, fontSize = 14.sp) },
                                     colors = TextFieldDefaults.colors(
                                         focusedContainerColor = Color.Transparent,
                                         unfocusedContainerColor = Color.Transparent,
@@ -816,6 +821,58 @@ fun ChatBubble(
                     )
                 }
 
+                // v1.0.5: reasoning-model thinking trace — collapsible section
+                // above the answer so the user can inspect WHAT the agent was
+                // thinking. Auto-expanded while only thinking has arrived
+                // (still streaming), collapsed once the answer is present.
+                if (isAgent && !message.thinkingText.isNullOrBlank()) {
+                    var thinkingExpanded by remember(message.id) {
+                        mutableStateOf(message.text.isBlank())
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { thinkingExpanded = !thinkingExpanded }
+                            .padding(bottom = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (thinkingExpanded) "Collapse thinking" else "Expand thinking",
+                            tint = AccentPurple,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .graphicsLayer {
+                                    rotationZ = if (thinkingExpanded) 0f else -90f
+                                }
+                        )
+                        Text(
+                            text = "THINKING",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentPurple,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                    if (thinkingExpanded) {
+                        Text(
+                            text = message.thinkingText!!,
+                            fontSize = 11.sp,
+                            color = TextSecondary,
+                            lineHeight = 15.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 12,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 180.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(bottom = 4.dp)
+                        )
+                    }
+                }
+
                 Text(
                     text = message.text,
                     fontSize = 14.sp,
@@ -855,7 +912,7 @@ fun ChatBubble(
 }
 
 @Composable
-fun ThinkingBubble() {
+fun ThinkingBubble(liveThinking: String? = null) {
     val transition = rememberInfiniteTransition(label = "thinking")
     val dot1 by transition.animateFloat(
         initialValue = 0.25f,
@@ -893,6 +950,21 @@ fun ThinkingBubble() {
                 Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(TextPrimary.copy(alpha = dot1)))
                 Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(TextPrimary.copy(alpha = dot2)))
                 Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(TextPrimary.copy(alpha = dot3)))
+            }
+            // v1.0.5: while a reasoning model streams its thinking, show the
+            // tail of the live trace under the dots — the user watches what
+            // the agent is thinking instead of an indeterminate spinner.
+            liveThinking?.takeIf { it.isNotBlank() }?.let { trace ->
+                Text(
+                    text = trace.takeLast(600),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextSecondary,
+                    lineHeight = 14.sp,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
         }
     }
@@ -947,7 +1019,7 @@ fun ProposedPlanPrompt(
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "OpenDroid has formulated a sequence of $stepsCount steps to complete this goal. Review the steps in the PLAN tab or approve below to execute.",
+                text = "TSF Droid has formulated a sequence of $stepsCount steps to complete this goal. Review the steps in the PLAN tab or approve below to execute.",
                 fontSize = 12.sp,
                 color = TextSecondary
             )

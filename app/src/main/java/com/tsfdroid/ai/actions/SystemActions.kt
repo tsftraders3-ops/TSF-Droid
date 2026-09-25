@@ -181,6 +181,7 @@ class SystemActions @Inject constructor(
         GetSystemInfoAction(),
         SetRingerModeAction(),
         AskUserAction(agentLoop),
+        ConverseAction(),
         AnalyzeScreenshotAction(visionEngine),
         // Informational (non-blocking, auto-completing)
         DisplayInfoAction(),
@@ -1008,6 +1009,31 @@ class SystemActions @Inject constructor(
             } catch (e: Exception) {}
             val response = agentLoop.get().awaitUserResponse().trim()
             return ActionResult(true, response, null)
+        }
+    }
+
+    /**
+     * Conversational answer action (v1.0.5). CHAT is schema-valid
+     * (ActionSchema AGENT category) but never had a registered handler, so a
+     * prose plan reply classified into a CHAT step died with
+     * "Action 'CHAT' is not registered in ActionDispatcher". The AgentLoop
+     * intercepts CHAT steps and posts the reply as a real chat bubble; this
+     * handler covers every other dispatch path (macros, routines, aliases)
+     * so CHAT always resolves to a graceful success instead of UnknownAction.
+     */
+    private class ConverseAction : Action {
+        override val name: String = "CHAT"
+        override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
+            val response = params["response"]
+                ?: params["message"]
+                ?: params["text"]
+                ?: "Done."
+            return ActionResult.Success(
+                dataMap = mapOf(
+                    "message" to response,
+                    "delivered" to "true"
+                )
+            )
         }
     }
 

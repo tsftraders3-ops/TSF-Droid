@@ -117,9 +117,33 @@ class PlanResponseSanitizerTest {
     }
 
     @Test
-    fun `long prose is truncated to the parameter budget`() {
-        val long = "word ".repeat(200)
+    fun `runaway prose is bounded to the 16k budget`() {
+        val long = "word ".repeat(10_000)
         val (_, params) = PlanResponseSanitizer.classifyProseReply(long)!!
-        assertTrue(params.values.first().length <= 400)
+        assertTrue(params.values.first().length <= PlanResponseSanitizer.PROSE_MAX_CHARS)
+    }
+
+    @Test
+    fun `v1_0_5 long real answers are no longer mangled to 400 chars`() {
+        // The v1.0.4 field failure: a capability-audit answer reached the
+        // dispatcher chopped mid-word ("…which ca"). Real answers up to a few
+        // thousand chars must survive classification intact.
+        val audit = buildString {
+            append("I checked every capability in the list. ")
+            repeat(60) { i -> append("Capability number $i works in this environment. ") }
+            append("End of report, which ca") // > 400 chars total
+        }
+        val (_, params) = PlanResponseSanitizer.classifyProseReply(audit)!!
+        val response = params["response"]!!
+        assertTrue(response.length > 400)
+        assertTrue(response.endsWith("which ca"))
+        assertTrue(response.contains("Capability number 59"))
+    }
+
+    @Test
+    fun `whitespace collapse keeps the answer readable without inflating it`() {
+        val text = "Answer   with    many    spaces\n\nand newlines"
+        val (_, params) = PlanResponseSanitizer.classifyProseReply(text)!!
+        assertEquals("Answer with many spaces and newlines", params["response"])
     }
 }

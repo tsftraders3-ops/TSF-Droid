@@ -378,6 +378,24 @@ object StorageWorkspaceProvider {
         }
     }
 
+    /**
+     * v1.0.5: writes binary content (CREATE_PDF output) to the workspace.
+     * Resolves the same [resolveFile] sandbox as text writes — relative paths
+     * land in the agent workspace, absolute app paths are honored, system
+     * paths are rejected. Returns the absolute file path on success so the
+     * agent can tell the user exactly where the document is.
+     */
+    fun writeBinaryFile(context: Context, filePath: String, bytes: ByteArray): ActionResult {
+        return try {
+            val file = resolveFile(context, filePath)
+            file.parentFile?.mkdirs()
+            file.outputStream().use { it.write(bytes) }
+            ActionResult(true, "File saved at ${file.absolutePath}", null)
+        } catch (e: Exception) {
+            ActionResult(false, null, "Couldn't write binary file: ${e.localizedMessage}")
+        }
+    }
+
     fun createDirectory(context: Context, pathStr: String): ActionResult {
         return if (shouldUseCustomFolder(context, pathStr)) {
             try {

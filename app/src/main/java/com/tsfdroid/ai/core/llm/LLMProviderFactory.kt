@@ -232,6 +232,50 @@ class WrappedLLMProvider(
         }
     }
 
+    /**
+     * v1.0.5: same resolve/secrets/retry envelope as [streamComplete], but
+     * forwarding the detailed event surface so reasoning-model thinking
+     * reaches the chat UI. Only CONTENT emission pins the retry walk —
+     * reasoning-only attempts stay retryable, mirroring the provider-level
+     * chain-walk semantics.
+     */
+    override fun streamCompleteDetailed(request: LLMRequest): Flow<LLMStreamEvent> = flow {
+        val resolved = resolveRequest(request)
+        val registrations = registerSecrets(resolved)
+        var attempt = 1
+        var emitted = false
+        val startedAt = retryRuntime.nowMillis()
+        try {
+            while (true) {
+                try {
+                    delegate.streamCompleteDetailed(resolved).collect { event ->
+                        when (event) {
+                            is LLMStreamEvent.Content -> if (event.text.isNotEmpty()) {
+                                emitted = true
+                                emit(event)
+                            }
+                            is LLMStreamEvent.Reasoning -> emit(event)
+                        }
+                    }
+                    if (!emitted) {
+                        throw LLMErrorMapper.malformed(name, resolved.model.orEmpty(), transient = true)
+                    }
+                    break
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    val failure = LLMErrorMapper.fromThrowable(name, resolved.model.orEmpty(), throwable)
+                    val delayMillis = proposedDelayMillis(failure, attempt)
+                    if (emitted || !shouldRetry(resolved, failure, attempt, startedAt, delayMillis)) throw failure
+                    retryRuntime.delayMillis(delayMillis)
+                    attempt++
+                }
+            }
+        } finally {
+            registrations.asReversed().forEach(AutoCloseable::close)
+        }
+    }
+
     override suspend fun isAvailable(): Boolean = delegate.isAvailable()
 
     private suspend fun resolveRequest(request: LLMRequest): LLMRequest {

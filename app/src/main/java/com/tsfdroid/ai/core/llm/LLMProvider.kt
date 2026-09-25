@@ -20,6 +20,18 @@ sealed class StreamChunk {
     data class ToolCall(val name: String, val arguments: String) : StreamChunk()
 }
 
+/**
+ * Detailed stream surface for chat UIs (v1.0.5): content deltas plus the
+ * "thinking" deltas reasoning models emit (`reasoning` / `reasoning_content`
+ * on the OpenCode Zen free tier). Reasoning events are never answer content —
+ * the UI renders them in a separate collapsible THINKING section so the user
+ * can watch what the agent is thinking while it works.
+ */
+sealed class LLMStreamEvent {
+    data class Content(val text: String) : LLMStreamEvent()
+    data class Reasoning(val text: String) : LLMStreamEvent()
+}
+
 interface AIProvider {
     suspend fun generate(
         messages: List<ChatMessage>,
@@ -33,6 +45,15 @@ interface LLMProvider : AIProvider {
     suspend fun complete(request: LLMRequest): LLMResponse
     fun streamComplete(request: LLMRequest): Flow<String>
     suspend fun isAvailable(): Boolean
+
+    /**
+     * Detailed streaming: content plus reasoning-model thinking deltas.
+     * Default implementation wraps [streamComplete] as Content-only events,
+     * so providers without a reasoning surface need no override.
+     */
+    fun streamCompleteDetailed(request: LLMRequest): Flow<LLMStreamEvent> = flow {
+        streamComplete(request).collect { text -> emit(LLMStreamEvent.Content(text)) }
+    }
 
     override suspend fun generate(
         messages: List<ChatMessage>,

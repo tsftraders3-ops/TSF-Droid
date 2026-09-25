@@ -137,7 +137,7 @@ private fun IntroductionPanel(
         ) {
             Image(
                 painter = painterResource(id = com.tsfdroid.ai.R.drawable.bot),
-                contentDescription = "OpenDroid Bot Avatar",
+                contentDescription = "TSF Droid Bot Avatar",
                 modifier = Modifier.size(120.dp)
             )
         }
@@ -145,7 +145,7 @@ private fun IntroductionPanel(
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "Hello! I am OpenDroid",
+            text = "Hello! I am TSF Droid",
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             color = TextPrimary
@@ -327,7 +327,7 @@ fun PermissionPromptPanel(
         ) {
             Image(
                 painter = painterResource(id = com.tsfdroid.ai.R.drawable.bot),
-                contentDescription = "OpenDroid Bot Avatar",
+                contentDescription = "TSF Droid Bot Avatar",
                 modifier = Modifier.size(120.dp)
             )
         }

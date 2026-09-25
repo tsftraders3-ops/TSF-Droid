@@ -69,7 +69,7 @@ import androidx.room.TypeConverters
         SocialAutomationRuleEntity::class,
         SocialAuditLogEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -261,6 +261,15 @@ abstract class OpenDroidDatabase : RoomDatabase() {
                 """)
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_habit_routines_status ON habit_routines(status)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_habit_routines_lastDetectedAt ON habit_routines(lastDetectedAt)")
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // v1.0.5: reasoning-model thinking trace on chat messages.
+                // Purely additive - existing history is untouched, every
+                // pre-existing row simply reads NULL (no thinking section).
+                database.execSQL("ALTER TABLE conversations ADD COLUMN thinkingText TEXT DEFAULT NULL")
             }
         }
 

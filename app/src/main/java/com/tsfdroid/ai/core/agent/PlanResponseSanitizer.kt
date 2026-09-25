@@ -73,11 +73,19 @@ internal object PlanResponseSanitizer {
     fun classifyProseReply(raw: String): Pair<String, Map<String, String>>? {
         val text = raw.trim()
         if (text.isEmpty() || text.startsWith("{") || text.startsWith("[")) return null
-        val collapsed = text.replace(Regex("\\s+"), " ").take(400)
+        // v1.0.5: 400 chars cut real answers mid-word (the capability-audit
+        // failure: "…which ca" — the reply reached the dispatcher truncated).
+        // Prose replies ARE the deliverable for conversational turns, so the
+        // cap protects only against runaway output, never mangles a real
+        // answer. 16k chars ≈ 4k tokens of intact prose.
+        val collapsed = text.replace(Regex("\\s+"), " ").take(PROSE_MAX_CHARS)
         return if (collapsed.endsWith("?")) {
             "ASK_USER" to mapOf("question" to collapsed)
         } else {
             "CHAT" to mapOf("response" to collapsed)
         }
     }
+
+    /** Upper bound for a classified prose reply (see [classifyProseReply]). */
+    const val PROSE_MAX_CHARS = 16_000
 }

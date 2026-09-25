@@ -63,6 +63,14 @@ class ChatViewModel @Inject constructor(
     val agentState: StateFlow<AgentState> = agentLoop.agentState
 
     /**
+     * Live reasoning-model thinking trace (v1.0.5): the tail of what the
+     * model is thinking while a planning call or streamed reply is in flight,
+     * null when idle. Rendered under the thinking indicator so the user can
+     * watch the agent's reasoning in real time.
+     */
+    val liveThinking: StateFlow<String?> = agentLoop.liveThinking
+
+    /**
      * [AgentLoop.chatError], but scoped to whichever chat is on screen - the same rule
      * [visibleAgentState] applies to the shared agent state. An error raised by a task
      * in chat A must never render its recovery card inside chat B; the underlying error

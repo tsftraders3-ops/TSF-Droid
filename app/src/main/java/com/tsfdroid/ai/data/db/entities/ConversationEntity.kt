@@ -15,6 +15,9 @@ data class ConversationEntity(
     val timestamp: Long,
     val modelBadge: String? = null,
     val contactPickerData: String? = null,
+    // v1.0.5: reasoning-model thinking trace, rendered as a collapsible
+    // THINKING section on agent bubbles. Null for non-reasoning messages.
+    val thinkingText: String? = null,
     // Which chat history this message belongs to. See ChatSessionEntity.
     val sessionId: String
 )

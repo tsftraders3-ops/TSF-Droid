@@ -4,6 +4,55 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.0.5 — Real agent capability (complex tasks actually execute now)
+
+v1.0.4 could *chat*, but real usage showed the agent's deeper failures: a
+capability-audit question FAILED as a plan ("Action 'CHAT' is not registered in
+ActionDispatcher"), "ok start" → "Let's build it!" was followed by silence, and
+web "search" just opened Chrome. This release makes the agent genuinely capable
+on complex tasks and shows what it is thinking.
+
+### Fixes
+
+1. **Conversational answers finally execute** — prose plan replies are
+   classified into CHAT steps, but CHAT had no registered handler, so every
+   conversational answer died with "Action 'CHAT' is not registered in
+   ActionDispatcher" (the capability-audit failure). CHAT steps now deliver
+   the full reply as a real chat bubble + speech, mark the plan COMPLETED,
+   and never parrot the answer in a second summary bubble. A CHAT handler is
+   also registered in the dispatcher so macros/routines can never hit the
+   UnknownAction path either.
+2. **No more 400-character answers** — prose replies were truncated at 400
+   chars (the "…which ca" cut-off in the logs). The cap is now 16k chars:
+   long answers arrive whole.
+3. **The planner knows what the agent can do** — the planning prompt gained a
+   capability-truth section (file creation, PDF creation, in-app web search &
+   fetch, plus the full device-control list) with an explicit ban on the
+   "tool calls are not available in this session" hallucination. "ok start"
+   now leads to an actual WRITE_FILE plan, and a refusal-before-trying is
+   prompt-forbidden.
+4. **REAL web capability without Chrome** — WEB_SEARCH now fetches live
+   DuckDuckGo results in-app and returns titles/snippets/URLs as data;
+   GET_NEWS fetches Google News RSS and returns real headlines; SUMMARIZE_URL
+   fetches and reduces the page in-app; new FETCH_URL brings any page's text
+   into the plan for downstream steps. The browser opens only as an offline
+   fallback.
+5. **CREATE_PDF** — a new action generates real, paginated A4 PDF documents
+   from text content (Android PdfDocument) saved into the agent workspace.
+6. **Watch the agent think** — reasoning-model thinking deltas
+   (`reasoning`/`reasoning_content`) are surfaced live: the thinking indicator
+   streams the model's current reasoning, and every agent bubble carries a
+   collapsible THINKING section with the full trace. The planning call itself
+   streams its reasoning too.
+7. **Rebrand completed** — OPENDROID header, "Ask OpenDroid…" placeholder,
+   onboarding and all LLM personas now say TSF Droid.
+
+### Tests
+- WebContentParsersTest (13 cases): DDG parsing, RSS headlines, HTML→text
+  reduction, entity decoding incl. hostile numeric refs.
+- PlanResponseSanitizerTest extended: the 400-char regression case, the 16k
+  bound, and whitespace-collapse behavior.
+
 ## v1.0.4 — Reasoning-model hardening (the unreadable-response fix)
 
 v1.0.3 got keyless auth working — and immediately surfaced the *next* layer:

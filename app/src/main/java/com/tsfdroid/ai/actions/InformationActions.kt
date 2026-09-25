@@ -6,6 +6,9 @@ import android.util.Log
 import androidx.core.net.toUri
 import com.tsfdroid.ai.actions.base.Action
 import com.tsfdroid.ai.actions.base.ActionResult
+import com.tsfdroid.ai.core.web.WebContentParsers
+import java.net.HttpURLConnection
+import java.net.URL
 import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,24 +27,91 @@ class InformationActions @Inject constructor() {
         CurrencyConvertAction(),
         CheckStockAction(),
         SummarizeUrlAction(),
+        FetchUrlAction(),
         FactCheckAction()
     )
 
+    companion object {
+        private const val TAG = "InformationActions"
+        private const val FETCH_TIMEOUT_MS = 12_000
+        private const val MAX_FETCH_BYTES = 512_000
+        private const val USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+
+        /**
+         * In-app HTTP GET used by the real web capability (v1.0.5): WEB_SEARCH,
+         * GET_NEWS, SUMMARIZE_URL and FETCH_URL fetch live data over the
+         * network WITHOUT opening a browser. Returns null on any failure —
+         * callers degrade to the browser-intent fallback so the action never
+         * regresses when the endpoint is unreachable.
+         */
+        fun httpGetText(url: String, maxBytes: Int = MAX_FETCH_BYTES): String? {
+            return try {
+                val connection = URL(url).openConnection() as HttpURLConnection
+                connection.connectTimeout = FETCH_TIMEOUT_MS
+                connection.readTimeout = FETCH_TIMEOUT_MS
+                connection.instanceFollowRedirects = true
+                connection.setRequestProperty("User-Agent", USER_AGENT)
+                connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+                if (connection.responseCode !in 200..299) {
+                    Log.w(TAG, "HTTP fetch non-2xx: $url -> ${connection.responseCode}")
+                    connection.disconnect()
+                    return null
+                }
+                val stream = connection.inputStream
+                val buffer = ByteArray(maxBytes)
+                var read = 0
+                while (read < maxBytes) {
+                    val n = stream.read(buffer, read, maxBytes - read)
+                    if (n < 0) break
+                    read += n
+                }
+                stream.close()
+                connection.disconnect()
+                String(buffer, 0, read, Charsets.UTF_8)
+            } catch (e: Exception) {
+                Log.w(TAG, "HTTP fetch failed: $url -> ${e.localizedMessage}")
+                null
+            }
+        }
+
+        private fun openInBrowser(context: Context, url: String): ActionResult {
+            return try {
+                val intent = Intent(Intent.ACTION_VIEW, url.toUri()).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                ActionResult(true, "Opened the browser for you.", null)
+            } catch (e: Exception) {
+                ActionResult(false, null, "Couldn't reach the internet right now.")
+            }
+        }
+    }
+
+    /**
+     * v1.0.5: REAL in-app web search — fetches DuckDuckGo Lite (the JS-free
+     * HTML endpoint) and returns the top results as text the agent can reason
+     * over, reference in later steps, or read aloud. No browser opens; the
+     * browser-intent flow remains only as the offline fallback.
+     */
     private class WebSearchAction : Action {
         override val name: String = "WEB_SEARCH"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val query = params["query"] ?: return ActionResult(false, null, "query parameter is missing")
-            return try {
-                val encQuery = URLEncoder.encode(query, "UTF-8")
-                val intent = Intent(Intent.ACTION_VIEW, "https://www.google.com/search?q=$encQuery".toUri()).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                ActionResult(true, "Here's what I found for '$query'!", null)
-            } catch (e: Exception) {
-                Log.e("WebSearch", "Search failed: ${e.localizedMessage}")
-                ActionResult(false, null, "Couldn't search right now. Try again?")
+            val encQuery = URLEncoder.encode(query, "UTF-8")
+            val html = httpGetText("https://lite.duckduckgo.com/lite/?q=$encQuery")
+            val results = html?.let { WebContentParsers.parseDuckDuckGoLite(it) }.orEmpty()
+            val listing = results.mapIndexedNotNull { index, r ->
+                if (r.title.isBlank()) return@mapIndexedNotNull null
+                val snippet = r.snippet.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""
+                "${index + 1}. ${r.title}$snippet\n   ${r.url}"
+            }.joinToString("\n")
+            if (listing.isBlank()) {
+                Log.w(TAG, "In-app search returned no results for: $query — browser fallback")
+                return openInBrowser(context, "https://www.google.com/search?q=$encQuery")
             }
+            return ActionResult(true, "Top web results for '$query':\n$listing", null)
         }
     }
 
@@ -119,21 +189,25 @@ class InformationActions @Inject constructor() {
         }
     }
 
+    /**
+     * v1.0.5: REAL in-app news — fetches Google News RSS for the topic and
+     * returns the top headlines as text (data-producing step, no browser).
+     * Browser flow only as the offline fallback.
+     */
     private class GetNewsAction : Action {
         override val name: String = "GET_NEWS"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val topic = params["topic"] ?: "latest news"
-            return try {
-                val query = URLEncoder.encode("news $topic", "UTF-8")
-                val intent = Intent(Intent.ACTION_VIEW, "https://news.google.com/search?q=$query".toUri()).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                ActionResult(true, "Here's the latest on '$topic'!", null)
-            } catch (e: Exception) {
-                Log.e("GetNews", "News failed: ${e.localizedMessage}")
-                ActionResult(false, null, "Couldn't fetch the news right now.")
+            val encQuery = URLEncoder.encode("news $topic", "UTF-8")
+            val xml = httpGetText("https://news.google.com/rss/search?q=$encQuery")
+            val headlines = xml?.let { WebContentParsers.parseRssHeadlines(it, limit = 5) }.orEmpty()
+            if (headlines.isEmpty()) {
+                Log.w(TAG, "In-app news returned no headlines for: $topic — browser fallback")
+                return openInBrowser(context, "https://news.google.com/search?q=$encQuery")
             }
+            val listing = headlines.mapIndexed { index, title -> "${index + 1}. $title" }
+                .joinToString("\n")
+            return ActionResult(true, "Latest news on '$topic':\n$listing", null)
         }
     }
 
@@ -277,20 +351,42 @@ class InformationActions @Inject constructor() {
         }
     }
 
+    /**
+     * v1.0.5: fetches the page in-app and returns its readable text so the
+     * planner (or a later CHAT step consuming this output via dependsOn) does
+     * the actual summarizing. Browser flow only as the offline fallback.
+     */
     private class SummarizeUrlAction : Action {
         override val name: String = "SUMMARIZE_URL"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val url = params["url"] ?: return ActionResult(false, null, "url is missing")
-            return try {
-                val intent = Intent(Intent.ACTION_VIEW, url.toUri()).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                ActionResult(true, "Opening that page for you!", null)
-            } catch (e: Exception) {
-                Log.e("SummarizeUrl", "URL failed: ${e.localizedMessage}")
-                ActionResult(false, null, "Couldn't open that link right now.")
+            val normalized = if (url.startsWith("http")) url else "https://$url"
+            val pageText = httpGetText(normalized)
+                ?.let { WebContentParsers.htmlToText(it, maxChars = 6_000) }
+            if (pageText.isNullOrBlank()) {
+                return openInBrowser(context, normalized)
             }
+            return ActionResult(true, "Page content of $normalized:\n$pageText", null)
+        }
+    }
+
+    /**
+     * v1.0.5 NEW: fetches a URL's page text in-app — real internet data
+     * without opening Chrome. The primary building block for "fetch X from
+     * the internet" style tasks; downstream steps reference this output via
+     * dependsOn.
+     */
+    private class FetchUrlAction : Action {
+        override val name: String = "FETCH_URL"
+        override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
+            val url = params["url"] ?: return ActionResult(false, null, "url parameter is missing")
+            val normalized = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
+            val pageText = httpGetText(normalized)
+                ?.let { WebContentParsers.htmlToText(it, maxChars = 8_000) }
+            if (pageText.isNullOrBlank()) {
+                return ActionResult(false, null, "Couldn't fetch that page. Check the URL or your internet.")
+            }
+            return ActionResult(true, "Content of $normalized:\n$pageText", null)
         }
     }
 

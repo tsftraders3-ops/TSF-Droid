@@ -149,7 +149,7 @@ class OpenCodeZenProvider @Inject constructor(
 
         for ((index, model) in chain.withIndex()) {
             try {
-                return executeStreamingCompletion(request, model, startTime, onDelta = null)
+                return executeStreamingCompletion(request, model, startTime, onDelta = null, onReasoning = null)
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
@@ -166,6 +166,42 @@ class OpenCodeZenProvider @Inject constructor(
     }
 
     override fun streamComplete(request: LLMRequest): Flow<String> = channelFlow {
+        streamChain(
+            request,
+            onContent = { delta ->
+                // channelFlow.send is coroutine-context safe: deltas are
+                // pumped from the OkHttp IO dispatcher.
+                send(delta)
+            },
+            onReasoning = null
+        )
+    }
+
+    /**
+     * v1.0.5: content deltas as [LLMStreamEvent.Content] plus reasoning-model
+     * thinking deltas as [LLMStreamEvent.Reasoning], so the chat UI can show
+     * what the agent is thinking while it answers. Same chain-walk and
+     * partial-emission semantics as [streamComplete].
+     */
+    override fun streamCompleteDetailed(request: LLMRequest): Flow<LLMStreamEvent> = channelFlow {
+        streamChain(
+            request,
+            onContent = { delta -> send(LLMStreamEvent.Content(delta)) },
+            onReasoning = { piece -> send(LLMStreamEvent.Reasoning(piece)) }
+        )
+    }
+
+    /**
+     * Shared model-chain walk for both streaming surfaces: try each model in
+     * the resolved chain; once any CONTENT delta has reached the caller a
+     * failure is terminal (walking would duplicate text — reasoning deltas
+     * are disposable and do not pin the walk).
+     */
+    private suspend fun streamChain(
+        request: LLMRequest,
+        onContent: (suspend (String) -> Unit)?,
+        onReasoning: (suspend (String) -> Unit)?
+    ) {
         val startTime = System.currentTimeMillis()
         refreshApiKeySnapshot()
 
@@ -175,13 +211,19 @@ class OpenCodeZenProvider @Inject constructor(
 
         for ((index, model) in chain.withIndex()) {
             try {
-                executeStreamingCompletion(request, model, startTime) { delta ->
-                    emittedAny = true
-                    // channelFlow.send is coroutine-context safe: deltas are
-                    // pumped from the OkHttp IO dispatcher.
-                    send(delta)
-                }
-                return@channelFlow
+                executeStreamingCompletion(
+                    request,
+                    model,
+                    startTime,
+                    onDelta = onContent?.let { callback ->
+                        { delta: String ->
+                            emittedAny = true
+                            callback(delta)
+                        }
+                    },
+                    onReasoning = onReasoning
+                )
+                return
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
@@ -221,11 +263,12 @@ class OpenCodeZenProvider @Inject constructor(
         request: LLMRequest,
         selectedModel: String,
         startTime: Long,
-        onDelta: (suspend (String) -> Unit)?
+        onDelta: (suspend (String) -> Unit)?,
+        onReasoning: (suspend (String) -> Unit)?
     ): LLMResponse = withContext(Dispatchers.IO) {
-        val gated = runStreamAttempt(request, selectedModel, onDelta, sendToolChoice = true, appendNoToolGuard = false)
+        val gated = runStreamAttempt(request, selectedModel, onDelta, onReasoning, sendToolChoice = true, appendNoToolGuard = false)
         val first = if (gated.bodyRejected) {
-            runStreamAttempt(request, selectedModel, onDelta, sendToolChoice = false, appendNoToolGuard = false)
+            runStreamAttempt(request, selectedModel, onDelta, onReasoning, sendToolChoice = false, appendNoToolGuard = false)
         } else {
             gated
         }
@@ -233,9 +276,9 @@ class OpenCodeZenProvider @Inject constructor(
         var pump = first
         var answeredWithTools = first.answeredWithToolCalls
         if (first.answeredWithToolCalls) {
-            pump = runStreamAttempt(request, selectedModel, onDelta, sendToolChoice = true, appendNoToolGuard = true)
+            pump = runStreamAttempt(request, selectedModel, onDelta, onReasoning, sendToolChoice = true, appendNoToolGuard = true)
             if (pump.bodyRejected) {
-                pump = runStreamAttempt(request, selectedModel, onDelta, sendToolChoice = false, appendNoToolGuard = true)
+                pump = runStreamAttempt(request, selectedModel, onDelta, onReasoning, sendToolChoice = false, appendNoToolGuard = true)
             }
             answeredWithTools = answeredWithTools || pump.sawToolCall
         }
@@ -261,7 +304,8 @@ class OpenCodeZenProvider @Inject constructor(
         val content: String,
         val tokensUsed: Int,
         val sawToolCall: Boolean,
-        val bodyRejected: Boolean
+        val bodyRejected: Boolean,
+        val reasoning: String = ""
     ) {
         /** Tool-call answer with zero prose: the corrective-retry trigger. */
         val answeredWithToolCalls: Boolean
@@ -272,6 +316,7 @@ class OpenCodeZenProvider @Inject constructor(
         request: LLMRequest,
         selectedModel: String,
         onDelta: (suspend (String) -> Unit)?,
+        onReasoning: (suspend (String) -> Unit)?,
         sendToolChoice: Boolean,
         appendNoToolGuard: Boolean
     ): StreamPump = withContext(Dispatchers.IO) {
@@ -384,6 +429,7 @@ class OpenCodeZenProvider @Inject constructor(
 
             val source = response.body.source()
             val content = StringBuilder()
+            val reasoning = StringBuilder()
             var tokensUsed = 0
             var sawToolCall = false
 
@@ -412,13 +458,20 @@ class OpenCodeZenProvider @Inject constructor(
                     val delta = first.asJsonObject.get("delta")?.takeIf { it.isJsonObject }?.asJsonObject
                         ?: continue
                     // Reasoning deltas (`reasoning` / `reasoning_content`) are
-                    // model thinking, not answer content: they are never
+                    // model thinking, not answer content: v1.0.5 forwards them
+                    // to [onReasoning] for the THINKING UI, but they are never
                     // emitted as chat text.
                     // Tool-call deltas mean the model answered the harness
                     // contract instead of writing prose; the caller retries
                     // once with a no-tools instruction before surfacing this
                     // as a malformed response.
                     if (delta.get("tool_calls")?.isJsonArray == true) sawToolCall = true
+                    val thinkingPiece = delta.get("reasoning")?.takeIf { it.isJsonPrimitive }?.asString
+                        ?: delta.get("reasoning_content")?.takeIf { it.isJsonPrimitive }?.asString
+                    if (!thinkingPiece.isNullOrEmpty()) {
+                        reasoning.append(thinkingPiece)
+                        onReasoning?.invoke(thinkingPiece)
+                    }
                     val piece = delta.get("content")?.takeIf { it.isJsonPrimitive }?.asString
                     if (!piece.isNullOrEmpty()) {
                         content.append(piece)
@@ -431,7 +484,8 @@ class OpenCodeZenProvider @Inject constructor(
                 content = content.toString(),
                 tokensUsed = tokensUsed,
                 sawToolCall = sawToolCall,
-                bodyRejected = false
+                bodyRejected = false,
+                reasoning = reasoning.toString()
             )
         }
     }

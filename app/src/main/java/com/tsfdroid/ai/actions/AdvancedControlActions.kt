@@ -6,6 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
 import android.hardware.camera2.*
 import android.media.ImageReader
 import android.os.BatteryManager
@@ -61,6 +64,7 @@ class AdvancedControlActions @Inject constructor() {
         ListFilesAction(),
         ReadFileAction(),
         WriteFileAction(),
+        CreatePdfAction(),
         DeleteFileAction(),
         CreateDirectoryAction(),
         CopyFileAction(),
@@ -185,6 +189,116 @@ class AdvancedControlActions @Inject constructor() {
             val filePath = params["filePath"] ?: return ActionResult(false, null, "filePath parameter is missing")
             val content = params["content"] ?: ""
             return StorageWorkspaceProvider.writeFile(context, filePath, content)
+        }
+    }
+
+    /**
+     * v1.0.5 NEW: generates a REAL PDF document from text content using
+     * Android's PdfDocument — paginated A4 pages with a bold title and
+     * word-wrapped body, saved through the storage workspace sandbox. This is
+     * the agent's document-creation capability: "make me a PDF report"
+     * produces an actual .pdf file on the device, and the result message
+     * carries the absolute path so the agent can tell the user where it is.
+     */
+    private class CreatePdfAction : Action {
+        override val name: String = "CREATE_PDF"
+
+        override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
+            checkStoragePermission(context)?.let { return it }
+            val filePath = (params["filePath"] ?: params["path"])
+                ?: return ActionResult(false, null, "filePath parameter is missing")
+            val content = params["content"]
+                ?: return ActionResult(false, null, "content parameter is missing")
+            val title = params["title"]?.takeIf { it.isNotBlank() } ?: "Document"
+
+            return try {
+                val bytes = renderPdf(title, content)
+                val result = StorageWorkspaceProvider.writeBinaryFile(context, filePath, bytes)
+                if (result.success) {
+                    ActionResult.Success(
+                        dataMap = mapOf(
+                            "message" to "PDF created: ${result.data}",
+                            "path" to (result.data ?: filePath)
+                        )
+                    )
+                } else {
+                    result
+                }
+            } catch (e: Exception) {
+                ActionResult(false, null, "PDF creation failed: ${e.localizedMessage}")
+            }
+        }
+
+        /** A4 @ 72dpi: 595 x 842 points. */
+        private fun renderPdf(title: String, content: String): ByteArray {
+            val pageWidth = 595
+            val pageHeight = 842
+            val margin = 48f
+            val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                textSize = 18f
+                color = 0xFF000000.toInt()
+            }
+            val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = Typeface.SANS_SERIF
+                textSize = 12f
+                color = 0xFF222222.toInt()
+            }
+
+            // Word-wrap the body to the usable width, honor explicit newlines.
+            val usableWidth = pageWidth - 2 * margin
+            val lines = mutableListOf<String>()
+            for (rawLine in content.lines()) {
+                if (rawLine.isBlank()) {
+                    lines.add("")
+                    continue
+                }
+                var current = StringBuilder()
+                for (word in rawLine.split(' ')) {
+                    val candidate = if (current.isEmpty()) word else "$current $word"
+                    if (bodyPaint.measureText(candidate) <= usableWidth) {
+                        current = StringBuilder(candidate)
+                    } else {
+                        if (current.isNotEmpty()) lines.add(current.toString())
+                        current = StringBuilder(word)
+                    }
+                }
+                if (current.isNotEmpty()) lines.add(current.toString())
+            }
+
+            val document = PdfDocument()
+            var pageNumber = 1
+            var page = document.startPage(
+                PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+            )
+            var canvas = page.canvas
+            var y = margin
+
+            fun newPage() {
+                document.finishPage(page)
+                pageNumber++
+                page = document.startPage(
+                    PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+                )
+                canvas = page.canvas
+                y = margin
+            }
+
+            // Title block on the first page.
+            canvas.drawText(title, margin, y, titlePaint)
+            y += 28f
+
+            val lineHeight = 16f
+            for (line in lines) {
+                if (y + lineHeight > pageHeight - margin) newPage()
+                if (line.isNotEmpty()) {
+                    canvas.drawText(line, margin, y, bodyPaint)
+                }
+                y += lineHeight
+            }
+            document.finishPage(page)
+
+            return document.use { it.toByteArray() }
         }
     }
 

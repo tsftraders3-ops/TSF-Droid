@@ -53,6 +53,8 @@ import javax.inject.Singleton
 
 private const val MAX_NEEDS_INPUT_PROMPTS = 5
 private const val MAX_INCOMPLETE_MESSAGE_IDS = 100
+/** Tail length of the live thinking trace published during planning. */
+private const val LIVE_THINKING_TAIL = 1500
 private val CONTACT_NUMBER_PROMPT_ACTIONS = setOf("MAKE_CALL", "SEND_SMS", "SEND_WHATSAPP", "SEND_TELEGRAM")
 
 internal fun paramKeyForNeedsInput(needsInput: ActionResult.NeedsInput, actionName: String): String {
@@ -137,6 +139,16 @@ class AgentLoop @Inject constructor(
 
     private val _chatError = MutableStateFlow<ChatErrorUiState?>(null)
     val chatError: StateFlow<ChatErrorUiState?> = _chatError.asStateFlow()
+
+    /**
+     * Live reasoning-model thinking trace (v1.0.5): the tail of what the
+     * model is currently thinking, published while a planning call or a
+     * streamed reply is in flight and reset to null when the turn ends.
+     * The chat UI renders it under the thinking indicator so the user can
+     * watch the agent's reasoning in real time instead of staring at dots.
+     */
+    private val _liveThinking = MutableStateFlow<String?>(null)
+    val liveThinking: StateFlow<String?> = _liveThinking.asStateFlow()
 
     // Ids of partially streamed agent replies, so re-sent context can label them as
     // incomplete. Bounded: an insertion-ordered set capped at
@@ -502,7 +514,7 @@ class AgentLoop @Inject constructor(
             val autoModeLabel = settingsRepository.llmConfig.first().approvalSettings().mode.name
 
             val systemPrompt = """
-                You are OpenDroid, a friendly and helpful Android AI assistant.
+                You are TSF Droid, a friendly and helpful Android AI assistant.
                 Talk like a real person — warm, casual, and natural. Avoid sounding robotic.
                 Keep your answers short and to the point, but feel free to be friendly.
                 
@@ -533,7 +545,9 @@ class AgentLoop @Inject constructor(
 
             val replyId = UUID.randomUUID().toString()
             var currentReplyText = ""
+            var currentThinkingText = ""
             var inserted = false
+            var lastDbWriteAt = 0L
             val replyMsg = ChatMessage(
                 id = replyId,
                 text = currentReplyText,
@@ -541,8 +555,26 @@ class AgentLoop @Inject constructor(
                 modelBadge = provider.name
             )
 
+            // v1.0.5: DB writes are throttled — reasoning deltas can arrive
+            // dozens per second and every write rewrites the message row.
+            // Content deltas always flush immediately (the visible reply is
+            // the deliverable); thinking flushes at most every 300ms.
+            fun persistReply(force: Boolean) {
+                val now = System.currentTimeMillis()
+                if (!force && now - lastDbWriteAt < 300) return
+                lastDbWriteAt = now
+                conversationRepository.insertMessage(
+                    sessionId,
+                    replyMsg.copy(
+                        text = currentReplyText,
+                        thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                    )
+                )
+                inserted = true
+            }
+
             try {
-                provider.streamComplete(
+                provider.streamCompleteDetailed(
                     LLMRequest(
                         systemPrompt = systemPrompt,
                         messages = lastMsgs,
@@ -550,13 +582,22 @@ class AgentLoop @Inject constructor(
                         maxTokens = 500,
                         responseFormat = ResponseFormat.TEXT
                     )
-                ).collect { chunk ->
-                    if (chunk.isEmpty()) return@collect
-                    currentReplyText += chunk
-                    conversationRepository.insertMessage(sessionId, replyMsg.copy(text = currentReplyText))
-                    inserted = true
+                ).collect { event ->
+                    when (event) {
+                        is com.tsfdroid.ai.core.llm.LLMStreamEvent.Content -> {
+                            if (event.text.isEmpty()) return@collect
+                            currentReplyText += event.text
+                            persistReply(force = true)
+                        }
+                        is com.tsfdroid.ai.core.llm.LLMStreamEvent.Reasoning -> {
+                            currentThinkingText += event.text
+                            _liveThinking.value = currentThinkingText.takeLast(LIVE_THINKING_TAIL)
+                            persistReply(force = false)
+                        }
+                    }
                 }
             } catch (streamError: CancellationException) {
+                _liveThinking.value = null
                 if (inserted && currentReplyText.isNotBlank()) {
                     // This coroutine is already cancelled; without NonCancellable the
                     // suspend insert would abort immediately and the "Stopped" partial
@@ -564,12 +605,17 @@ class AgentLoop @Inject constructor(
                     withContext(NonCancellable) {
                         conversationRepository.insertMessage(
                             sessionId,
-                            replyMsg.copy(text = currentReplyText, modelBadge = "Stopped")
+                            replyMsg.copy(
+                                text = currentReplyText,
+                                modelBadge = "Stopped",
+                                thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                            )
                         )
                     }
                 }
                 throw streamError
             } catch (streamError: LLMException) {
+                _liveThinking.value = null
                 val partialId = if (inserted && currentReplyText.isNotBlank()) {
                     incompleteMessageIds.add(replyId)
                     conversationRepository.insertMessage(sessionId, replyMsg.copy(text = currentReplyText))
@@ -588,6 +634,7 @@ class AgentLoop @Inject constructor(
                 )
                 return
             }
+            _liveThinking.value = null
 
             if (!inserted || currentReplyText.isBlank()) {
                 publishChatError(
@@ -604,7 +651,10 @@ class AgentLoop @Inject constructor(
                 return
             }
 
-            val finalReplyMsg = replyMsg.copy(text = currentReplyText)
+            val finalReplyMsg = replyMsg.copy(
+                text = currentReplyText,
+                thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+            )
             conversationRepository.insertMessage(sessionId, finalReplyMsg)
             memoryManager.storeMessage(finalReplyMsg, sessionId)
             _chatError.value = null
@@ -642,6 +692,11 @@ class AgentLoop @Inject constructor(
      * One LLM planning call plus a single corrective re-ask when the answer
      * cannot be parsed into a plan. Bounded: at most one extra request, and
      * the original parse failure is the one that propagates.
+     *
+     * v1.0.5: the planning call streams through [streamCompleteDetailed] so
+     * reasoning-model thinking is published to [liveThinking] while the plan
+     * is being formed — the user watches the agent reason instead of staring
+     * at an indeterminate dots bubble.
      */
     private suspend fun completeAndParsePlan(
         provider: LLMProvider,
@@ -649,7 +704,7 @@ class AgentLoop @Inject constructor(
         userGoal: String,
         reportLatency: suspend (LLMResponse) -> Unit
     ): Plan {
-        val first = provider.complete(request)
+        val first = streamingCompleteWithThinking(provider, request)
         reportLatency(first)
         try {
             return parsePlanFromLlmResponse(first.content, userGoal)
@@ -664,7 +719,7 @@ class AgentLoop @Inject constructor(
                 ),
                 temperature = 0.0f
             )
-            val second = provider.complete(corrective)
+            val second = streamingCompleteWithThinking(provider, corrective)
             reportLatency(second)
             try {
                 return parsePlanFromLlmResponse(second.content, userGoal)
@@ -672,6 +727,41 @@ class AgentLoop @Inject constructor(
                 throw firstFailure
             }
         }
+    }
+
+    /**
+     * Aggregating completion that surfaces reasoning deltas on [liveThinking]
+     * as they stream. Uses the provider's detailed streaming surface (content
+     * wrapped by the default impl on providers without reasoning), so the
+     * returned [LLMResponse] is wire-equivalent to provider.complete().
+     */
+    private suspend fun streamingCompleteWithThinking(
+        provider: LLMProvider,
+        request: LLMRequest
+    ): LLMResponse {
+        val startedAt = System.currentTimeMillis()
+        var content = ""
+        var thinking = ""
+        try {
+            provider.streamCompleteDetailed(request).collect { event ->
+                when (event) {
+                    is com.tsfdroid.ai.core.llm.LLMStreamEvent.Content -> content += event.text
+                    is com.tsfdroid.ai.core.llm.LLMStreamEvent.Reasoning -> {
+                        thinking += event.text
+                        _liveThinking.value = thinking.takeLast(LIVE_THINKING_TAIL)
+                    }
+                }
+            }
+        } finally {
+            _liveThinking.value = null
+        }
+        return LLMResponse(
+            content = content,
+            tokensUsed = 0,
+            model = request.model ?: "",
+            provider = provider.name,
+            latencyMs = System.currentTimeMillis() - startedAt
+        )
     }
 
     private suspend fun generatePlan(userMsg: ChatMessage, context: Context, sessionId: String) {
@@ -1013,7 +1103,16 @@ class AgentLoop @Inject constructor(
                     planManager.updatePlanStatus(PlanStatus.COMPLETED)
                     // Successful completion supersedes any error card still showing.
                     _chatError.value = null
-                    speakAndSaveSummary(currentPlanState, true, sessionId)
+                    // A purely conversational plan (every step CHAT) already
+                    // delivered its reply as a chat bubble during execution —
+                    // the generic success summary would only parrot it.
+                    val conversationalOnly = currentPlanState.steps
+                        .all { it.action.trim().uppercase() == "CHAT" }
+                    if (conversationalOnly) {
+                        _agentState.value = AgentState.Idle
+                    } else {
+                        speakAndSaveSummary(currentPlanState, true, sessionId)
+                    }
                 }
                 break
             }
@@ -1028,6 +1127,40 @@ class AgentLoop @Inject constructor(
             // concurrent edit landing in between would otherwise silently outrun.
             val stepToExecute = planManager.getStepSnapshot(nextStep.stepId) ?: nextStep
             _agentState.value = AgentState.ExecutingPlan(stepToExecute.description)
+
+            // v1.0.5: conversational answers are delivered as agent chat
+            // messages. Prose plan replies are classified into CHAT steps
+            // (PlanResponseSanitizer.classifyProseReply), but the dispatcher
+            // never had a CHAT handler — every conversational answer died with
+            // "Action 'CHAT' is not registered in ActionDispatcher" (v1.0.4
+            // field failure: the capability-audit question FAILED as a plan,
+            // and "ok start" → "Let's build it!" was followed by silence).
+            // Deliver the reply right here: chat bubble + TTS + COMPLETED.
+            if (stepToExecute.action.trim().uppercase() == "CHAT") {
+                val response = stepToExecute.params["response"]
+                    ?: stepToExecute.params["message"]
+                    ?: stepToExecute.params["text"]
+                    ?: ""
+                if (response.isNotBlank()) {
+                    val chatMsg = ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        text = response,
+                        sender = ChatMessage.Sender.AGENT
+                    )
+                    memoryManager.storeMessage(chatMsg, sessionId)
+                    conversationRepository.insertMessage(sessionId, chatMsg)
+                    _chatError.value = null
+                    _agentState.value = AgentState.Speaking(response)
+                    onSpeakCallback?.invoke(response)
+                }
+                planManager.updateStepStatus(
+                    stepToExecute.stepId,
+                    StepStatus.COMPLETED,
+                    result = response.ifBlank { "Reply delivered." }
+                )
+                currentPlanState = planManager.currentPlan.value ?: break
+                continue
+            }
 
             // Resolve parameters from prior step results
             val resolvedParams = actionSequenceExecutor.resolveParameters(
@@ -1567,6 +1700,10 @@ class AgentLoop @Inject constructor(
             // Build a natural, human-sounding summary from step results
             val stepSummaries = plan.steps
                 .filter { it.status == StepStatus.COMPLETED && !it.result.isNullOrBlank() }
+                // CHAT steps were already delivered verbatim as chat bubbles
+                // during execution; repeating them inside the summary would
+                // duplicate the whole conversational answer.
+                .filter { it.action.trim().uppercase() != "CHAT" }
                 .mapNotNull { step ->
                     val result = step.result ?: return@mapNotNull null
                     when {

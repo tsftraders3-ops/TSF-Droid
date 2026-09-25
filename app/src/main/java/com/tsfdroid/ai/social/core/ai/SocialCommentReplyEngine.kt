@@ -44,7 +44,7 @@ open class SocialCommentReplyEngine {
             .joinToString("\n") { "${it.key}: ${it.value}" }
 
         val prompt = """
-            You are OpenDroid's AI social media assistant.
+            You are TSF Droid's AI social media assistant.
             Generate a concise, friendly, and grounded reply to the following comment.
             
             Platform: ${comment.platform.displayName}

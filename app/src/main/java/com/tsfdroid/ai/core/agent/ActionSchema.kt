@@ -612,7 +612,7 @@ object ActionSchema {
 
         ActionDefinition(
             name = "WEB_SEARCH",
-            description = "Searches the web for information",
+            description = "Searches the web in-app (no browser) and returns the top results with URLs and snippets",
             params = listOf(ParamDefinition("query", ParamType.STRING, true, "Search query")),
             examples = listOf("search best restaurants", "google latest iphone"),
             category = ActionCategory.INFORMATION
@@ -629,7 +629,7 @@ object ActionSchema {
         ),
         ActionDefinition(
             name = "GET_NEWS",
-            description = "Gets latest news on a topic",
+            description = "Fetches live news headlines on a topic in-app (no browser)",
             params = listOf(
                 ParamDefinition("topic", ParamType.STRING, false, "News topic"),
                 ParamDefinition("count", ParamType.STRING, false, "Number of articles", defaultValue = "5"),
@@ -694,9 +694,16 @@ object ActionSchema {
         ),
         ActionDefinition(
             name = "SUMMARIZE_URL",
-            description = "Summarizes content from a URL",
+            description = "Fetches a URL in-app and returns its page text so it can be summarized",
             params = listOf(ParamDefinition("url", ParamType.STRING, true, "URL to summarize")),
             examples = listOf("summarize this article"),
+            category = ActionCategory.INFORMATION
+        ),
+        ActionDefinition(
+            name = "FETCH_URL",
+            description = "Fetches a web page in-app (no browser) and returns its readable text content",
+            params = listOf(ParamDefinition("url", ParamType.STRING, true, "URL to fetch")),
+            examples = listOf("get the content of example.com", "fetch this page and extract the price"),
             category = ActionCategory.INFORMATION
         ),
         ActionDefinition(
@@ -1076,12 +1083,23 @@ object ActionSchema {
         ),
         ActionDefinition(
             name = "WRITE_FILE",
-            description = "Writes content to a file",
+            description = "Writes content to a file (relative paths save into the agent workspace)",
             params = listOf(
                 ParamDefinition("filePath", ParamType.STRING, true, "File path"),
                 ParamDefinition("content", ParamType.STRING, true, "Content to write")
             ),
-            examples = listOf("write to file", "save text"),
+            examples = listOf("write to file", "save text", "create an HTML website"),
+            category = ActionCategory.ADVANCED
+        ),
+        ActionDefinition(
+            name = "CREATE_PDF",
+            description = "Creates a real PDF document from text content with a bold title and paginated body",
+            params = listOf(
+                ParamDefinition("filePath", ParamType.STRING, true, "PDF file path, e.g. Documents/report.pdf"),
+                ParamDefinition("title", ParamType.STRING, false, "Document title heading", defaultValue = ""),
+                ParamDefinition("content", ParamType.STRING, true, "Full text content of the PDF")
+            ),
+            examples = listOf("create a pdf report", "make a pdf of my notes"),
             category = ActionCategory.ADVANCED
         ),
         ActionDefinition(
