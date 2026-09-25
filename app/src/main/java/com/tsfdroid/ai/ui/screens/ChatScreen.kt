@@ -157,9 +157,15 @@ fun ChatScreen(
     // history.size alone left the scroll position from the PREVIOUS chat in place
     // whenever the newly switched-to chat happened to have the same message count -
     // including currentSessionId forces a re-anchor to the bottom on every chat switch.
+    // v1.0.5: the scroll target is the list's true last item (totalItemsCount),
+    // not history.size-1 — the plan-approval card renders AFTER the messages,
+    // so with a longer history it sat below the fold where the user never saw
+    // it and "Approve & Run" was unreachable (the agent appeared to just stop).
     LaunchedEffect(currentSessionId, history.size, visibleAgentState) {
         if (history.isNotEmpty()) {
-            listState.animateScrollToItem(history.size - 1)
+            val lastIndex = listState.layoutInfo.totalItemsCount
+                .coerceAtLeast(history.size) - 1
+            listState.animateScrollToItem(lastIndex)
         }
     }
 

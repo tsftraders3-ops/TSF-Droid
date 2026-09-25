@@ -310,6 +310,20 @@ class AgentCapabilityE2EInstrumentedTest {
                 // each retry re-finds the node fresh (stale-node safe).
                 continue
             }
+            // Card title visible but the button not exposed: with a long chat
+            // history the plan card renders below the fold — scroll it into
+            // view and retry (loop-11 evidence: only the card title was in
+            // the a11y tree, the button was off-screen).
+            val cardTitle = runCatching {
+                device.findObject(By.textContains("AUTONOMOUS PLAN PROPOSED"))
+            }.getOrNull()
+            if (cardTitle != null) {
+                val w = device.displayWidth
+                val h = device.displayHeight
+                device.swipe(w / 2, (h * 0.72).toInt(), w / 2, (h * 0.30).toInt(), 32)
+                device.waitForIdle(1_000)
+                continue
+            }
             // A direct reply (no plan) is also a valid outcome — but ONLY
             // trust new text when the agent is NOT mid-turn: the top-bar
             // status ("Analyzing…", "Requires Plan Approval", "Speaking…")
