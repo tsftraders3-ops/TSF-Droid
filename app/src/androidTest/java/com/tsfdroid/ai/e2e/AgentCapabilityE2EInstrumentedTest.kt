@@ -325,37 +325,39 @@ class AgentCapabilityE2EInstrumentedTest {
     // ---------- onboarding (self-sufficient: class order is not guaranteed) ----------
 
     private fun reachDashboard() {
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            val onboarding =
-                device.wait(Until.hasObject(By.textContains("What should I call you?")), 45_000) == true
-            if (onboarding) {
-                val okName = typeIntoLabel("What should I call you?", "TSF Tester")
-                assertTrue("name field typing failed", okName)
-                val okBirth = typeIntoLabel("When is your birthday?", "01/15/2000")
-                assertTrue("birthday field typing failed", okBirth)
-                assertTrue("Let's Go button not found", clickTextContains("Let's Go", 15_000))
-                assertTrue(
-                    "onboarding did not advance past the introduction panel",
-                    device.wait(Until.hasObject(By.textContains("Grant Permissions")), 15_000) == true
-                )
-                assertTrue(
-                    "permissions panel button not found",
-                    clickTextContains("Grant Permissions", 15_000)
-                )
-                device.wait(Until.hasObject(By.textContains("Proceed to")), 15_000)
-                assertTrue(
-                    "Proceed to agent button not found",
-                    clickTextContains("Proceed to", 15_000)
-                )
-            }
+        // NOTE: deliberately NOT wrapped in ActivityScenario.use {} — closing
+        // the scenario finishes the activity, and every later sendTask would
+        // hunt for the chat input on an empty screen (the loop-2 failure).
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val onboarding =
+            device.wait(Until.hasObject(By.textContains("What should I call you?")), 45_000) == true
+        if (onboarding) {
+            val okName = typeIntoLabel("What should I call you?", "TSF Tester")
+            assertTrue("name field typing failed", okName)
+            val okBirth = typeIntoLabel("When is your birthday?", "01/15/2000")
+            assertTrue("birthday field typing failed", okBirth)
+            assertTrue("Let's Go button not found", clickTextContains("Let's Go", 15_000))
             assertTrue(
-                "dashboard (Chat tab) never appeared",
-                device.wait(Until.hasObject(By.text("Chat")), 30_000) == true
+                "onboarding did not advance past the introduction panel",
+                device.wait(Until.hasObject(By.textContains("Grant Permissions")), 15_000) == true
             )
-            device.waitForIdle(3_000)
-            scenario.onActivity { activity ->
-                assertTrue("activity finishing on dashboard", !activity.isFinishing)
-            }
+            assertTrue(
+                "permissions panel button not found",
+                clickTextContains("Grant Permissions", 15_000)
+            )
+            device.wait(Until.hasObject(By.textContains("Proceed to")), 15_000)
+            assertTrue(
+                "Proceed to agent button not found",
+                clickTextContains("Proceed to", 15_000)
+            )
+        }
+        assertTrue(
+            "dashboard (Chat tab) never appeared",
+            device.wait(Until.hasObject(By.text("Chat")), 30_000) == true
+        )
+        device.waitForIdle(3_000)
+        scenario.onActivity { activity ->
+            assertTrue("activity finishing on dashboard", !activity.isFinishing)
         }
         shoot("cap_00_dashboard")
     }
