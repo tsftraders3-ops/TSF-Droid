@@ -197,8 +197,7 @@ class AppUiInteractionInstrumentedTest {
     private fun typeInto(selectorText: String, value: String): Boolean {
         repeat(2) { attempt ->
             val target = device.wait(Until.findObject(By.textContains(selectorText)), 6_000)
-                ?: device.findObjects(By.clazz("android.widget.EditText")).firstOrNull()
-                ?: return false
+                ?: continue
             runCatching { target.click() }
             device.waitForIdle(1_500)
             runCatching {
@@ -208,7 +207,15 @@ class AppUiInteractionInstrumentedTest {
                     editTextNodes().firstOrNull()?.setText(value)
                 }
             }
-            device.waitForIdle(1_500)
+            device.waitForIdle(1_000)
+            // The open keyboard hides the app's own nodes from the a11y tree;
+            // dismiss it (back targets the IME first — and only when the IME
+            // is actually up, otherwise back would exit the activity) before
+            // the field value becomes verifiable.
+            if (keyboardUp()) {
+                device.pressBack()
+                device.waitForIdle(1_500)
+            }
             if (anyEditTextContains(value)) return true
         }
         return false
@@ -219,6 +226,15 @@ class AppUiInteractionInstrumentedTest {
 
     private fun anyEditTextContains(value: String): Boolean =
         editTextNodes().any { runCatching { it.text }.getOrNull()?.contains(value) == true }
+
+    /** The IME window is up (its presence hides the app's own nodes from the
+     *  a11y tree, so verification must wait until it is dismissed). */
+    private fun keyboardUp(): Boolean = runCatching {
+        InstrumentationRegistry.getInstrumentation().uiAutomation.windows
+            .any { w ->
+                w.root?.applicationInfo?.packageName?.contains("inputmethod") == true
+            }
+    }.getOrDefault(false)
 
     /** Leaves the full UI hierarchy with the artifacts for post-mortem reads. */
     private fun dumpHierarchy(name: String) {
@@ -244,21 +260,22 @@ class AppUiInteractionInstrumentedTest {
                 val okName = typeInto("What should I call you?", "TSF Tester")
                 dumpHierarchy("after_name_attempt")
                 assertTrue("name field typing failed", okName)
-                // The IME is up after typing; close it so the birthday field
-                // and "Let's Go" are clickable (back closes the IME first).
-                device.pressBack()
-                device.waitForIdle(1_000)
                 val okBirth = typeInto("When is your birthday?", "01/15/2000")
                 dumpHierarchy("after_birthday_attempt")
                 assertTrue("birthday field typing failed", okBirth)
-                // IME up again after the birthday typing; close it so
-                // "Let's Go" is clickable, and leave the filled-form capture.
-                device.pressBack()
-                device.waitForIdle(1_000)
                 shoot("02_onboarding_filled")
 
-                // Stage 1 → 2 ("Let's Go"), profile encrypted at rest.
+                // Stage 1 → 2 ("Let's Go"), profile encrypted at rest. Empty
+                // or invalid fields would keep this screen up with a visible
+                // validation error, so advancing IS the typing verification.
                 assertTrue("Let's Go button not found", clickTextContains("Let's Go", 15_000))
+                val advanced =
+                    device.wait(Until.hasObject(By.textContains("Grant Permissions")), 15_000) == true
+                dumpHierarchy("after_lets_go")
+                assertTrue(
+                    "onboarding did not advance past the introduction panel",
+                    advanced
+                )
                 shoot("03_permissions_prompt")
 
                 // Stage 2 → 3 ("Grant Permissions" opens the permissions panel).
