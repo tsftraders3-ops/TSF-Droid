@@ -78,14 +78,18 @@ jobs:
           script: |
             # The Zen E2E cases hit the real endpoint over the emulator NAT;
             # the launch smoke captures the first usable UI state.
-            ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace \
-              -Pandroid.testInstrumentationRunnerArguments.class=com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest
+            # NOTE: single line — the runner mangles backslash continuations.
+            ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace -Pandroid.testInstrumentationRunnerArguments.class=com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest
 
       - name: Capture screen on failure
         if: failure()
         run: |
-          adb exec-out screencap -p > e2e-failure.png || true
-          adb logcat -d > e2e-logcat.txt || true
+          # Guard every adb call: after a failed script the emulator may be
+          # gone, and adb blocks indefinitely instead of erroring.
+          if adb devices | grep -q "emulator.*device$"; then
+            timeout 30 adb exec-out screencap -p > e2e-failure.png || true
+            timeout 30 adb logcat -d > e2e-logcat.txt || true
+          fi
           if [ -d app/build/outputs/androidTest-results ]; then
             mkdir -p e2e-results
             cp -r app/build/outputs/androidTest-results/* e2e-results/ || true
