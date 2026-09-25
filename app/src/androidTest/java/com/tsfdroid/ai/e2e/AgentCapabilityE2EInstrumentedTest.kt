@@ -184,6 +184,7 @@ class AgentCapabilityE2EInstrumentedTest {
                 if (t.startsWith("Goal:")) continue
                 if (t.startsWith("TSF Droid has formulated")) continue
                 if (t.startsWith("Always allow")) continue
+                if (t.startsWith("Execute ")) continue // plan-card step labels
                 if (t.startsWith("•")) continue
                 val isStatusLine = agentStatusPrefixes.any { t.startsWith(it) }
                 if (predicate == null) {
@@ -263,12 +264,18 @@ class AgentCapabilityE2EInstrumentedTest {
         var replied = false
         while (System.currentTimeMillis() < approvalDeadline) {
             device.runWatchers()
-            val approveButton = device.findObject(By.textContains("Approve & Run"))
+            val approveButton = runCatching {
+                device.findObject(By.textContains("Approve & Run"))
+            }.getOrNull()
             if (approveButton != null) {
                 shoot("${taskTag}_plan_proposed")
-                runCatching { approveButton.click() }
-                approved = true
-                break
+                if (tapApproveAndRun()) {
+                    approved = true
+                    break
+                }
+                // Card refused to leave — keep looping until the deadline;
+                // each retry re-finds the node fresh (stale-node safe).
+                continue
             }
             // A direct reply (no plan) is also a valid outcome.
             replied = device.findObjects(By.text(Pattern.compile(".+")))
@@ -288,6 +295,34 @@ class AgentCapabilityE2EInstrumentedTest {
             approved || replied
         )
         return baseline
+    }
+
+    /**
+     * Taps the plan-approval card's "Approve & Run" button and VERIFIES the
+     * card actually left the screen. UiObject2.click() proved unreliable on
+     * this Compose button in CI (the a11y node goes stale across
+     * recompositions and the tap silently no-ops — loop-3 evidence: the card
+     * was still up in the end-of-test screenshot), so the tap is delivered at
+     * the visible bounds' center via [UiDevice.click], with a UiObject2.click
+     * fallback, retried until the card is gone.
+     */
+    private fun tapApproveAndRun(maxAttempts: Int = 20): Boolean {
+        repeat(maxAttempts) {
+            val btn = runCatching { device.findObject(By.textContains("Approve & Run")) }.getOrNull()
+                ?: return true // card already gone: a previous tap landed
+            val bounds = runCatching { btn.visibleBounds }.getOrNull()
+            if (bounds != null && !bounds.isEmpty) {
+                device.click(bounds.centerX(), bounds.centerY())
+            } else {
+                runCatching { btn.click() }
+            }
+            device.waitForIdle(1_500)
+            if (device.wait(Until.gone(By.textContains("Approve & Run")), 4_000) == true) {
+                return true
+            }
+            runCatching { Thread.sleep(2_000) }
+        }
+        return false
     }
 
     // ---------- artifact polling ----------
