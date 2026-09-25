@@ -181,9 +181,12 @@ class AppUiInteractionInstrumentedTest {
         runCatching { field.click() }
         device.waitForIdle(2_000)
         val target = device.findObject(By.textContains(selectorText)) ?: return false
-        // Explicit setText: the property-assignment form turns the Java setter's
-        // boolean into an Any-typed expression that will not compile here.
-        val ok = runCatching { target.setText(value) }.getOrDefault(false)
+        // setText is void: force the lambda result to Boolean explicitly so
+        // getOrDefault(false) cannot widen to Any.
+        val ok = runCatching {
+            target.setText(value)
+            true
+        }.getOrDefault(false)
         device.waitForIdle(2_000)
         return ok
     }
