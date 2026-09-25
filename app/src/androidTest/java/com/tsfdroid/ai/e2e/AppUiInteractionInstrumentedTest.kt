@@ -49,6 +49,11 @@ class AppUiInteractionInstrumentedTest {
         "Retry", "Dismiss", "Edit message", "OK", "Cancel", "Allow", "Deny"
     )
 
+    /** Agent status lines (planning, TTS, execution) — never the reply itself. */
+    private val agentStatusPrefixes = listOf(
+        "Analyzing", "Speaking", "Executing", "Planning", "Thinking", "Running", "Done"
+    )
+
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
@@ -168,6 +173,9 @@ class AppUiInteractionInstrumentedTest {
                 // The sent prompts reappear as the user's message bubbles —
                 // they are not replies.
                 if (t == messageOne || t == messageTwo) continue
+                // Agent status lines (planning / TTS / execution) are not the
+                // reply either; only the assistant's message bubble counts.
+                if (agentStatusPrefixes.any { t.startsWith(it) }) continue
                 if (t.startsWith(chatPlaceholder)) continue
                 return t
             }
@@ -372,7 +380,9 @@ class AppUiInteractionInstrumentedTest {
             val baselineSecond = visibleTexts()
 
             assertTrue("send button not found (2nd)", tapSend())
-            val replyTwo = waitNewText(baselineSecond, 210_000)
+            // The first turn's reply bubble is new relative to this baseline —
+            // exclude it so only the second turn's own answer can match.
+            val replyTwo = waitNewText(baselineSecond + firstReply, 210_000)
             shoot("17_chat_second_reply")
             assertNotNull(
                 "no assistant reply appeared within 210s for the second message",
