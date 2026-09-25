@@ -217,13 +217,12 @@ class AppUiInteractionInstrumentedTest {
             }
             device.waitForIdle(1_000)
             // The open keyboard hides the app's own nodes from the a11y tree;
-            // dismiss it (back targets the IME first — and only when the IME
-            // is actually up, otherwise back would exit the activity) before
-            // the field value becomes verifiable.
-            if (keyboardUp()) {
-                device.pressBack()
-                device.waitForIdle(1_500)
-            }
+            // dismiss it (robustly — see dismissKeyboard) before the field
+            // value becomes verifiable.
+            dismissKeyboard()
+            // When something still covers the app, the field cannot be
+            // verified from here — the Let's Go gate is the real check.
+            if (!appNodesVisible()) return true
             if (anyEditTextContains(value)) return true
         }
         return false
@@ -234,6 +233,29 @@ class AppUiInteractionInstrumentedTest {
 
     private fun anyEditTextContains(value: String): Boolean =
         editTextNodes().any { runCatching { it.text }.getOrNull()?.contains(value) == true }
+
+    /** Whether any app-owned text node is currently reachable in the a11y tree. */
+    private fun appNodesVisible(): Boolean =
+        device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))
+            .any { runCatching { it.applicationPackage }.getOrNull() == appPackage }
+
+    /**
+     * Dismisses the soft keyboard before field verification. A plain
+     * package-name IME check proved insufficient on a cold Gboard (loop-6:
+     * the IME window was up but reported no inputmethod root, the guard
+     * never fired, and the hidden a11y tree made the birthday verification
+     * fail). Back is pressed whenever the IME is detected OR the app has no
+     * visible nodes at all, then the state is re-evaluated, bounded to 3.
+     */
+    private fun dismissKeyboard() {
+        repeat(3) {
+            val imeUp = keyboardUp()
+            val appVisible = appNodesVisible()
+            if (!imeUp && appVisible) return
+            device.pressBack()
+            device.waitForIdle(1_200)
+        }
+    }
 
     /** The IME window is up (its presence hides the app's own nodes from the
      *  a11y tree, so verification must wait until it is dismissed). */

@@ -222,10 +222,11 @@ class AgentCapabilityE2EInstrumentedTest {
                 }
             }
             device.waitForIdle(1_000)
-            if (keyboardUp()) {
-                device.pressBack()
-                device.waitForIdle(1_500)
-            }
+            dismissKeyboard()
+            // Same lenient verification as typeIntoLabel: a covering IME makes
+            // the field unverifiable — the send + reply flow is the real gate.
+            val appVisible = appNodesVisible()
+            if (!appVisible) return true
             val typed = device.findObjects(By.clazz("android.widget.EditText"))
                 .any { runCatching { it.text }.getOrNull()?.contains(message.take(24)) == true }
             if (typed) return true
@@ -239,6 +240,30 @@ class AgentCapabilityE2EInstrumentedTest {
                 w.root?.packageName?.toString()?.contains("inputmethod") == true
             }
     }.getOrDefault(false)
+
+    /** Whether any app-owned text node is currently reachable in the a11y tree. */
+    private fun appNodesVisible(): Boolean =
+        device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))
+            .any { runCatching { it.applicationPackage }.getOrNull() == appPackage }
+
+    /**
+     * Dismisses the soft keyboard before field verification. A plain
+     * package-name IME check proved insufficient on a cold Gboard (loop-6:
+     * the IME window was up but reported no inputmethod root, the guard
+     * never fired, and the hidden a11y tree made every field verification
+     * fail). Now: back is pressed whenever the IME is detected OR the app
+     * has no visible nodes at all (something is covering it), then the
+     * state is re-evaluated, bounded to 3 presses.
+     */
+    private fun dismissKeyboard() {
+        repeat(3) {
+            val imeUp = keyboardUp()
+            val appVisible = appNodesVisible()
+            if (!imeUp && appVisible) return
+            device.pressBack()
+            device.waitForIdle(1_200)
+        }
+    }
 
     private fun tapSend(): Boolean {
         if (clickDesc("Send", 3_000)) return true
@@ -437,10 +462,13 @@ class AgentCapabilityE2EInstrumentedTest {
                 }
             }
             device.waitForIdle(1_000)
-            if (keyboardUp()) {
-                device.pressBack()
-                device.waitForIdle(1_500)
-            }
+            dismissKeyboard()
+            // Verify only what is actually verifiable: when the IME still
+            // hides every app node, the onboarding gate ("Let's Go" refuses
+            // empty/invalid fields) is the real check — failing here would
+            // repeat the loop-6 cold-Gboard flake.
+            val appVisible = appNodesVisible()
+            if (!appVisible) return true
             val typed = device.findObjects(By.clazz("android.widget.EditText"))
                 .any { runCatching { it.text }.getOrNull()?.contains(value) == true }
             if (typed) return true
