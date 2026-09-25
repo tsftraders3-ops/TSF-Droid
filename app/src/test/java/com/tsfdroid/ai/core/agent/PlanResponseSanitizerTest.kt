@@ -146,4 +146,49 @@ class PlanResponseSanitizerTest {
         val (_, params) = PlanResponseSanitizer.classifyProseReply(text)!!
         assertEquals("Answer with many spaces and newlines", params["response"])
     }
+
+    // --- proseDeclinesAction (v1.0.5 deferral gate) ---
+
+    @Test
+    fun `short commitment against an artifact goal is a deferral`() {
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(
+                "I am creating the HTML file for you.",
+                "Create a file at Documents/e2e_site.html with a heading Hello E2E"
+            )
+        )
+    }
+
+    @Test
+    fun `lets build it against a website goal is a deferral`() {
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(
+                "Let's build it!",
+                "build an HTML website for me"
+            )
+        )
+    }
+
+    @Test
+    fun `long substantive answers are never treated as deferrals`() {
+        val audit = "Here is the capability report you asked for. " + "Detail ".repeat(120)
+        assertTrue(audit.length > 600)
+        assertTrue(!PlanResponseSanitizer.proseDeclinesAction(audit, "make a report of your capabilities"))
+    }
+
+    @Test
+    fun `short conversational answer to a non-artifact goal is not a deferral`() {
+        assertTrue(
+            !PlanResponseSanitizer.proseDeclinesAction(
+                "OpenAI released a new model today.",
+                "what is new in AI?"
+            )
+        )
+    }
+
+    @Test
+    fun `blank response is never a deferral`() {
+        assertTrue(!PlanResponseSanitizer.proseDeclinesAction("", "create a file"))
+        assertTrue(!PlanResponseSanitizer.proseDeclinesAction(null, "create a file"))
+    }
 }

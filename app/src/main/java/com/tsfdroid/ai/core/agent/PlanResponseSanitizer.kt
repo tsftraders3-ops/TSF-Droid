@@ -88,4 +88,36 @@ internal object PlanResponseSanitizer {
 
     /** Upper bound for a classified prose reply (see [classifyProseReply]). */
     const val PROSE_MAX_CHARS = 16_000
+
+    /** Short-commitment verbs that announce work instead of planning it. */
+    private val DECLINE_VERBS = listOf(
+        "i am creating", "i'm creating", "i will create", "i'll create",
+        "i am going to create", "i will write", "i'll write", "i am writing",
+        "let me create", "let me write", "let's build", "lets build",
+        "i can create", "i will now", "creating the", "writing the",
+        "i will generate", "i'll generate"
+    )
+
+    /** Words that mark an artifact-producing goal. */
+    private val ARTIFACT_WORDS = listOf(
+        "file", "html", "website", "web page", "pdf", "document",
+        "report", "save", "write", "note", "csv", "json"
+    )
+
+    /**
+     * True when a prose reply is a SHORT commitment to do an artifact task
+     * later instead of a plan that does it now — "I am creating the HTML file
+     * for you." against a "create an HTML website" goal. These replies are
+     * the v1.0.5 field failure: they executed as CHAT steps and nothing was
+     * ever written. The caller uses this to trigger the corrective re-ask.
+     * Long prose (over 600 chars) is a substantive answer, never a deferral.
+     */
+    fun proseDeclinesAction(response: String?, userGoal: String): Boolean {
+        val reply = response?.lowercase()?.trim() ?: return false
+        if (reply.isEmpty() || reply.length > 600) return false
+        val goal = userGoal.lowercase()
+        if (ARTIFACT_WORDS.any { goal.contains(it) }) return true
+        return DECLINE_VERBS.any { reply.contains(it) } &&
+            ARTIFACT_WORDS.any { reply.contains(it) }
+    }
 }

@@ -698,9 +698,24 @@ class AgentLoop @Inject constructor(
             "or after the JSON."
 
     /**
+     * Appended after [PLAN_RETRY_SUFFIX] when the first answer was a short
+     * prose commitment ("I am creating the HTML file for you.") instead of a
+     * plan. Without this the model repeats the commitment in JSON clothing
+     * and nothing is ever written — the v1.0.5 field failure.
+     */
+    private val CONTENT_PLAN_RETRY_SUFFIX =
+        "\nIf the goal requires creating or saving anything (file, HTML page, " +
+            "PDF, report), the plan MUST execute it NOW: include a WRITE_FILE or " +
+            "CREATE_PDF step with the COMPLETE content inside params.content. " +
+            "Never reply that you will create it later."
+
+    /**
      * One LLM planning call plus a single corrective re-ask when the answer
-     * cannot be parsed into a plan. Bounded: at most one extra request, and
-     * the original parse failure is the one that propagates.
+     * cannot be parsed into a plan OR is a short prose commitment that defers
+     * an artifact task ("I am creating the HTML file for you."). Bounded: at
+     * most one extra request, and when the re-ask also fails, the original
+     * conversational answer is still delivered as a CHAT plan rather than
+     * failing the turn.
      *
      * v1.0.5: the planning call streams through [streamCompleteDetailed] so
      * reasoning-model thinking is published to [liveThinking] while the plan
@@ -719,10 +734,10 @@ class AgentLoop @Inject constructor(
             return parsePlanFromLlmResponse(first.content, userGoal)
         } catch (firstFailure: IllegalArgumentException) {
             val corrective = request.copy(
-                systemPrompt = request.systemPrompt + PLAN_RETRY_SUFFIX,
+                systemPrompt = request.systemPrompt + PLAN_RETRY_SUFFIX + CONTENT_PLAN_RETRY_SUFFIX,
                 messages = request.messages + ChatMessage(
                     id = UUID.randomUUID().toString(),
-                    text = "Your previous reply was not valid plan JSON. " +
+                    text = "Your previous reply was not a valid executable plan. " +
                         "Respond with ONLY the JSON plan object now.",
                     sender = ChatMessage.Sender.USER
                 ),
@@ -733,6 +748,16 @@ class AgentLoop @Inject constructor(
             try {
                 return parsePlanFromLlmResponse(second.content, userGoal)
             } catch (_: IllegalArgumentException) {
+                // Second attempt also failed to produce an executable plan.
+                // If the FIRST answer was a genuine conversational reply,
+                // deliver it instead of failing the whole turn — the user
+                // asked something and the model answered; that is a valid
+                // agent outcome even when the goal sounded actionable.
+                PlanResponseSanitizer.classifyProseReply(
+                    PlanResponseSanitizer.stripReasoningBlocks(first.content)
+                )?.let { (action, params) ->
+                    return buildSingleStepPlan(userGoal, action, params)
+                }
                 throw firstFailure
             }
         }
@@ -1829,6 +1854,18 @@ class AgentLoop @Inject constructor(
         // Classified on [stripped] (fences already removed) so corrupt
         // fenced JSON still starts with "{" and is never mistaken for prose.
         PlanResponseSanitizer.classifyProseReply(stripped)?.let { (action, params) ->
+            // EXCEPT: a short prose commitment that defers an artifact task
+            // ("I am creating the HTML file for you." for a "create an HTML
+            // website" goal) is NOT a valid outcome — nothing would ever be
+            // written. Throw so the corrective re-ask (with the content-plan
+            // instruction) can turn it into a real WRITE_FILE plan.
+            if (action == "CHAT" &&
+                PlanResponseSanitizer.proseDeclinesAction(params["response"], userGoal)
+            ) {
+                throw IllegalArgumentException(
+                    "Prose reply deferred the artifact task instead of planning it"
+                )
+            }
             return buildSingleStepPlan(userGoal, action, params)
         }
 
