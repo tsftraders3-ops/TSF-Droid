@@ -144,5 +144,8 @@ class OpenCodeZenNetworkTest {
 
         override fun migrateLegacyCredentials(): CredentialStoreResult<Unit> =
             CredentialStoreResult.Success(Unit)
+
+        override fun resetForReentry(): CredentialStoreResult<Unit> =
+            CredentialStoreResult.Success(Unit)
     }
 }

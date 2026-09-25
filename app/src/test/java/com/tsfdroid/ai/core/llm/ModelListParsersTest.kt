@@ -166,7 +166,7 @@ class ModelListParsersTest {
             "zen-embedding-small"
         )
 
-        val models = ModelListParsers.opCodeZen(ids, "OpenCode Zen")
+        val models = ModelListParsers.opCodeZen(ids)
 
         // Chain order preserved inside the free tier, live extras after it.
         assertEquals(
@@ -188,7 +188,7 @@ class ModelListParsersTest {
 
     @Test
     fun `opencode zen picker never empties - static chain survives a filtered live list`() {
-        val models = ModelListParsers.opCodeZen(listOf("zen-guard", "x-preview-f-free"), "OpenCode Zen")
+        val models = ModelListParsers.opCodeZen(listOf("zen-guard", "x-preview-f-free"))
 
         assertEquals(listOf("x-preview-f-free"), models.map { it.id })
         assertTrue(models.first().isFree)
