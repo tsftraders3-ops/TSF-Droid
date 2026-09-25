@@ -53,7 +53,6 @@ data class ZenModelSpec(
 class ModelsDevRegistry @Inject constructor(
     private val client: OkHttpClient
 ) {
-    private val gson = Gson()
     private val mutex = Mutex()
     private var cached: Map<String, ZenModelSpec>? = null
     private var lastFetchAtMs: Long = 0L

@@ -6,10 +6,12 @@ import com.tsfdroid.ai.core.llm.AIModel
 import com.tsfdroid.ai.core.llm.LLMProvider
 import com.tsfdroid.ai.core.llm.LLMRequest
 import com.tsfdroid.ai.core.llm.LLMResponse
+import com.tsfdroid.ai.core.llm.ModelListParsers
 import com.tsfdroid.ai.core.llm.ResponseFormat
 import com.tsfdroid.ai.core.llm.error.LLMError
 import com.tsfdroid.ai.core.llm.error.LLMException
 import com.tsfdroid.ai.core.llm.error.ProviderErrorDetail
+import com.tsfdroid.ai.core.llm.error.RedactedDetail
 import com.tsfdroid.ai.core.llm.error.toSafeProviderException
 import com.tsfdroid.ai.core.llm.network.OpenCodeZenInterceptor
 import com.tsfdroid.ai.core.llm.toOpenAIMessages
@@ -73,6 +75,14 @@ class OpenCodeZenProvider @Inject constructor(
     /** One session identifier per provider instance (per app run). */
     private val sessionId: String = ZenIdentity.sessionId()
 
+    /**
+     * Volatile snapshot of the credential the interceptor stamps. Interceptors
+     * run on OkHttp threads outside any coroutine, so the suspend key lookup
+     * refreshes this value at the start of every provider entry point instead.
+     */
+    @Volatile
+    private var apiKeySnapshot: String = ZenIdentity.ANONYMOUS_KEY
+
     /** Zen-shaped client: identity + auth headers stamped on every call. */
     private val zenClient: OkHttpClient = client.newBuilder()
         .addInterceptor(
@@ -81,7 +91,7 @@ class OpenCodeZenProvider @Inject constructor(
                     project = projectId,
                     session = sessionId,
                     request = ZenIdentity.requestId(),
-                    apiKey = currentApiKey()
+                    apiKey = apiKeySnapshot
                 )
             }
         )
@@ -102,11 +112,17 @@ class OpenCodeZenProvider @Inject constructor(
         return configured ?: ZenIdentity.ANONYMOUS_KEY
     }
 
+    /** Refreshes the interceptor-visible credential snapshot. */
+    private suspend fun refreshApiKeySnapshot() {
+        apiKeySnapshot = currentApiKey()
+    }
+
     private suspend fun hasUserKey(): Boolean =
         settingsRepository.llmConfig.first().apiKeys[name]?.takeIf { it.isNotBlank() } != null
 
     override suspend fun complete(request: LLMRequest): LLMResponse {
         val startTime = System.currentTimeMillis()
+        refreshApiKeySnapshot()
 
         val chain = resolveModelChain(request)
         var lastError: Throwable = IOException("OpenCode Zen: no model attempted")
@@ -161,12 +177,14 @@ class OpenCodeZenProvider @Inject constructor(
                             name,
                             selectedModel,
                             status = 403,
-                            detail = ProviderErrorDetail.fromHttpFailure(
-                                ProviderErrorDetail.Provider.OPENCODE_ZEN,
-                                httpStatus = 403,
-                                rawBody = body,
-                                knownSecrets = emptyList(),
-                                forbiddenText = emptyList()
+                            detail = RedactedDetail.fromProviderDetail(
+                                ProviderErrorDetail.fromHttpFailure(
+                                    ProviderErrorDetail.Provider.OPENCODE_ZEN,
+                                    httpStatus = 403,
+                                    rawBody = body,
+                                    knownSecrets = emptyList(),
+                                    forbiddenText = emptyList()
+                                )
                             )
                         )
                     }
@@ -274,6 +292,7 @@ class OpenCodeZenProvider @Inject constructor(
      * only. Never empty: the static chain is the floor.
      */
     suspend fun listPickerModels(): List<AIModel> {
+        refreshApiKeySnapshot()
         val specs = runCatching { registry.specs() }.getOrDefault(emptyMap())
         val live = runCatching { discoverModels() }.getOrDefault(DEFAULT_MODEL_CHAIN)
         val anonymous = !hasUserKey()
