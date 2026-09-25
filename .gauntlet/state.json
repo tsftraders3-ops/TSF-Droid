@@ -46,14 +46,12 @@
     "size_bytes": 73805147
   },
   "last_release": {
-    "tag": "v1.0.2",
-    "ci_run_id": 36088540705,
-    "ci_status": "SUCCESS",
-    "assets": [
-      "TSF-Droid-v1.0.2-release.apk",
-      "TSF-Droid-v1.0.2-debug.apk",
-      "SHA256SUMS.txt"
-    ],
-    "test_suite": "557 unit tests green (5 gauntlet CI loops to green)"
+    "tag": "v1.0.3",
+    "run": "36106324215",
+    "version_code": 4,
+    "date": "2026-09-25",
+    "e2e_emulator_run": "36105466036",
+    "unit_ci_run": "36098965961",
+    "note": "Zen free-tier body contract (tools read+shell + stream:true) - live-endpoint emulator E2E green"
   }
 }
