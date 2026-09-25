@@ -55,6 +55,15 @@ private const val MAX_NEEDS_INPUT_PROMPTS = 5
 private const val MAX_INCOMPLETE_MESSAGE_IDS = 100
 /** Tail length of the live thinking trace published during planning. */
 private const val LIVE_THINKING_TAIL = 1500
+
+/**
+ * Output budget for plan generation. Plans for content-creation tasks
+ * (WRITE_FILE with a full HTML page, CREATE_PDF body) carry the entire file
+ * content inline, so the ceiling must leave room for real artifacts — 1500
+ * truncated such plans mid-JSON and the turn degraded into a prose
+ * "I am creating the file" chat reply with nothing actually written.
+ */
+private const val PLANNING_MAX_TOKENS = 4096
 private val CONTACT_NUMBER_PROMPT_ACTIONS = setOf("MAKE_CALL", "SEND_SMS", "SEND_WHATSAPP", "SEND_TELEGRAM")
 
 internal fun paramKeyForNeedsInput(needsInput: ActionResult.NeedsInput, actionName: String): String {
@@ -779,7 +788,7 @@ class AgentLoop @Inject constructor(
                                 systemPrompt = sysPrompt,
                                 messages = listOf(userMsg),
                                 temperature = 0.2f,
-                                maxTokens = 1500,
+                                maxTokens = PLANNING_MAX_TOKENS,
                                 responseFormat = ResponseFormat.JSON
                             )
                         )
@@ -823,7 +832,7 @@ class AgentLoop @Inject constructor(
                                 )
                             ),
                             temperature = 0.1f,
-                            maxTokens = 1500,
+                            maxTokens = PLANNING_MAX_TOKENS,
                             responseFormat = ResponseFormat.JSON
                         ),
                         userMsg.text,
@@ -837,7 +846,7 @@ class AgentLoop @Inject constructor(
                         systemPrompt = sysPrompt,
                         messages = listOf(userMsg),
                         temperature = 0.1f,
-                        maxTokens = 1500,
+                        maxTokens = PLANNING_MAX_TOKENS,
                         responseFormat = ResponseFormat.JSON
                     ),
                     userMsg.text,
