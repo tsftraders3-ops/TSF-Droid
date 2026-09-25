@@ -165,6 +165,9 @@ class AppUiInteractionInstrumentedTest {
                 if (runCatching { obj.applicationPackage }.getOrNull() != appPackage) continue
                 val t = obj.text.trim()
                 if (t.isEmpty() || t in baseline || t in nonReplyTexts) continue
+                // The sent prompts reappear as the user's message bubbles —
+                // they are not replies.
+                if (t == messageOne || t == messageTwo) continue
                 if (t.startsWith(chatPlaceholder)) continue
                 return t
             }
@@ -183,31 +186,39 @@ class AppUiInteractionInstrumentedTest {
     }
 
     /**
-     * Types into the field identified by visible [selectorText] (usually the
-     * placeholder). Clicks to focus, injects the value as key events via
-     * [Instrumentation.sendStringSync] and verifies success by the placeholder
-     * disappearing: Compose TextField values surface as EditableText (which
-     * By.text does not match) and the placeholder only hides once the field
-     * holds text. One retry falls back to ACTION_SET_TEXT for exotic fields.
+     * Types into the field identified by [selectorText] — the visible LABEL on
+     * Material3 text fields ("What should I call you?"), since placeholders
+     * only render while focused. Clicks the label (positional tap lands inside
+     * the field), injects the value as key events via
+     * [Instrumentation.sendStringSync], and verifies success by reading the
+     * EditText node's text (Compose exposes TextField values there).
+     * One retry falls back to ACTION_SET_TEXT on the EditText node.
      */
     private fun typeInto(selectorText: String, value: String): Boolean {
         repeat(2) { attempt ->
-            val field = device.wait(Until.findObject(By.textContains(selectorText)), 6_000)
+            val target = device.wait(Until.findObject(By.textContains(selectorText)), 6_000)
+                ?: device.findObjects(By.clazz("android.widget.EditText")).firstOrNull()
                 ?: return false
-            runCatching { field.click() }
+            runCatching { target.click() }
             device.waitForIdle(1_500)
             runCatching {
                 if (attempt == 0) {
                     InstrumentationRegistry.getInstrumentation().sendStringSync(value)
                 } else {
-                    field.setText(value)
+                    editTextNodes().firstOrNull()?.setText(value)
                 }
             }
             device.waitForIdle(1_500)
-            if (device.wait(Until.gone(By.textContains(selectorText)), 4_000)) return true
+            if (anyEditTextContains(value)) return true
         }
         return false
     }
+
+    private fun editTextNodes() =
+        device.findObjects(By.clazz("android.widget.EditText"))
+
+    private fun anyEditTextContains(value: String): Boolean =
+        editTextNodes().any { runCatching { it.text }.getOrNull()?.contains(value) == true }
 
     /** Leaves the full UI hierarchy with the artifacts for post-mortem reads. */
     private fun dumpHierarchy(name: String) {
@@ -226,18 +237,18 @@ class AppUiInteractionInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             // ---- 1. Launch: capture whatever the first screen actually is ----
             val onboarding =
-                device.wait(Until.hasObject(By.textContains("Enter your name")), 45_000) == true
+                device.wait(Until.hasObject(By.textContains("What should I call you?")), 45_000) == true
             shoot("00_first_screen")
             dumpHierarchy("first_screen")
             if (onboarding) {
-                val okName = typeInto("Enter your name", "TSF Tester")
+                val okName = typeInto("What should I call you?", "TSF Tester")
                 dumpHierarchy("after_name_attempt")
                 assertTrue("name field typing failed", okName)
                 // The IME is up after typing; close it so the birthday field
                 // and "Let's Go" are clickable (back closes the IME first).
                 device.pressBack()
                 device.waitForIdle(1_000)
-                val okBirth = typeInto("MM/DD/YYYY", "01/15/2000")
+                val okBirth = typeInto("When is your birthday?", "01/15/2000")
                 dumpHierarchy("after_birthday_attempt")
                 assertTrue("birthday field typing failed", okBirth)
                 // IME up again after the birthday typing; close it so
@@ -309,9 +320,12 @@ class AppUiInteractionInstrumentedTest {
             assertTrue("Chat tab not reachable from Settings", clickTextContains("Chat", 10_000))
             device.waitForIdle(2_000)
 
+            // The input is locatable either by its placeholder text or as the
+            // screen's EditText node (placeholders only render when focused).
             assertTrue(
                 "chat input field not found",
-                waitTextContains(chatPlaceholder, 20_000)
+                device.wait(Until.hasObject(By.textContains(chatPlaceholder)), 15_000) == true ||
+                    device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 5_000) == true
             )
             val baseline = visibleTexts() // captured before typing anything
             assertTrue("could not type first message", typeInto(chatPlaceholder, messageOne))
@@ -333,7 +347,8 @@ class AppUiInteractionInstrumentedTest {
             device.waitForIdle(3_000)
             assertTrue(
                 "chat input not reusable after first turn",
-                waitTextContains(chatPlaceholder, 20_000)
+                device.wait(Until.hasObject(By.textContains(chatPlaceholder)), 15_000) == true ||
+                    device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 5_000) == true
             )
             assertTrue("could not type second message", typeInto(chatPlaceholder, messageTwo))
             shoot("16_chat_second_typed")
