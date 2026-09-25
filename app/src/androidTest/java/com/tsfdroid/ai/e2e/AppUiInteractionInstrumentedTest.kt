@@ -202,7 +202,7 @@ class AppUiInteractionInstrumentedTest {
      * EditText node's text (Compose exposes TextField values there).
      * One retry falls back to ACTION_SET_TEXT on the EditText node.
      */
-    private fun typeInto(selectorText: String, value: String): Boolean {
+    private fun typeInto(selectorText: String, value: String, verifyContains: String = value): Boolean {
         repeat(2) { attempt ->
             val target = device.wait(Until.findObject(By.textContains(selectorText)), 6_000)
                 ?: return@repeat
@@ -223,7 +223,7 @@ class AppUiInteractionInstrumentedTest {
             // When something still covers the app, the field cannot be
             // verified from here — the Let's Go gate is the real check.
             if (!appNodesVisible()) return true
-            if (anyEditTextContains(value)) return true
+            if (anyEditTextContains(verifyContains)) return true
         }
         return false
     }
@@ -290,7 +290,10 @@ class AppUiInteractionInstrumentedTest {
                 val okName = typeInto("What should I call you?", "TSF Tester")
                 dumpHierarchy("after_name_attempt")
                 assertTrue("name field typing failed", okName)
-                val okBirth = typeInto("When is your birthday?", "01/15/2000")
+                // The birthday field reformats input (loop-7 dump: typed
+                // "01/15/2000" was normalized to "1/15/2000" — leading zero
+                // stripped), so verification accepts the year tail only.
+                val okBirth = typeInto("When is your birthday?", "01/15/2000", verifyContains = "15/2000")
                 dumpHierarchy("after_birthday_attempt")
                 assertTrue("birthday field typing failed", okBirth)
                 shoot("02_onboarding_filled")

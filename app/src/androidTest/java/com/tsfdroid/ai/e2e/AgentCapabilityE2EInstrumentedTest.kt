@@ -419,7 +419,7 @@ class AgentCapabilityE2EInstrumentedTest {
         if (onboarding) {
             val okName = typeIntoLabel("What should I call you?", "TSF Tester")
             assertTrue("name field typing failed", okName)
-            val okBirth = typeIntoLabel("When is your birthday?", "01/15/2000")
+            val okBirth = typeIntoLabel("When is your birthday?", "01/15/2000", verifyContains = "15/2000")
             assertTrue("birthday field typing failed", okBirth)
             assertTrue("Let's Go button not found", clickTextContains("Let's Go", 15_000))
             assertTrue(
@@ -447,7 +447,7 @@ class AgentCapabilityE2EInstrumentedTest {
         shoot("cap_00_dashboard")
     }
 
-    private fun typeIntoLabel(selectorText: String, value: String): Boolean {
+    private fun typeIntoLabel(selectorText: String, value: String, verifyContains: String = value): Boolean {
         repeat(2) { attempt ->
             val target = device.wait(Until.findObject(By.textContains(selectorText)), 6_000)
                 ?: return@repeat
@@ -466,11 +466,13 @@ class AgentCapabilityE2EInstrumentedTest {
             // Verify only what is actually verifiable: when the IME still
             // hides every app node, the onboarding gate ("Let's Go" refuses
             // empty/invalid fields) is the real check — failing here would
-            // repeat the loop-6 cold-Gboard flake.
+            // repeat the loop-6 cold-Gboard flake. The birthday field also
+            // reformats input (leading zero stripped), so callers verify a
+            // normalized tail.
             val appVisible = appNodesVisible()
             if (!appVisible) return true
             val typed = device.findObjects(By.clazz("android.widget.EditText"))
-                .any { runCatching { it.text }.getOrNull()?.contains(value) == true }
+                .any { runCatching { it.text }.getOrNull()?.contains(verifyContains) == true }
             if (typed) return true
         }
         return false
