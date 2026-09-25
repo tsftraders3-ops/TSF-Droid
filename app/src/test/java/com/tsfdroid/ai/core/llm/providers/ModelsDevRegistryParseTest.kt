@@ -5,13 +5,19 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * The models.dev registry is the source of automatically-maintained model
  * capabilities (context window, reasoning, tool-call, free/paid). The parser
  * must be defensive: a registry shape change degrades to fewer specs, never a
  * crash, and must never mark paid models as free.
+ *
+ * Runs under Robolectric: the parser uses android's org.json, whose methods
+ * are stubs on the unmocked android.jar used by plain JVM tests.
  */
+@RunWith(RobolectricTestRunner::class)
 class ModelsDevRegistryParseTest {
 
     /** Shape mirrors the live https://models.dev/api.json opencode entry. */

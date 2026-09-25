@@ -36,10 +36,11 @@ class OpenCodeZenInterceptor(
     )
 
     override fun intercept(chain: Interceptor.Chain): Response {
+        // This interceptor is attached only to the Zen-specific client built by
+        // OpenCodeZenProvider, so every request it sees is headed to Zen — no
+        // host check here (a guard would also break MockWebServer wire tests
+        // that pin the exact header contract on a loopback endpoint).
         val original = chain.request()
-        if (!original.url.host.endsWith("opencode.ai")) {
-            return chain.proceed(original)
-        }
         val snapshot = identity.current()
         val builder = original.newBuilder()
         for ((name, value) in ZenIdentity.identityHeaders(snapshot.project, snapshot.session, snapshot.request)) {
