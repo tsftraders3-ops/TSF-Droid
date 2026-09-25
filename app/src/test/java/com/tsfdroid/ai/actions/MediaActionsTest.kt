@@ -60,7 +60,7 @@ class MediaActionsTest {
     @Test
     fun `youtube search page with unverified playback stays a success with tap hint`() = runBlocking {
         val verifier = RecordingVerifier(result = false)
-        registerYoutubeHandler()
+        registerYoutubeHandler("kiya baat hai")
 
         val result = playYoutube(verifier, "kiya baat hai")
 
@@ -75,7 +75,7 @@ class MediaActionsTest {
     @Test
     fun `youtube verified playback still reports playing`() = runBlocking {
         val verifier = RecordingVerifier(result = true)
-        registerYoutubeHandler()
+        registerYoutubeHandler("lofi beats")
 
         val result = playYoutube(verifier, "lofi beats")
 
@@ -117,17 +117,17 @@ class MediaActionsTest {
         .execute(mapOf("query" to query), context)
 
     @Suppress("DEPRECATION")
-    private fun registerYoutubeHandler() {
+    private fun registerYoutubeHandler(query: String) {
         val resolveInfo = ResolveInfo().apply {
             activityInfo = ActivityInfo().apply {
                 packageName = "com.google.android.youtube"
                 name = "com.google.android.youtube.app.honeycomb.Shell\$HomeActivity"
             }
         }
-        val query = java.net.URLEncoder.encode("kiya baat hai", "UTF-8")
+        val encoded = java.net.URLEncoder.encode(query, "UTF-8")
         val intent = android.content.Intent(
             android.content.Intent.ACTION_VIEW,
-            android.net.Uri.parse("https://www.youtube.com/results?search_query=$query")
+            android.net.Uri.parse("https://www.youtube.com/results?search_query=$encoded")
         ).apply { setPackage("com.google.android.youtube") }
         shadowOf(context.packageManager).addResolveInfoForIntent(intent, resolveInfo)
     }

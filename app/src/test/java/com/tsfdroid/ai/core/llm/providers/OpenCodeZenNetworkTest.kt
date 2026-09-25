@@ -299,8 +299,9 @@ class OpenCodeZenNetworkTest {
         // Exactly two completion POSTs: the original + one corrective re-ask.
         server.takeRequest() // registry
         server.takeRequest() // /models
-        server.takeRequest()
-        server.takeRequest()
+        server.takeRequest() // first attempt
+        val retry = server.takeRequest()
+        assertNotNull(retry)
     }
 
     @Test
