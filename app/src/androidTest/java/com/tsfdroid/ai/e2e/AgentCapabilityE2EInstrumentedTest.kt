@@ -155,7 +155,7 @@ class AgentCapabilityE2EInstrumentedTest {
     private fun visibleTexts(): Set<String> =
         device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))
             .filter { runCatching { it.applicationPackage }.getOrNull() == appPackage }
-            .map { it.text.trim() }
+            .map { runCatching { it.text.trim() }.getOrDefault("") }
             .filter { it.isNotEmpty() }
             .toSet()
 
@@ -342,8 +342,10 @@ class AgentCapabilityE2EInstrumentedTest {
     private fun agentBusyOnScreen(): Boolean =
         device.findObjects(By.text(Pattern.compile(".+")))
             .filter { runCatching { it.applicationPackage }.getOrNull() == appPackage }
-            .map { it.text.trim() }
-            .any { t ->
+            .any { obj ->
+                // Nodes go stale mid-scan while Compose recomposes (loop-9
+                // crash) — every node property read must be guarded.
+                val t = runCatching { obj.text.trim() }.getOrDefault("")
                 t.startsWith("Analyzing") || t.startsWith("Requires Plan") ||
                     t.startsWith("Executing") || t.startsWith("Speaking") ||
                     t.startsWith("Planning")
