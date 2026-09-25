@@ -42,8 +42,8 @@ class MediaActionsTest {
         // v1.0.4: the app opened with the requested search — unverified
         // autoplay is a soft outcome, not a step failure.
         assertTrue(result.success)
-        assertTrue(result.message!!.contains("spotify"))
-        assertTrue(result.message!!.contains("Daft Punk"))
+        assertTrue(result.data!!.contains("spotify"))
+        assertTrue(result.data!!.contains("Daft Punk"))
     }
 
     @Test
@@ -68,8 +68,8 @@ class MediaActionsTest {
         // only after the user taps a video, so strict verification here
         // always failed the step (the v1.0.3 FAILED log the user saw).
         assertTrue(result.success)
-        assertTrue(result.message!!.contains("kiya baat hai"))
-        assertTrue(result.message!!.contains("Tap a video"))
+        assertTrue(result.data!!.contains("kiya baat hai"))
+        assertTrue(result.data!!.contains("Tap a video"))
     }
 
     @Test
@@ -80,7 +80,7 @@ class MediaActionsTest {
         val result = playYoutube(verifier, "lofi beats")
 
         assertTrue(result.success)
-        assertTrue(result.message!!.contains("Playing 'lofi beats'"))
+        assertTrue(result.data!!.contains("Playing 'lofi beats'"))
     }
 
     @Test
@@ -121,7 +121,7 @@ class MediaActionsTest {
         val resolveInfo = ResolveInfo().apply {
             activityInfo = ActivityInfo().apply {
                 packageName = "com.google.android.youtube"
-                name = "com.google.android.youtube.app.honeycomb.Shell$HomeActivity"
+                name = "com.google.android.youtube.app.honeycomb.Shell\$HomeActivity"
             }
         }
         val query = java.net.URLEncoder.encode("kiya baat hai", "UTF-8")

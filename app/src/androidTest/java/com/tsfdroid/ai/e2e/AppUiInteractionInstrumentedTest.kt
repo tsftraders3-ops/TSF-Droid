@@ -101,10 +101,9 @@ class AppUiInteractionInstrumentedTest {
         val pfd: ParcelFileDescriptor =
             InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(cmd)
         try {
-            pfd.inputStream.readBytes() // drain so the command completes
+            // AutoCloseInputStream drains the command and closes the pfd.
+            ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() }
         } catch (_: Exception) {
-        } finally {
-            runCatching { pfd.close() }
         }
     }
 
