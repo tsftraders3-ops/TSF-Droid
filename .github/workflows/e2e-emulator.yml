@@ -77,9 +77,11 @@ jobs:
           disable-animations: true
           script: |
             # The Zen E2E cases hit the real endpoint over the emulator NAT;
-            # the launch smoke captures the first usable UI state.
+            # the launch smoke captures the first usable UI state; the UI
+            # journey drives onboarding, every tab, Settings and TWO live
+            # chats, leaving a screenshot of each step on the device.
             # NOTE: single line — the runner mangles backslash continuations.
-            ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace -Pandroid.testInstrumentationRunnerArguments.class=com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest
+            ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace -Pandroid.testInstrumentationRunnerArguments.class=com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest; code=$?; mkdir -p e2e-screens; timeout 60 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/e2e-screens/. e2e-screens/ || true; exit $code
 
       - name: Capture screen on failure
         if: failure()
@@ -103,5 +105,6 @@ jobs:
             e2e-failure.png
             e2e-logcat.txt
             e2e-results/
+            e2e-screens/
           if-no-files-found: ignore
           retention-days: 14

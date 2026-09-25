@@ -1680,7 +1680,9 @@ class AgentLoop @Inject constructor(
         // agent outcomes — surface them through the action protocol instead
         // of an error. JSON-shaped text that failed every parse above still
         // throws: converting corrupt JSON into a fake reply would hide bugs.
-        PlanResponseSanitizer.classifyProseReply(sanitized)?.let { (action, params) ->
+        // Classified on [stripped] (fences already removed) so corrupt
+        // fenced JSON still starts with "{" and is never mistaken for prose.
+        PlanResponseSanitizer.classifyProseReply(stripped)?.let { (action, params) ->
             return buildSingleStepPlan(userGoal, action, params)
         }
 

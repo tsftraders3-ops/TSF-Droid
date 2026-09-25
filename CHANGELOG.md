@@ -28,20 +28,20 @@ v1.0.3 successfully delivered to the endpoint.
    attempts, never a loop.
 3. **Plan parser speaks reasoning-model** — answers wrapped in `<think>` blocks
    (closed *or* unterminated), fenced, or narrated around prose are all parsed
-   via a new balanced-JSON extraction (`PlanResponseSanitizer`, unit-tested).
-   The first brace-balanced JSON object in mixed text is recovered.
-4. **Clarifying questions stopped being errors** — when a model answers a
-   genuinely ambiguous goal in prose ("can call someone if I tell u the name?"
-   → the model asks who to call), the answer routes into the existing
-   ASK_USER / CHAT action protocol instead of failing with "Could not parse a
-   valid plan from LLM response". One zero-temperature corrective re-ask with
-   a strict JSON-only contract backs that up.
-5. **PLAY_YOUTUBE / PLAY_MUSIC no longer self-report FAILED** — the YouTube
-   action opens the *search results* page, where playback only starts after
-   the user taps a video; a media-session verification could never pass there,
-   so every step failed even though YouTube opened correctly. The step now
-   succeeds with an honest "tap a video to start playback" hint when autoplay
-   cannot be confirmed.
+   (progressive candidates + brace-depth JSON recovery); a genuinely ambiguous
+   goal now comes back as a clarifying question or a conversational answer
+   instead of `PLAN_GENERATION FAILED`.
+4. **Keyless by default** — a fresh install now starts on OpenCode Zen (free,
+   no API key) instead of Google Gemini, so the app has a working brain before
+   any configuration. Existing saved selections are untouched.
+5. **Media steps no longer self-destruct** — `PLAY_YOUTUBE`/`PLAY_MUSIC` open
+   the app with your search and report success with a one-tap hint: search
+   result pages never auto-start playback, so strict verification failed by
+   construction.
+6. **Full UI journey on the emulator** — CI now drives the real app end to
+   end: completes onboarding, visits every tab, verifies the OpenCode Zen
+   default in Settings, sends two live chat messages and screenshots every
+   step (artifacts on every run).
 
 ### Verification
 

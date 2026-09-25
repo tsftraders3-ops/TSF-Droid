@@ -17,10 +17,13 @@ private fun warnCoercion() = runCatching {
 
 @Serializable
 data class LLMConfig(
-    val activeProvider: String = "Google Gemini",
+    // Keyless by default: OpenCode Zen's free tier needs no API key, so a fresh
+    // install has a working brain before any configuration (v1.0.4). Keyed
+    // providers are one Settings selection away.
+    val activeProvider: String = "OpenCode Zen",
     // Read from the catalog rather than repeated here, so one seed cannot drift
     // from the other. It is replaced by the provider's live list on first fetch.
-    val activeModel: String = ProviderCatalog.defaultModel("Google Gemini"),
+    val activeModel: String = ProviderCatalog.defaultModel("OpenCode Zen"),
     /**
      * Provider/model pairs. `null` means the setting predates this field and is
      * resolved lazily from [activeProvider]/[activeModel] without an upgrade
