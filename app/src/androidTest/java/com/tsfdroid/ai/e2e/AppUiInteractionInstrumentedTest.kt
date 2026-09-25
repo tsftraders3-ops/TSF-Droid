@@ -183,9 +183,10 @@ class AppUiInteractionInstrumentedTest {
     /**
      * Types into the field identified by visible [selectorText] (usually the
      * placeholder). Clicks to focus, injects the value as key events via
-     * [Instrumentation.sendStringSync] — ACTION_SET_TEXT (UiObject2.setText)
-     * throws on Compose placeholder nodes — and verifies the value landed;
-     * one retry falls back to setText for exotic fields.
+     * [Instrumentation.sendStringSync] and verifies success by the placeholder
+     * disappearing: Compose TextField values surface as EditableText (which
+     * By.text does not match) and the placeholder only hides once the field
+     * holds text. One retry falls back to ACTION_SET_TEXT for exotic fields.
      */
     private fun typeInto(selectorText: String, value: String): Boolean {
         repeat(2) { attempt ->
@@ -201,9 +202,19 @@ class AppUiInteractionInstrumentedTest {
                 }
             }
             device.waitForIdle(1_500)
-            if (device.hasObject(By.textContains(value))) return true
+            if (device.wait(Until.gone(By.textContains(selectorText)), 4_000)) return true
         }
         return false
+    }
+
+    /** Leaves the full UI hierarchy with the artifacts for post-mortem reads. */
+    private fun dumpHierarchy(name: String) {
+        runCatching {
+            val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+            val dir = File(ctx.filesDir, "e2e-screens")
+            dir.mkdirs()
+            device.dumpWindowHierarchy(File(dir, "$name.xml").outputStream())
+        }
     }
 
     // ---------- the journey ----------
@@ -216,9 +227,15 @@ class AppUiInteractionInstrumentedTest {
             if (onboarding != null) {
                 shoot("01_onboarding_about_you")
                 assertTrue("name field typing failed", typeInto("Enter your name", "TSF Tester"))
+                dumpHierarchy("after_name_typed")
+                // The IME is up after typing; close it so the birthday field
+                // and "Let's Go" are clickable (back closes the IME first).
+                device.pressBack()
+                device.waitForIdle(1_000)
                 assertTrue("birthday field typing failed", typeInto("MM/DD/YYYY", "01/15/2000"))
-                // Keyboard is definitely up after the field clicks; back closes
-                // the IME (never the activity) so "Let's Go" is clickable.
+                dumpHierarchy("after_birthday_typed")
+                // IME up again after the birthday typing; close it so
+                // "Let's Go" is clickable, and leave the filled-form capture.
                 device.pressBack()
                 device.waitForIdle(1_000)
                 shoot("02_onboarding_filled")
