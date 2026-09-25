@@ -197,7 +197,7 @@ class AppUiInteractionInstrumentedTest {
     private fun typeInto(selectorText: String, value: String): Boolean {
         repeat(2) { attempt ->
             val target = device.wait(Until.findObject(By.textContains(selectorText)), 6_000)
-                ?: continue
+                ?: return@repeat
             runCatching { target.click() }
             device.waitForIdle(1_500)
             runCatching {
@@ -232,7 +232,7 @@ class AppUiInteractionInstrumentedTest {
     private fun keyboardUp(): Boolean = runCatching {
         InstrumentationRegistry.getInstrumentation().uiAutomation.windows
             .any { w ->
-                w.root?.applicationInfo?.packageName?.contains("inputmethod") == true
+                w.root?.packageName?.toString()?.contains("inputmethod") == true
             }
     }.getOrDefault(false)
 
