@@ -47,11 +47,34 @@ on complex tasks and shows what it is thinking.
 7. **Rebrand completed** — OPENDROID header, "Ask OpenDroid…" placeholder,
    onboarding and all LLM personas now say TSF Droid.
 
+7. **Plans can carry real file content** — the planning output budget rose
+   from 1500 to 4096 tokens: plans for content-creation tasks embed the whole
+   file inline, and 1500 truncated them mid-JSON into "I am creating the
+   file" chat answers with nothing written.
+8. **Prose-deferral gate** — a short prose commitment ("I am creating the
+   HTML file for you.", "Let's build it!") against a create-a-file goal is
+   rejected as a non-plan and triggers one corrective re-ask with an
+   execute-NOW instruction; if the re-ask also fails, the original answer is
+   still delivered as an honest chat reply.
+9. **The approval card is always visible** — the plan card renders after the
+   messages, so with a longer chat it sat below the fold where the user never
+   saw it (the agent appeared to just stop). The chat now auto-scrolls to the
+   true end of the list whenever the agent state changes.
+
+### Verified on emulator (GitHub Actions, live Zen free tier)
+
+The complex-task E2E suite runs the agent end to end through the real UI:
+capability-audit question answered (the v1.0.4 CHAT crash path), an HTML file
+actually written to Documents/e2e_site.html, https://example.com fetched
+in-app with the "Example Domain" heading reported, and a real PDF generated
+at Documents/e2e_report.pdf (%PDF magic verified) — plan-approval card
+driven like a real user, screenshot evidence pulled as artifacts.
+
 ### Tests
 - WebContentParsersTest (13 cases): DDG parsing, RSS headlines, HTML→text
   reduction, entity decoding incl. hostile numeric refs.
 - PlanResponseSanitizerTest extended: the 400-char regression case, the 16k
-  bound, and whitespace-collapse behavior.
+  bound, whitespace-collapse behavior, and 5 prose-deferral cases.
 
 ## v1.0.4 — Reasoning-model hardening (the unreadable-response fix)
 
