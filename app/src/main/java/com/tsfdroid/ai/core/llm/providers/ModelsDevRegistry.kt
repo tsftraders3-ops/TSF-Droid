@@ -1,14 +1,13 @@
 package com.tsfdroid.ai.core.llm.providers
 
 import android.util.Log
-import com.google.gson.Gson
-import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -114,20 +113,19 @@ class ModelsDevRegistry @Inject constructor(
          */
         fun parse(body: String): Map<String, ZenModelSpec> {
             return runCatching {
-                val gson = Gson()
-                val root = gson.fromJson(body, JsonObject::class.java)
-                val provider = root.getAsJsonObject(ZEN_PROVIDER_ID) ?: return emptyMap()
-                val models = provider.getAsJsonObject("models") ?: return emptyMap()
+                val root = JSONObject(body)
+                val provider = root.optJSONObject(ZEN_PROVIDER_ID) ?: return emptyMap()
+                val models = provider.optJSONObject("models") ?: return emptyMap()
                 val providerLevelNpm = provider.optString("npm").takeIf { it.isNotBlank() }
-                models.entrySet().mapNotNull { (id, element) ->
-                    val obj = element as? JsonObject ?: return@mapNotNull null
+                models.keys().asSequence().mapNotNull { id ->
+                    val obj = models.optJSONObject(id) ?: return@mapNotNull null
                     val specId = obj.optString("id").takeIf { it.isNotBlank() } ?: id
-                    val limit = obj.getAsJsonObject("limit")
+                    val limit = obj.optJSONObject("limit")
                     val context = limit?.optInt("context")?.takeIf { it > 0 } ?: return@mapNotNull null
-                    val cost = obj.getAsJsonObject("cost")
+                    val cost = obj.optJSONObject("cost")
                     val inputCost = cost?.optDouble("input") ?: Double.MAX_VALUE
                     val outputCost = cost?.optDouble("output") ?: Double.MAX_VALUE
-                    val npm = obj.optJsonObject("provider")?.optString("npm")
+                    val npm = obj.optJSONObject("provider")?.optString("npm")
                         ?.takeIf { it.isNotBlank() }
                         ?: providerLevelNpm
                     ZenModelSpec(
@@ -139,9 +137,9 @@ class ModelsDevRegistry @Inject constructor(
                         toolCall = obj.optBoolean("tool_call"),
                         free = inputCost == 0.0 && outputCost == 0.0,
                         chatCompletions = npm == null || npm == CHAT_COMPLETIONS_SDK,
-                        inputModalities = obj.optJsonObject("modalities")
-                            ?.optJsonArray("input")
-                            ?.mapNotNull { runCatching { it.asString }.getOrNull() }
+                        inputModalities = obj.optJSONObject("modalities")
+                            ?.optJSONArray("input")
+                            ?.let { array -> (0 until array.length()).mapNotNull { array.optString(it) } }
                             .orEmpty(),
                     )
                 }.associateBy { it.id }
