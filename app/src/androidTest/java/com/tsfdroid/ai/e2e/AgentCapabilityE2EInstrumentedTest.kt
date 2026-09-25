@@ -288,9 +288,11 @@ class AgentCapabilityE2EInstrumentedTest {
         shoot("${taskTag}_typed")
         assertTrue("send button not found for task $taskTag", tapSend())
 
-        // Planning can take a while on the free tier; while it thinks, an
-        // approval card may appear (WRITE_FILE/CREATE_PDF are always gated).
-        val approvalDeadline = System.currentTimeMillis() + 240_000
+        // Planning can take a while on the free tier — a slow model plus the
+        // corrective re-ask is two LLM calls (loop-8: >240s observed). 420s
+        // covers that while the 900s per-test budget still fits the artifact
+        // wait that follows.
+        val approvalDeadline = System.currentTimeMillis() + 420_000
         var approved = false
         var replied = false
         while (System.currentTimeMillis() < approvalDeadline) {
@@ -325,7 +327,7 @@ class AgentCapabilityE2EInstrumentedTest {
         }
         dumpHierarchy("${taskTag}_after_send")
         assertTrue(
-            "task $taskTag: neither an approval card nor a reply appeared within 240s",
+            "task $taskTag: neither an approval card nor a reply appeared within 420s",
             approved || replied
         )
         return baseline
