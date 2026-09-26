@@ -11,7 +11,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -173,12 +172,6 @@ fun ChatScreen(
             val lastIndex = listState.layoutInfo.totalItemsCount
                 .coerceAtLeast(history.size) - 1
             listState.animateScrollToItem(lastIndex)
-            // v1.0.6 loop-23: one extra clamped push reveals the tall approval
-            // card's buttons when artifact cards precede it — aligning the
-            // item's top left them below the fold, while a huge scrollOffset
-            // crashed the scroll itself (loops 21-22 "dashboard never
-            // appeared" failures). animateScrollBy clamps at the list end.
-            runCatching { listState.animateScrollBy(1_400f) }
         }
     }
 
