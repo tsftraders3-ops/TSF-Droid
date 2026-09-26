@@ -304,6 +304,17 @@ class AgentCapabilityE2EInstrumentedTest {
         taskTag: String,
         planningWindowMs: Long = 420_000
     ): Set<String> {
+        // Loop-20: the previous test's plan may still be executing (speaking,
+        // approval card up) when this task types — cap3's stuck run typed
+        // mid-speech of the website task. Wait for a settled agent first.
+        val idleDeadline = System.currentTimeMillis() + 180_000
+        while (System.currentTimeMillis() < idleDeadline) {
+            device.runWatchers()
+            if (!agentBusyOnScreen() &&
+                device.findObject(By.textContains("AUTONOMOUS PLAN PROPOSED")) == null
+            ) break
+            runCatching { Thread.sleep(3_000) }
+        }
         assertTrue(
             "chat input not found before task $taskTag",
             device.wait(Until.hasObject(By.textContains(chatPlaceholder)), 15_000) == true ||
@@ -322,6 +333,7 @@ class AgentCapabilityE2EInstrumentedTest {
         val approvalDeadline = System.currentTimeMillis() + planningWindowMs
         var approved = false
         var replied = false
+        var stuckCardIterations = 0
         while (System.currentTimeMillis() < approvalDeadline) {
             device.runWatchers()
             val approveButton = runCatching {
@@ -340,15 +352,31 @@ class AgentCapabilityE2EInstrumentedTest {
             // Card title visible but the button not exposed: with a long chat
             // history the plan card renders below the fold — scroll it into
             // view and retry (loop-11 evidence: only the card title was in
-            // the a11y tree, the button was off-screen).
+            // the a11y tree, the button was off-screen). Loop-20: press back
+            // first — a lingering IME freezes the whole a11y tree (every node
+            // reports clickable=false, the cap3 loop-19 dump evidence) — and
+            // after 15 stuck iterations blind-tap where the button renders
+            // relative to the card title.
             val cardTitle = runCatching {
                 device.findObject(By.textContains("AUTONOMOUS PLAN PROPOSED"))
             }.getOrNull()
             if (cardTitle != null) {
+                stuckCardIterations++
+                runCatching { device.pressBack() }
+                device.waitForIdle(800)
                 val w = device.displayWidth
                 val h = device.displayHeight
                 device.swipe(w / 2, (h * 0.72).toInt(), w / 2, (h * 0.30).toInt(), 32)
                 device.waitForIdle(1_000)
+                if (stuckCardIterations >= 15) {
+                    val bounds = runCatching { cardTitle.visibleBounds }.getOrNull()
+                    if (bounds != null && !bounds.isEmpty) {
+                        device.click(
+                            bounds.centerX(),
+                            (bounds.bottom + 280).coerceAtMost(h - 80)
+                        )
+                    }
+                }
                 continue
             }
             // A direct reply (no plan) is also a valid outcome — but ONLY
