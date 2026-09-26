@@ -72,6 +72,23 @@ class AppUiInteractionInstrumentedTest {
             }
             false
         }
+        // Loop-14: system-launcher ANR dialogs park on top of the app on cold
+        // software-emulated boots — dismiss them wherever watchers run.
+        device.registerWatcher("systemAnrDialogs") {
+            val waitButton = device.findObject(By.textContains("Wait"))
+            if (waitButton != null && device.findObject(By.textContains("isn't responding")) != null) {
+                waitButton.click()
+                return@registerWatcher true
+            }
+            for (label in listOf("Close app", "Open app again", "App info", "Don't send")) {
+                val button = device.findObject(By.text(label))
+                if (button != null && device.findObject(By.textContains("responding")) != null) {
+                    button.click()
+                    return@registerWatcher true
+                }
+            }
+            false
+        }
     }
 
     /** adb pm-grant every dangerous permission the app declares; failures ignored. */
@@ -282,8 +299,24 @@ class AppUiInteractionInstrumentedTest {
     fun fullAppJourney_onboard_tabs_settings_twoLiveChats() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             // ---- 1. Launch: capture whatever the first screen actually is ----
-            val onboarding =
-                device.wait(Until.hasObject(By.textContains("What should I call you?")), 45_000) == true
+            // Watcher-aware polling (loop-14): blocking device.wait() never
+            // runs the ANR watcher, so a system dialog on top of onboarding
+            // stalled detection. Poll + runWatchers instead.
+            var onboarding = false
+            var sawDashboard = false
+            val detectDeadline = System.currentTimeMillis() + 60_000
+            while (System.currentTimeMillis() < detectDeadline) {
+                device.runWatchers()
+                if (device.hasObject(By.textContains("What should I call you?"))) {
+                    onboarding = true
+                    break
+                }
+                if (device.hasObject(By.text("Chat"))) {
+                    sawDashboard = true
+                    break
+                }
+                runCatching { Thread.sleep(2_000) }
+            }
             shoot("00_first_screen")
             dumpHierarchy("first_screen")
             if (onboarding) {

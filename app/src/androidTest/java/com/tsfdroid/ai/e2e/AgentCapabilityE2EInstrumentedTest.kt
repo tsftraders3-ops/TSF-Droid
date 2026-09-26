@@ -76,6 +76,27 @@ class AgentCapabilityE2EInstrumentedTest {
             }
             false
         }
+        // Loop-14 evidence: on a cold software-emulated API 34 image the
+        // SYSTEM LAUNCHER itself ANRs ("Pixel Launcher isn't responding") and
+        // the dialog parks on top of the app's onboarding — every a11y click
+        // then lands on the dialog and the whole capability suite fails at
+        // reachDashboard. Watchers for ANR/crash dialogs dismiss them
+        // wherever runWatchers() executes.
+        device.registerWatcher("systemAnrDialogs") {
+            val waitButton = device.findObject(By.textContains("Wait"))
+            if (waitButton != null && device.findObject(By.textContains("isn't responding")) != null) {
+                waitButton.click()
+                return@registerWatcher true
+            }
+            for (label in listOf("Close app", "Open app again", "App info", "Don't send")) {
+                val button = device.findObject(By.text(label))
+                if (button != null && device.findObject(By.textContains("responding")) != null) {
+                    button.click()
+                    return@registerWatcher true
+                }
+            }
+            false
+        }
     }
 
     /** adb pm-grant every dangerous permission the app declares; failures ignored. */
@@ -433,8 +454,21 @@ class AgentCapabilityE2EInstrumentedTest {
         // the scenario finishes the activity, and every later sendTask would
         // hunt for the chat input on an empty screen (the loop-2 failure).
         val scenario = ActivityScenario.launch(MainActivity::class.java)
-        val onboarding =
-            device.wait(Until.hasObject(By.textContains("What should I call you?")), 45_000) == true
+        // Watcher-aware polling (loop-14): blocking device.wait() calls never
+        // run the ANR/permission watchers, so a system dialog parked on top
+        // of onboarding used to silently stall this method until the asserts.
+        val detectionDeadline = System.currentTimeMillis() + 60_000
+        var onboarding = false
+        while (System.currentTimeMillis() < detectionDeadline) {
+            device.runWatchers()
+            if (device.hasObject(By.textContains("What should I call you?"))) {
+                onboarding = true
+                break
+            }
+            if (device.hasObject(By.text("Chat"))) break
+            runCatching { Thread.sleep(2_000) }
+        }
+        device.runWatchers()
         if (onboarding) {
             val okName = typeIntoLabel("What should I call you?", "TSF Tester")
             assertTrue("name field typing failed", okName)

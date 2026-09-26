@@ -37,6 +37,16 @@ class AppLaunchInstrumentedTest {
                 "neither onboarding nor dashboard appeared within the launch window",
                 reached
             )
+            // Loop-14: dismiss a system ANR dialog if one parked on the app
+            // during the cold boot (the v1.0.6 CI run's "Pixel Launcher isn't
+            // responding" evidence) so the artifact screenshot shows the app.
+            repeat(3) {
+                val waitButton = device.findObject(By.textContains("Wait"))
+                if (waitButton != null && device.findObject(By.textContains("responding")) != null) {
+                    waitButton.click()
+                    device.waitForIdle(2_000)
+                } else return@repeat
+            }
             scenario.onActivity { activity ->
                 assertTrue("activity must not be finishing", !activity.isFinishing)
                 assertTrue(
