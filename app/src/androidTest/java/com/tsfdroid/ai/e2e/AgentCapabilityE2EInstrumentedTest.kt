@@ -736,34 +736,46 @@ class AgentCapabilityE2EInstrumentedTest {
             planningWindowMs = 600_000
         )
         // example.com's content is stable: the page heading is "Example
-        // Domain". Loop-24: assert on the ARTIFACT (any new workspace file
-        // carrying the fetched content) instead of a reply bubble — the
-        // planner legitimately routes the fetched data through a WRITE_FILE
-        // + summary plan, and file verification is deterministic (the reply
-        // bubble assertion flaked across six loops while every sibling test
-        // that asserts on files passed consistently).
+        // Domain". Loop-30: assert on DELIVERY, whichever shape the agent
+        // legitimately picks — the loop-29 screenshot PROVED the in-app
+        // fetch works end-to-end (SYSTEM bubble: "Content of
+        // https://example.com/: Example Domain — ...") while the loop-24
+        // file-only assertion demanded an artifact the reply-shaped task
+        // never promised. A chat reply carrying the content OR a workspace
+        // file carrying it both prove real web data reached the user.
         val deadline = System.currentTimeMillis() + 420_000
-        var fetched: File? = null
-        while (System.currentTimeMillis() < deadline && fetched == null) {
+        var delivered: String? = null
+        while (System.currentTimeMillis() < deadline && delivered == null) {
+            val replyHit = device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))
+                .any {
+                    runCatching { it.applicationPackage }.getOrNull() == appPackage &&
+                        runCatching { it.text }
+                            .getOrNull()?.contains("Example Domain", ignoreCase = true) == true
+                }
+            if (replyHit) {
+                delivered = "chat reply"
+                break
+            }
             val root = workspaceRoot()
             if (root != null && root.exists()) {
-                fetched = root.walkTopDown()
+                val file = root.walkTopDown()
                     .filter { it.isFile }
                     .filter { it.lastModified() >= startedAtMs.get() }
                     .firstOrNull { f ->
                         runCatching { f.readText().contains("Example Domain", ignoreCase = true) }
                             .getOrDefault(false)
                     }
+                if (file != null) delivered = file.absolutePath
             }
             runCatching { Thread.sleep(4_000) }
         }
         shoot("cap3_fetch_reply")
         assertNotNull(
-            "no workspace file containing 'Example Domain' appeared within 420s — " +
-                "the in-app fetch path did not deliver real web data",
-            fetched
+            "the in-app fetch path delivered neither a chat reply nor a workspace file " +
+                "containing 'Example Domain' within 420s — no real web data reached the user",
+            delivered
         )
-        println("TSF-E2E fetch artifact: ${fetched!!.absolutePath}")
+        println("TSF-E2E fetch delivery: $delivered")
     }
 
     @Test(timeout = 900_000)
