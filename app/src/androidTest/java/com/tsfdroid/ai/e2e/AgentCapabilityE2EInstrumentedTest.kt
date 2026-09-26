@@ -362,7 +362,11 @@ class AgentCapabilityE2EInstrumentedTest {
             }.getOrNull()
             if (cardTitle != null) {
                 stuckCardIterations++
-                runCatching { device.pressBack() }
+                if (stuckCardIterations <= 2) {
+                    // IME dismissal only; a back press on the root dashboard
+                    // would navigate the app out from under the test.
+                    runCatching { device.pressBack() }
+                }
                 device.waitForIdle(800)
                 val w = device.displayWidth
                 val h = device.displayHeight
@@ -610,6 +614,18 @@ class AgentCapabilityE2EInstrumentedTest {
     @Test(timeout = 1_200_000)
     fun fetchExampleCom_reportsRealPageContent() {
         reachDashboard()
+        // Loop-25: cap3 always runs right after a file-producing test whose
+        // tall artifact cards buried its approval card below the fold (stuck
+        // for 600s in loops 19-24). A NEW chat session (the app's own "+"
+        // button — non-destructive, exactly what a real user would do) pins
+        // the card at the top of an empty list.
+        runCatching {
+            val plus = device.findObject(By.desc("New chat"))
+            if (plus != null) {
+                plus.click()
+                device.waitForIdle(2_500)
+            }
+        }
         val baseline = sendTask(
             "Fetch the web page https://example.com with your URL fetch capability, " +
                 "then REPLY IN CHAT with the main heading text shown on that page. " +
