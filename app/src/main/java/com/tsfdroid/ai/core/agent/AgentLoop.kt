@@ -45,6 +45,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import com.tsfdroid.ai.core.llm.Tool
 import com.tsfdroid.ai.core.util.NetworkErrorFormatter
 import com.tsfdroid.ai.core.llm.error.LLMException
 import java.util.UUID
@@ -538,6 +539,18 @@ class AgentLoop @Inject constructor(
                 
                 You can control this Android device: open apps, set alarms, toggle WiFi/Bluetooth/flashlight, send messages, make calls, and more. If someone asks you to do something, just do it or let them know you can help.
                 
+                REAL TOOL ACCESS (v1.0.6): your tool calls are EXECUTED by the app and their
+                results are returned to you — act like OpenCode/Claude Code, not a chatbot:
+                - write_file {path, content} — write a real file (HTML pages, CSV, anything);
+                  put the COMPLETE content in content, never a placeholder.
+                - create_pdf {path, title, content} — generate a real PDF document.
+                - web_search {query} — live in-app web search; returns titles/snippets/URLs.
+                - fetch_url {url} — fetches a page's real text in-app (current data, prices).
+                - read {path} — read a workspace file. shell — supports cat, ls, mkdir -p,
+                  curl, and heredoc writes (cat > path << 'EOF' ... EOF).
+                When the user asks you to create or fetch something, CALL THE TOOL and use the
+                result in your answer. Never say you cannot — never only PROMISE to do it.
+                
                 Never dump raw error messages or technical details. If something goes wrong, say it simply and suggest what to do next.
 
                 Plan auto-approval mode is currently: $autoModeLabel (OFF = every plan needs manual approval, AUTO = allowlisted plans run automatically, YOLO = plans run automatically except destructive actions, which still need confirmation). You cannot change this mode; the user changes it in Settings or via the chat mode chip.
@@ -598,7 +611,12 @@ class AgentLoop @Inject constructor(
                         messages = lastMsgs,
                         temperature = 0.5f,
                         maxTokens = 500,
-                        responseFormat = ResponseFormat.TEXT
+                        responseFormat = ResponseFormat.TEXT,
+                        // v1.0.6: chat turns may answer with tool calls — when
+                        // they do, the streamed reply stays blank and the tool
+                        // loop below executes the calls natively.
+                        allowToolCalls = true,
+                        tools = chatTools()
                     )
                 ).collect { event ->
                     when (event) {
@@ -932,8 +950,13 @@ class AgentLoop @Inject constructor(
                         systemPrompt = systemPrompt,
                         messages = messages,
                         temperature = 0.4f,
-                        maxTokens = 2000,
-                        responseFormat = ResponseFormat.TEXT
+                        // Full artifact budget: a write_file call carries the
+                        // entire file content (the 500-token chat budget
+                        // truncates a website heredoc mid-JSON).
+                        maxTokens = 8192,
+                        responseFormat = ResponseFormat.TEXT,
+                        allowToolCalls = true,
+                        tools = chatTools()
                     )
                 )
             } catch (e: CancellationException) {
@@ -985,12 +1008,39 @@ class AgentLoop @Inject constructor(
         return null
     }
 
+    /**
+     * v1.0.6: the tool set advertised on chat requests (rides along after the
+     * mandatory harness pair — the endpoint accepts extra tools). The bridge
+     * maps them onto the same actions plans dispatch through.
+     */
+    private fun chatTools(): List<Tool> = listOf(
+        Tool(
+            name = "write_file",
+            description = "Write a real file on the device (HTML page, CSV, text). Provide the COMPLETE content.",
+            parameters = """{"type":"object","properties":{"path":{"type":"string","description":"relative path e.g. Documents/website/index.html"},"content":{"type":"string","description":"the complete file content"}},"required":["path","content"]}"""
+        ),
+        Tool(
+            name = "create_pdf",
+            description = "Generate a real PDF document from text content.",
+            parameters = """{"type":"object","properties":{"path":{"type":"string"},"title":{"type":"string"},"content":{"type":"string"}},"required":["content"]}"""
+        ),
+        Tool(
+            name = "web_search",
+            description = "Live in-app web search WITHOUT a browser: returns top result titles, snippets and URLs.",
+            parameters = """{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}"""
+        ),
+        Tool(
+            name = "fetch_url",
+            description = "Fetch a URL's page text in-app (current data, prices, articles).",
+            parameters = """{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}"""
+        )
+    )
+
     private suspend fun generatePlan(userMsg: ChatMessage, context: Context, sessionId: String) {
         try {
             val provider = llmProviderFactory.getActiveProvider()
             val relevantContext = memoryManager.getRelevantContext(userMsg.text)
             val sysPrompt = "${PlanningPrompts.PLANNING_SYSTEM_PROMPT}\n\nContext about user and device:\n$relevantContext"
-            
             val config = settingsRepository.llmConfig.first()
             val plan = if (config.multiAgentModeEnabled) {
                 kotlinx.coroutines.coroutineScope {

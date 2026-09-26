@@ -99,6 +99,14 @@ data class LLMRequest(
     val responseFormat: ResponseFormat = ResponseFormat.JSON,
     val tools: List<Tool>? = null,
     val retryPolicy: RetryPolicy = RetryPolicy.DEFAULT,
+    /**
+     * v1.0.6: when true, a tool-call answer is surfaced immediately as
+     * [LLMResponse.toolCalls] instead of triggering the provider's internal
+     * no-tools corrective re-ask. The chat tool loop sets this so the model's
+     * `read`/`shell` calls execute natively; the planner keeps the default
+     * (false) because it must answer with a JSON plan, not tool calls.
+     */
+    @Transient val allowToolCalls: Boolean = false,
     @Transient
     val providerConfig: ProviderRequestConfig? = null
 )

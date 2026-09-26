@@ -486,4 +486,22 @@ class OpenCodeZenNetworkTest {
         override fun resetForReentry(): CredentialStoreResult<Unit> =
             CredentialStoreResult.Success(Unit)
     }
+
+    @Test
+    fun `allowToolCalls requests surface tool calls without the no-tools re-ask`() = runBlocking {
+        // v1.0.6: the chat tool loop NEEDS the model's tool calls — the
+        // no-tools guard would turn a curl/heredoc attempt into defeated
+        // prose ("Sorry, I can't fetch live prices", loop-14 screenshot).
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(toolCallsOnlyBody())
+
+        val response = provider.complete(newRequest().copy(allowToolCalls = true))
+
+        assertEquals("", response.content)
+        assertTrue(response.toolCalls.isNotEmpty())
+        // Exactly THREE requests total (registry + /models + ONE completion
+        // POST): no corrective re-ask happened.
+        assertEquals(3, server.requestCount)
+    }
 }

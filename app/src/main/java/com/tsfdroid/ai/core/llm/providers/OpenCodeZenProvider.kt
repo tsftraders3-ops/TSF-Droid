@@ -277,6 +277,21 @@ class OpenCodeZenProvider @Inject constructor(
         var pump = first
         var answeredWithTools = first.answeredWithToolCalls
         if (first.answeredWithToolCalls) {
+            // v1.0.6: when the caller WANTS tool calls (chat tool loop), do
+            // NOT fight them with the no-tools re-ask — the loop-14 field
+            // evidence showed the guard converts an agent-grade curl/heredoc
+            // attempt into a defeated "Sorry, I can't fetch live prices".
+            // Surface the calls; the agent loop executes them.
+            if (request.allowToolCalls) {
+                return@withContext LLMResponse(
+                    content = "",
+                    tokensUsed = first.tokensUsed,
+                    model = selectedModel,
+                    provider = name,
+                    latencyMs = System.currentTimeMillis() - startTime,
+                    toolCalls = first.toolCalls
+                )
+            }
             pump = runStreamAttempt(request, selectedModel, onDelta, onReasoning, sendToolChoice = true, appendNoToolGuard = true)
             if (pump.bodyRejected) {
                 pump = runStreamAttempt(request, selectedModel, onDelta, onReasoning, sendToolChoice = false, appendNoToolGuard = true)

@@ -45,7 +45,38 @@ object ToolCallBridge {
                 val args = parseArgs(call.arguments)
                 Mapping(MappedToolCall("WRITE_FILE", mapOf("filePath" to args.path(), "content" to args.content())))
             }
-            else -> Mapping(null, "Tool '${call.name}' is not available in this environment. Available: read, shell.")
+            // v1.0.6: the app advertises its real capabilities as extra tools
+            // on allowToolCalls requests (the endpoint accepts tools beyond
+            // the harness pair) so the chat model can search/fetch/write
+            // natively instead of going through shell contortions.
+            "web_search", "search" -> {
+                val args = parseArgs(call.arguments)
+                val query = args["query"] ?: args["q"] ?: args["search"] ?: ""
+                if (query.isBlank()) Mapping(null, "web_search: missing query argument")
+                else Mapping(MappedToolCall("WEB_SEARCH", mapOf("query" to query)))
+            }
+            "fetch_url", "fetch", "url_fetch" -> {
+                val args = parseArgs(call.arguments)
+                val url = args["url"] ?: args["link"] ?: ""
+                if (url.isBlank()) Mapping(null, "fetch_url: missing url argument")
+                else Mapping(MappedToolCall("FETCH_URL", mapOf("url" to url)))
+            }
+            "create_pdf", "pdf" -> {
+                val args = parseArgs(call.arguments)
+                val content = args.content()
+                if (content.isBlank()) Mapping(null, "create_pdf: missing content argument")
+                else Mapping(
+                    MappedToolCall(
+                        "CREATE_PDF",
+                        mapOf(
+                            "filePath" to args.path().ifBlank { "Documents/${args["title"]?.takeIf { it.isNotBlank() }?.replace(Regex("[^a-zA-Z0-9]+"), "_") ?: "document"}.pdf" },
+                            "title" to (args["title"] ?: "Document"),
+                            "content" to content
+                        )
+                    )
+                )
+            }
+            else -> Mapping(null, "Tool '${call.name}' is not available in this environment. Available: read, shell, web_search, fetch_url, write, create_pdf.")
         }
     }
 
@@ -114,8 +145,8 @@ object ToolCallBridge {
         return Mapping(
             null,
             "shell is not available on this device and '${trimmed.take(60)}' cannot be run. " +
-                "Use the app's actions instead: WRITE_FILE {filePath, content}, CREATE_PDF {filePath, title, content}, " +
-                "FETCH_URL {url}, WEB_SEARCH {query}."
+                "Use the tools instead: write_file {path, content}, create_pdf {path, title, content}, " +
+                "web_search {query}, fetch_url {url}."
         )
     }
 
