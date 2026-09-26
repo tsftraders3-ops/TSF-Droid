@@ -1012,28 +1012,7 @@ fun FileAttachmentCard(attachmentJson: String) {
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
                 .clickable {
-                    try {
-                        val path = attachment.optString("path")
-                        val file = java.io.File(path)
-                        if (file.exists()) {
-                            val uri = androidx.core.content.FileProvider.getUriForFile(
-                                context,
-                                context.packageName + ".fileprovider",
-                                file
-                            )
-                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(uri, mime)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            context.startActivity(intent)
-                        }
-                    } catch (e: Exception) {
-                        android.widget.Toast.makeText(
-                            context,
-                            "No app can open this file type",
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    }
+                    openArtifact(context, attachment, mime)
                 }
                 .padding(horizontal = 10.dp, vertical = 8.dp)
         )
@@ -1046,27 +1025,92 @@ fun FileAttachmentCard(attachmentJson: String) {
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
                 .clickable {
-                    try {
-                        val path = attachment.optString("path")
-                        val file = java.io.File(path)
-                        if (file.exists()) {
-                            val uri = androidx.core.content.FileProvider.getUriForFile(
-                                context,
-                                context.packageName + ".fileprovider",
-                                file
-                            )
-                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                type = mime
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            context.startActivity(Intent.createChooser(intent, "Share file"))
-                        }
-                    } catch (_: Exception) {
-                    }
+                    shareArtifact(context, attachment, mime)
                 }
                 .padding(horizontal = 10.dp, vertical = 8.dp)
         )
+    }
+}
+
+/**
+ * Resolves an artifact to a grantable content URI. Files in the app's own
+ * roots go straight through FileProvider; anything else (path moved, root
+ * mismatch) is copied into cache/exports (a declared root) first, so a card
+ * can never be un-openable just because the recorded path drifted. Returns
+ * null (with a reason toast) when the file is gone or unreadable.
+ */
+private fun artifactUri(context: android.content.Context, path: String): android.net.Uri? {
+    val file = java.io.File(path)
+    if (!file.exists() || file.length() == 0L) {
+        android.widget.Toast.makeText(
+            context,
+            "That file is no longer in the workspace",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+        return null
+    }
+    return try {
+        androidx.core.content.FileProvider.getUriForFile(
+            context,
+            context.packageName + ".fileprovider",
+            file
+        )
+    } catch (_: Exception) {
+        // Outside every declared root — copy into the cache export root.
+        try {
+            val exports = java.io.File(context.cacheDir, "exports").apply { mkdirs() }
+            val copy = java.io.File(exports, file.name)
+            file.inputStream().use { input ->
+                copy.outputStream().use { output -> input.copyTo(output) }
+            }
+            androidx.core.content.FileProvider.getUriForFile(
+                context,
+                context.packageName + ".fileprovider",
+                copy
+            )
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(
+                context,
+                "Couldn't access the file: ${e.localizedMessage}",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            null
+        }
+    }
+}
+
+private fun openArtifact(context: android.content.Context, attachment: org.json.JSONObject, mime: String) {
+    val uri = artifactUri(context, attachment.optString("path")) ?: return
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, mime)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(
+            context,
+            "No app on this device can open $mime files",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+    }
+}
+
+private fun shareArtifact(context: android.content.Context, attachment: org.json.JSONObject, mime: String) {
+    val uri = artifactUri(context, attachment.optString("path")) ?: return
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = mime
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        context.startActivity(Intent.createChooser(intent, "Share file"))
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(
+            context,
+            "Couldn't open the share sheet: ${e.localizedMessage}",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
     }
 }
 

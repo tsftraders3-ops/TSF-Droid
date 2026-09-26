@@ -246,17 +246,20 @@ class AgentCapabilityE2EInstrumentedTest {
                 ?: return@repeat
             runCatching { target.click() }
             device.waitForIdle(1_200)
-            var setViaA11y = false
-            runCatching { setViaA11y = target.setText(message) }
-            if (!setViaA11y) {
-                // ACTION_SET_TEXT refused (rare) — type through the IME instead.
+            // UiObject2.setText returns void — success is decided by the
+            // verification below, never by the call itself. Attempt 1 walks
+            // the IME path as the alternate delivery route.
+            val viaIme = attempt == 1
+            if (viaIme) {
                 runCatching {
                     InstrumentationRegistry.getInstrumentation().sendStringSync(message)
                 }
+            } else {
+                runCatching { target.setText(message) }
             }
             device.waitForIdle(1_000)
             dismissKeyboard()
-            if (fieldHolds(message, viaIme = !setViaA11y)) return true
+            if (fieldHolds(message, viaIme = viaIme)) return true
             // Mismatch (the loop-27 failure shape): clear whatever partial
             // text landed so the retry starts from a clean field.
             runCatching {

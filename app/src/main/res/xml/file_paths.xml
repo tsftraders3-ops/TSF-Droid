@@ -15,4 +15,10 @@
     <files-path
         name="internal_files_root"
         path="." />
+    <!-- v1.0.6: cache-export fallback — a file that somehow resolves outside
+         the roots above is copied here before the Open/Share grant, so the
+         card can never fail just because the path moved. -->
+    <cache-path
+        name="exports"
+        path="exports/" />
 </paths>
