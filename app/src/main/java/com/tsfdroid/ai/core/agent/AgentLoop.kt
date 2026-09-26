@@ -693,17 +693,18 @@ class AgentLoop @Inject constructor(
                     onSpeakCallback?.invoke(toolLoopAnswer)
                     return
                 }
-                publishChatError(
-                    ChatErrorUiState.fromException(
-                        sessionId = sessionId,
-                        requestId = requestId,
-                        runId = runId,
-                        failure = com.tsfdroid.ai.core.llm.error.LLMErrorMapper.malformed(
-                            provider.name,
-                            ""
-                        )
-                    )
+                // v1.0.6 (loop-16): a snagged tool loop must NOT surface the
+                // scary "unreadable response" card in casual chat — deliver a
+                // plain conversational retry prompt instead.
+                val snagMsg = replyMsg.copy(
+                    text = "I hit a snag completing that one — the model's reply came back " +
+                        "in a shape I couldn't use. Please try again in a moment.",
+                    thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
                 )
+                conversationRepository.insertMessage(sessionId, snagMsg)
+                memoryManager.storeMessage(snagMsg, sessionId)
+                _chatError.value = null
+                _agentState.value = AgentState.Idle
                 return
             }
 

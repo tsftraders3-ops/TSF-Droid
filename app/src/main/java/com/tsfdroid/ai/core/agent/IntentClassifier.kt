@@ -47,7 +47,20 @@ class IntentClassifier @Inject constructor(
             "read screen", "remember this", "save this", "save to notes", "read notes", "my notes",
             "what did i save", "what did i remember",
             "social media", "social performance", "create post", "draft post",
-            "social report", "create campaign", "social inbox"
+            "social report", "create campaign", "social inbox",
+            // v1.0.6 (loop-16): artifact + live-data asks. The loop-15 field
+            // evidence: "can u create a award winning website in html" and
+            // "fetch the price of gold" were classified CONVERSATIONAL by the
+            // LLM router and the turn degraded into promises. These always
+            // route to planning; an over-trigger lands on a CHAT step, which
+            // still delivers a real answer.
+            "price", "gold", "silver", "stock", "share market", "crypto", "bitcoin",
+            "exchange rate", "currency", "weather in",
+            "pdf", "html", "website", "web page", "webpage", "landing page",
+            "csv", "spreadsheet", "report", "document",
+            "fetch", "download",
+            "create a", "create an", "make a", "make me a", "build a", "build me",
+            "write a", "generate a", "design a", "code a"
         )
         val isForcedAction = forcedActionPatterns.any { query.contains(it, ignoreCase = true) }
         if (isForcedAction) return true

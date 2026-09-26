@@ -281,8 +281,10 @@ class OpenCodeZenProvider @Inject constructor(
             // NOT fight them with the no-tools re-ask — the loop-14 field
             // evidence showed the guard converts an agent-grade curl/heredoc
             // attempt into a defeated "Sorry, I can't fetch live prices".
-            // Surface the calls; the agent loop executes them.
-            if (request.allowToolCalls) {
+            // Surface the calls; the agent loop executes them. Only when the
+            // fragments produced NO usable call (a truncated empty shell)
+            // does the guard re-ask remain the right recovery.
+            if (request.allowToolCalls && first.toolCalls.isNotEmpty()) {
                 return@withContext LLMResponse(
                     content = "",
                     tokensUsed = first.tokensUsed,
