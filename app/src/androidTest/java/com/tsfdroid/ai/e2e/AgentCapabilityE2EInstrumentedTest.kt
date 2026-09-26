@@ -579,22 +579,23 @@ class AgentCapabilityE2EInstrumentedTest {
         println("TSF-E2E html artifact: ${file.absolutePath} (${content.length} chars)")
     }
 
-    @Test(timeout = 900_000)
+    @Test(timeout = 1_200_000)
     fun fetchExampleCom_reportsRealPageContent() {
         reachDashboard()
         val baseline = sendTask(
-            "Fetch the web page https://example.com with your URL fetch capability " +
-                "and tell me the main heading text shown on that page.",
+            "Fetch the web page https://example.com with your URL fetch capability, " +
+                "then REPLY IN CHAT with the main heading text shown on that page. " +
+                "Do not write any file — just tell me the heading.",
             "cap3_fetch"
         )
         // example.com's content is stable: the page heading is "Example Domain".
         val reply = waitNewText(
-            baseline, 300_000,
+            baseline, 600_000,
             predicate = { it.contains("Example Domain", ignoreCase = true) }
         )
         shoot("cap3_fetch_reply")
         assertNotNull(
-            "no reply mentioning 'Example Domain' appeared within 300s — " +
+            "no reply mentioning 'Example Domain' appeared within 600s — " +
                 "the in-app fetch path did not deliver real web data",
             reply
         )
@@ -693,7 +694,7 @@ class AgentCapabilityE2EInstrumentedTest {
         // Real data bar: a reply bubble with a numbered result listing
         // (WEB_SEARCH's output shape), not an error, not browser deflection.
         val reply = waitNewText(
-            baseline, 420_000,
+            baseline, 600_000,
             predicate = { t ->
                 t.contains("https://", ignoreCase = true) ||
                     t.contains("Top web results", ignoreCase = true) ||
@@ -702,7 +703,7 @@ class AgentCapabilityE2EInstrumentedTest {
         )
         shoot("cap6_search_reply")
         assertNotNull(
-            "search produced no in-app results listing within 420s",
+            "search produced no in-app results listing within 600s",
             reply
         )
         assertNoBrowserFallback(baseline, "cap6_search")

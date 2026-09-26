@@ -778,43 +778,87 @@ class AgentLoop @Inject constructor(
         userGoal: String,
         reportLatency: suspend (LLMResponse) -> Unit
     ): Plan {
-        val first = streamingCompleteWithThinking(provider, request)
-        reportLatency(first)
-        try {
-            return parsePlanFromLlmResponse(first.content, userGoal)
-        } catch (firstFailure: IllegalArgumentException) {
-            val corrective = request.copy(
-                systemPrompt = request.systemPrompt + PLAN_RETRY_SUFFIX + CONTENT_PLAN_RETRY_SUFFIX,
-                messages = request.messages + ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    text = "Your previous reply was not a valid executable plan. " +
-                        "Respond with ONLY the JSON plan object now.",
-                    sender = ChatMessage.Sender.USER
-                ),
-                temperature = 0.0f
-            )
-            val second = streamingCompleteWithThinking(provider, corrective)
+        // v1.0.6 loop-18: the STREAMING planning call can itself fail with a
+        // provider error (loop-17 CI evidence: a blank tool-call shell on the
+        // search task surfaced an "unreadable response" card and the whole
+        // turn died). Treat a failed first attempt exactly like an
+        // unparseable answer: fall to the corrective path below, which now
+        // uses the non-streaming chain-walking complete() (its own bounded
+        // model-chain retries) before deterministic synthesis.
+        var first = try {
+            streamingCompleteWithThinking(provider, request)
+        } catch (failure: LLMException) {
+            if (failure.error == com.tsfdroid.ai.core.llm.error.LLMError.FreeTierBlocked) throw failure
+            null
+        } catch (failure: java.io.IOException) {
+            null
+        }
+        if (first != null) {
+            reportLatency(first)
+            try {
+                return parsePlanFromLlmResponse(first.content, userGoal)
+            } catch (firstFailure: IllegalArgumentException) {
+                return correctiveAndSynthesizedPlan(provider, request, userGoal, reportLatency, first, firstFailure)
+            }
+        }
+        return correctiveAndSynthesizedPlan(
+            provider, request, userGoal, reportLatency,
+            first = null,
+            firstFailure = IllegalArgumentException("streaming planning call failed")
+        )
+    }
+
+    /** Corrective re-ask (non-streaming, chain-walking) then deterministic synthesis. */
+    private suspend fun correctiveAndSynthesizedPlan(
+        provider: LLMProvider,
+        request: LLMRequest,
+        userGoal: String,
+        reportLatency: suspend (LLMResponse) -> Unit,
+        first: LLMResponse?,
+        firstFailure: IllegalArgumentException
+    ): Plan {
+        val corrective = request.copy(
+            systemPrompt = request.systemPrompt + PLAN_RETRY_SUFFIX + CONTENT_PLAN_RETRY_SUFFIX,
+            messages = request.messages + ChatMessage(
+                id = UUID.randomUUID().toString(),
+                text = "Your previous reply was not a valid executable plan. " +
+                    "Respond with ONLY the JSON plan object now.",
+                sender = ChatMessage.Sender.USER
+            ),
+            temperature = 0.0f
+        )
+        val second = try {
+            provider.complete(corrective)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        if (second != null) {
             reportLatency(second)
             try {
                 return parsePlanFromLlmResponse(second.content, userGoal)
             } catch (_: IllegalArgumentException) {
-                // Second attempt also failed to produce an executable plan.
-                // v1.0.6: synthesize a REAL executable plan before ever falling
-                // back to prose delivery — the user must never watch the agent
-                // promise a file/fetch and then stop.
-                synthesizeExecutablePlan(provider, userGoal)?.let { return it }
-                // Last resort: if the FIRST answer was a genuine conversational
-                // reply, deliver it instead of failing the whole turn — the
-                // user asked something and the model answered; that is a valid
-                // agent outcome even when the goal sounded actionable.
-                PlanResponseSanitizer.classifyProseReply(
-                    PlanResponseSanitizer.stripReasoningBlocks(first.content)
-                )?.let { (action, params) ->
-                    return buildSingleStepPlan(userGoal, action, params)
-                }
-                throw firstFailure
+                // fall through to synthesis
             }
         }
+        // Second attempt also failed to produce an executable plan.
+        // v1.0.6: synthesize a REAL executable plan before ever falling
+        // back to prose delivery — the user must never watch the agent
+        // promise a file/fetch and then stop.
+        synthesizeExecutablePlan(provider, userGoal)?.let { return it }
+        // Last resort: if the FIRST answer was a genuine conversational
+        // reply, deliver it instead of failing the whole turn — the
+        // user asked something and the model answered; that is a valid
+        // agent outcome even when the goal sounded actionable.
+        first?.let {
+            PlanResponseSanitizer.classifyProseReply(
+                PlanResponseSanitizer.stripReasoningBlocks(it.content)
+            )?.let { (action, params) ->
+                return buildSingleStepPlan(userGoal, action, params)
+            }
+        }
+        throw firstFailure
     }
 
     /**
