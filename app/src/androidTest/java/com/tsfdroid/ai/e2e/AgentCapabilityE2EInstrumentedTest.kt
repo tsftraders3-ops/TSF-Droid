@@ -586,7 +586,8 @@ class AgentCapabilityE2EInstrumentedTest {
             "Fetch the web page https://example.com with your URL fetch capability, " +
                 "then REPLY IN CHAT with the main heading text shown on that page. " +
                 "Do not write any file — just tell me the heading.",
-            "cap3_fetch"
+            "cap3_fetch",
+            planningWindowMs = 600_000
         )
         // example.com's content is stable: the page heading is "Example Domain".
         val reply = waitNewText(
