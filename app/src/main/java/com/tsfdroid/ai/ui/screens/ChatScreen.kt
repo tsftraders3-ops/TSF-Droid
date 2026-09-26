@@ -162,11 +162,16 @@ fun ChatScreen(
     // not history.size-1 — the plan-approval card renders AFTER the messages,
     // so with a longer history it sat below the fold where the user never saw
     // it and "Approve & Run" was unreachable (the agent appeared to just stop).
+    // v1.0.6 loop-21: scrollOffset past the item's start clamps to the list's
+    // true end — aligning the item's TOP (previous behavior) still left the
+    // tall approval card's BUTTONS below the fold when tall artifact cards
+    // preceded it (the cap3 loop-19/20 evidence: card title visible, button
+    // never in the a11y tree for 10 minutes).
     LaunchedEffect(currentSessionId, history.size, visibleAgentState) {
         if (history.isNotEmpty()) {
             val lastIndex = listState.layoutInfo.totalItemsCount
                 .coerceAtLeast(history.size) - 1
-            listState.animateScrollToItem(lastIndex)
+            listState.animateScrollToItem(lastIndex, scrollOffset = 100_000)
         }
     }
 

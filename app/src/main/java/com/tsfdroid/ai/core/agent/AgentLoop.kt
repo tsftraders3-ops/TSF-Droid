@@ -1431,7 +1431,7 @@ class AgentLoop @Inject constructor(
                 .toString()
             val cardMsg = ChatMessage(
                 id = UUID.randomUUID().toString(),
-                text = "Created ${file.name} (${formatFileSize(file.length())}) — saved at ${file.absolutePath}.",
+                text = "Created ${file.name} (${formatFileSize(file.length())}) in your workspace — open it below.",
                 sender = ChatMessage.Sender.AGENT,
                 modelBadge = "Agent",
                 attachmentJson = attachmentJson

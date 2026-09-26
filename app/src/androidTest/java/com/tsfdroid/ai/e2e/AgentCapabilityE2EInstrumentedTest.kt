@@ -364,16 +364,30 @@ class AgentCapabilityE2EInstrumentedTest {
                 stuckCardIterations++
                 runCatching { device.pressBack() }
                 device.waitForIdle(800)
+                // Loop-21: canonical scroll-into-view — UiScrollable flings
+                // the chat list until the button is on screen, which plain
+                // single swipes failed to do when tall artifact cards pushed
+                // the card deep below the fold.
+                runCatching {
+                    val scrollable = androidx.test.uiautomator.UiScrollable(
+                        androidx.test.uiautomator.UiSelector().scrollable(true)
+                    )
+                    scrollable.scrollToBeginning(10)
+                    scrollable.scrollIntoView(
+                        androidx.test.uiautomator.UiSelector().textContains("Approve & Run")
+                    )
+                }
+                device.waitForIdle(800)
                 val w = device.displayWidth
                 val h = device.displayHeight
-                device.swipe(w / 2, (h * 0.72).toInt(), w / 2, (h * 0.30).toInt(), 32)
-                device.waitForIdle(1_000)
-                if (stuckCardIterations >= 15) {
+                if (stuckCardIterations >= 12) {
+                    // Last resort: the button renders near the card's bottom;
+                    // tap relative to the title bounds.
                     val bounds = runCatching { cardTitle.visibleBounds }.getOrNull()
                     if (bounds != null && !bounds.isEmpty) {
                         device.click(
                             bounds.centerX(),
-                            (bounds.bottom + 280).coerceAtMost(h - 80)
+                            (bounds.bottom + 320).coerceAtMost(h - 80)
                         )
                     }
                 }
