@@ -110,7 +110,10 @@ class ToolCallBridgeTest {
                 LLMToolCall("shell", """{"command": ${kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.serializer(), cmd)}}""")
             )
             assertNull("'$cmd' should not map", mapping.mapped)
-            assertTrue(mapping.unsupportedReason!!.contains("WRITE_FILE"))
+            assertTrue(
+                mapping.unsupportedReason!!.contains("write_file") &&
+                    mapping.unsupportedReason!!.contains("web_search")
+            )
         }
     }
 
