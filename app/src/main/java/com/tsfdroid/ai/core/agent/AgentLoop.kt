@@ -2132,11 +2132,34 @@ class AgentLoop @Inject constructor(
                     }
 
                     if (hasPlanObject) {
-                        return normalizePlan(json.decodeFromString<Plan>(planElement.toString()))
+                        val plan = normalizePlan(json.decodeFromString<Plan>(planElement.toString()))
+                        // v1.0.6 loop-17: a well-formed plan can still REFUSE
+                        // the goal (the field evidence: a one-step CHAT plan
+                        // reading "I don't have live market data access").
+                        // Throw so the corrective re-ask / deterministic
+                        // synthesis turns it into real executable steps.
+                        if (PlanResponseSanitizer.planDefersGoal(
+                                plan.steps.map { it.action }, userGoal
+                            )
+                        ) {
+                            throw IllegalArgumentException(
+                                "Plan deferred the goal (no executable action for it)"
+                            )
+                        }
+                        return plan
                     }
 
                     // A bare plan object at the root.
-                    return normalizePlan(json.decodeFromString<Plan>(candidate))
+                    val barePlan = normalizePlan(json.decodeFromString<Plan>(candidate))
+                    if (PlanResponseSanitizer.planDefersGoal(
+                            barePlan.steps.map { it.action }, userGoal
+                        )
+                    ) {
+                        throw IllegalArgumentException(
+                            "Plan deferred the goal (no executable action for it)"
+                        )
+                    }
+                    return barePlan
                 }
             } catch (_: Exception) {
                 // Fall through to the cleaner / next candidate
@@ -2144,7 +2167,16 @@ class AgentLoop @Inject constructor(
 
             val cleaned = cleanPlanJson(candidate)
             try {
-                return normalizePlan(json.decodeFromString<Plan>(cleaned))
+                val parsed = normalizePlan(json.decodeFromString<Plan>(cleaned))
+                if (PlanResponseSanitizer.planDefersGoal(
+                        parsed.steps.map { it.action }, userGoal
+                    )
+                ) {
+                    throw IllegalArgumentException(
+                        "Plan deferred the goal (no executable action for it)"
+                    )
+                }
+                return parsed
             } catch (_: Exception) {
                 // Continue with remaining candidates
             }

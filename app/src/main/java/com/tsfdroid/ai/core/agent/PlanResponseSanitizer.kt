@@ -168,4 +168,31 @@ internal object PlanResponseSanitizer {
         val g = goal.lowercase()
         return ARTIFACT_WORDS.any { g.contains(it) }
     }
+
+    /** Actions that actually produce live web data. */
+    private val DATA_ACTIONS = setOf(
+        "WEB_SEARCH", "FETCH_URL", "GET_NEWS", "GET_WEATHER",
+        "CURRENCY_CONVERT", "CHECK_STOCK", "SUMMARIZE_URL"
+    )
+
+    /** Actions that actually produce a file artifact. */
+    private val ARTIFACT_ACTIONS = setOf("WRITE_FILE", "CREATE_PDF")
+
+    /**
+     * Plan-shaped deferral (v1.0.6 loop-17): a VALID plan can still refuse
+     * the goal — the loop-16 field evidence is a one-step CHAT plan whose
+     * response was "I don't have live market data access in this session".
+     * The prose gate never sees it because the JSON parses cleanly. When a
+     * data goal's plan contains NO data action, or an artifact goal's plan
+     * contains NO file action, the plan defers the goal and must trigger the
+     * corrective re-ask / deterministic synthesis.
+     */
+    fun planDefersGoal(actions: List<String>, userGoal: String): Boolean {
+        if (actions.isEmpty()) return false
+        val canonical = actions.map { it.trim().uppercase() }
+        if (goalWantsArtifact(userGoal) && canonical.none { it in ARTIFACT_ACTIONS }) return true
+        if (goalWantsWebData(userGoal) && !goalWantsArtifact(userGoal) &&
+            canonical.none { it in DATA_ACTIONS }) return true
+        return false
+    }
 }

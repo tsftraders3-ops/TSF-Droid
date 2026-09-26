@@ -299,7 +299,11 @@ class AgentCapabilityE2EInstrumentedTest {
      * when the planner proposes a plan. Returns the screen baseline captured
      * BEFORE the task was sent, for later reply detection.
      */
-    private fun sendTask(message: String, taskTag: String): Set<String> {
+    private fun sendTask(
+        message: String,
+        taskTag: String,
+        planningWindowMs: Long = 420_000
+    ): Set<String> {
         assertTrue(
             "chat input not found before task $taskTag",
             device.wait(Until.hasObject(By.textContains(chatPlaceholder)), 15_000) == true ||
@@ -311,10 +315,11 @@ class AgentCapabilityE2EInstrumentedTest {
         assertTrue("send button not found for task $taskTag", tapSend())
 
         // Planning can take a while on the free tier — a slow model plus the
-        // corrective re-ask is two LLM calls (loop-8: >240s observed). 420s
-        // covers that while the 900s per-test budget still fits the artifact
-        // wait that follows.
-        val approvalDeadline = System.currentTimeMillis() + 420_000
+        // corrective re-ask is two LLM calls (loop-8: >240s observed), and a
+        // content-creation plan carries the whole file inline (loop-16:
+        // a full website plan can exceed 420s). [planningWindowMs] lets the
+        // artifact tasks breathe.
+        val approvalDeadline = System.currentTimeMillis() + planningWindowMs
         var approved = false
         var replied = false
         while (System.currentTimeMillis() < approvalDeadline) {
@@ -363,7 +368,7 @@ class AgentCapabilityE2EInstrumentedTest {
         }
         dumpHierarchy("${taskTag}_after_send")
         assertTrue(
-            "task $taskTag: neither an approval card nor a reply appeared within 420s",
+            "task $taskTag: neither an approval card nor a reply appeared within ${planningWindowMs / 1000}s",
             approved || replied
         )
         return baseline
@@ -653,12 +658,13 @@ class AgentCapabilityE2EInstrumentedTest {
     }
 
     /** Vague HTML ask, no path, no capability hint: a real user's words. */
-    @Test(timeout = 900_000)
+    @Test(timeout = 1_500_000)
     fun vagueWebsiteAsk_stillWritesARealHtmlFile() {
         reachDashboard()
         val baseline = sendTask(
             "can u create a award winning website in html",
-            "cap5_vague_html"
+            "cap5_vague_html",
+            planningWindowMs = 700_000
         )
         assertNoBrowserFallback(baseline, "cap5_vague_html")
         // The artifact bar: SOME html file with real page content appears
@@ -676,12 +682,13 @@ class AgentCapabilityE2EInstrumentedTest {
     }
 
     /** "search for X" — results must come back IN-APP, no Chrome. */
-    @Test(timeout = 900_000)
+    @Test(timeout = 1_200_000)
     fun webSearchTask_returnsInAppResults_withoutBrowser() {
         reachDashboard()
         val baseline = sendTask(
             "ok search for latest iphone price",
-            "cap6_search"
+            "cap6_search",
+            planningWindowMs = 600_000
         )
         // Real data bar: a reply bubble with a numbered result listing
         // (WEB_SEARCH's output shape), not an error, not browser deflection.
@@ -703,12 +710,13 @@ class AgentCapabilityE2EInstrumentedTest {
     }
 
     /** "price of gold" — the user's exact ask; data must arrive in-app. */
-    @Test(timeout = 900_000)
+    @Test(timeout = 1_200_000)
     fun goldPriceAsk_completesWithoutMalformedCard() {
         reachDashboard()
         val baseline = sendTask(
             "cna u fetch the price of gold now",
-            "cap7_gold"
+            "cap7_gold",
+            planningWindowMs = 600_000
         )
         assertNoBrowserFallback(baseline, "cap7_gold")
         // Data bar: any reply carrying a number ($ or digit with context) OR

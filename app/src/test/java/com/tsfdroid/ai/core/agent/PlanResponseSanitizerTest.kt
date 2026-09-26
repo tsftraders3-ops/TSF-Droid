@@ -247,4 +247,42 @@ class PlanResponseSanitizerTest {
             )
         )
     }
+
+    // --- v1.0.6 loop-17: plan-shaped deferral gate ---
+
+    @Test
+    fun `a chat-only plan defers a data goal`() {
+        assertTrue(
+            PlanResponseSanitizer.planDefersGoal(
+                listOf("CHAT"), "cna u fetch the price of gold now"
+            )
+        )
+    }
+
+    @Test
+    fun `a chat-only plan defers an artifact goal`() {
+        assertTrue(
+            PlanResponseSanitizer.planDefersGoal(
+                listOf("CHAT"), "can u create a award winning website in html"
+            )
+        )
+    }
+
+    @Test
+    fun `a plan with a real data action does not defer a data goal`() {
+        assertTrue(
+            !PlanResponseSanitizer.planDefersGoal(
+                listOf("WEB_SEARCH", "CREATE_PDF"), "create a pdf report of the gold price"
+            )
+        )
+    }
+
+    @Test
+    fun `a plan with write_file does not defer an artifact goal`() {
+        assertTrue(
+            !PlanResponseSanitizer.planDefersGoal(
+                listOf("WRITE_FILE"), "can u create a award winning website in html"
+            )
+        )
+    }
 }
