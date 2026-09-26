@@ -119,13 +119,29 @@ data class Tool(
     val parameters: String // JSON Schema string representing parameters
 )
 
+/**
+ * One OpenAI-style function tool call the model emitted instead of (or along
+ * with) prose. v1.0.6: the Zen free tier forces harness tools (`read`,
+ * `shell`) into every request body, so reasoning models sometimes answer the
+ * harness contract with actual tool calls. The provider surfaces them; the
+ * agent loop executes the ones it can and re-asks for the rest.
+ */
+@Serializable
+data class LLMToolCall(
+    val name: String,
+    val arguments: String,
+    val id: String = ""
+)
+
 @Serializable
 data class LLMResponse(
     val content: String,
     val tokensUsed: Int,
     val model: String,
     val provider: String,
-    val latencyMs: Long
+    val latencyMs: Long,
+    /** Non-empty when the model answered with function tool calls. */
+    @Transient val toolCalls: List<LLMToolCall> = emptyList()
 )
 
 fun List<ChatMessage>.toOpenAIMessages(systemPrompt: String): List<Map<String, Any>> {

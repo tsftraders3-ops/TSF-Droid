@@ -95,7 +95,19 @@ internal object PlanResponseSanitizer {
         "i am going to create", "i will write", "i'll write", "i am writing",
         "let me create", "let me write", "let's build", "lets build",
         "i can create", "i will now", "creating the", "writing the",
-        "i will generate", "i'll generate"
+        "i will generate", "i'll generate",
+        // v1.0.6: data-goal commitments — the gold-price field failure
+        // ("Let me check the current gold price for you." executed as an
+        // empty CHAT step and the turn ended with nothing fetched).
+        "let me check", "let me fetch", "let me search", "let me look",
+        "let me get", "let me pull", "let me find", "let me grab",
+        "i am checking", "i'm checking", "i will check", "i'll check",
+        "i am fetching", "i'm fetching", "i will fetch", "i'll fetch",
+        "i am searching", "i'm searching", "i will search", "i'll search",
+        "i am going to check", "i am going to fetch", "i am going to search",
+        "checking the", "fetching the", "searching the", "searching for",
+        "i will look", "i'll look", "let me build", "let me put together",
+        "let me do", "i am building", "i'm building", "let me run"
     )
 
     /** Words that mark an artifact-producing goal. */
@@ -105,19 +117,55 @@ internal object PlanResponseSanitizer {
     )
 
     /**
-     * True when a prose reply is a SHORT commitment to do an artifact task
-     * later instead of a plan that does it now — "I am creating the HTML file
-     * for you." against a "create an HTML website" goal. These replies are
-     * the v1.0.5 field failure: they executed as CHAT steps and nothing was
-     * ever written. The caller uses this to trigger the corrective re-ask.
-     * Long prose (over 600 chars) is a substantive answer, never a deferral.
+     * Words that mark a data-producing goal (fetch/search/lookup class).
+     * v1.0.6: a prose commitment against one of these goals defers a
+     * WEB_SEARCH/FETCH_URL the same way prose deferrals used to defer a
+     * WRITE_FILE — both must trigger the corrective re-ask.
+     */
+    private val DATA_WORDS = listOf(
+        "price", "fetch", "search", "weather", "news", "stock",
+        "exchange rate", "current", "latest", "today", "lookup", "look up",
+        "find out", "gold", "rate", "score", "headline", "quote",
+        "definition of", "translate", "conversion"
+    )
+
+    /**
+     * True when a prose reply is a SHORT commitment to do an artifact or
+     * data task later instead of a plan that does it now — "I am creating
+     * the HTML file for you." against a "create an HTML website" goal, or
+     * "Let me check the current gold price for you." against "fetch the
+     * price of gold". These replies are the v1.0.5/v1.0.6 field failures:
+     * they executed as CHAT steps and nothing was ever done. The caller uses
+     * this to trigger the corrective re-ask. Long prose (over 600 chars) is
+     * a substantive answer, never a deferral.
      */
     fun proseDeclinesAction(response: String?, userGoal: String): Boolean {
         val reply = response?.lowercase()?.trim() ?: return false
         if (reply.isEmpty() || reply.length > 600) return false
         val goal = userGoal.lowercase()
         if (ARTIFACT_WORDS.any { goal.contains(it) }) return true
+        if (DATA_WORDS.any { goal.contains(it) } && DECLINE_VERBS.any { reply.contains(it) }) return true
+        // Artifact deferrals keep the original shape: commitment verb AND an
+        // artifact word inside the reply itself (goal words may be absent).
         return DECLINE_VERBS.any { reply.contains(it) } &&
             ARTIFACT_WORDS.any { reply.contains(it) }
+    }
+
+    /**
+     * True when the goal itself asks for live internet data (search/fetch
+     * class) — used by the planner fallback to synthesize an executable
+     * WEB_SEARCH/FETCH_URL plan when the model keeps answering prose.
+     */
+    fun goalWantsWebData(goal: String): Boolean {
+        val g = goal.lowercase()
+        return DATA_WORDS.any { g.contains(it) }
+    }
+
+    /**
+     * True when the goal asks for a file artifact (HTML/PDF/document...).
+     */
+    fun goalWantsArtifact(goal: String): Boolean {
+        val g = goal.lowercase()
+        return ARTIFACT_WORDS.any { g.contains(it) }
     }
 }

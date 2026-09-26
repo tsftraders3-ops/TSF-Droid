@@ -69,7 +69,7 @@ import androidx.room.TypeConverters
         SocialAutomationRuleEntity::class,
         SocialAuditLogEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -270,6 +270,14 @@ abstract class OpenDroidDatabase : RoomDatabase() {
                 // Purely additive - existing history is untouched, every
                 // pre-existing row simply reads NULL (no thinking section).
                 database.execSQL("ALTER TABLE conversations ADD COLUMN thinkingText TEXT DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // v1.0.6: file attachment cards on chat messages (agent-
+                // created artifacts: HTML, PDF, ...). Purely additive.
+                database.execSQL("ALTER TABLE conversations ADD COLUMN attachmentJson TEXT DEFAULT NULL")
             }
         }
 

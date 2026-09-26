@@ -73,6 +73,18 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
+        <!-- v1.0.6: serves agent-created artifact files (HTML/PDF/...) to
+             viewer apps for the chat attachment cards' Open/Share actions. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- WorkManager owns this service; dataSync is required for long-running model downloads. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

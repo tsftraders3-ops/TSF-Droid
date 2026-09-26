@@ -191,4 +191,60 @@ class PlanResponseSanitizerTest {
         assertTrue(!PlanResponseSanitizer.proseDeclinesAction("", "create a file"))
         assertTrue(!PlanResponseSanitizer.proseDeclinesAction(null, "create a file"))
     }
+
+    // --- v1.0.6 data-goal deferral gate (the gold-price field failure) ---
+
+    @Test
+    fun `let me check against a price goal is a deferral`() {
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(
+                "Let me check the current gold price for you.",
+                "csn u fetch the price of gold"
+            )
+        )
+    }
+
+    @Test
+    fun `let me fetch against a search goal is a deferral`() {
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(
+                "Sure! Let me search for the latest iPhone price.",
+                "search for latest iphone price"
+            )
+        )
+    }
+
+    @Test
+    fun `substantive data answer to a data goal is not a deferral`() {
+        assertTrue(
+            !PlanResponseSanitizer.proseDeclinesAction(
+                "Gold is trading around $4,284 per ounce today, up 0.4%.",
+                "csn u fetch the price of gold"
+            )
+        )
+    }
+
+    @Test
+    fun `goalWantsWebData matches price fetch search phrasing`() {
+        assertTrue(PlanResponseSanitizer.goalWantsWebData("fetch the price of gold"))
+        assertTrue(PlanResponseSanitizer.goalWantsWebData("latest iphone price"))
+        assertTrue(!PlanResponseSanitizer.goalWantsWebData("tell me a joke"))
+    }
+
+    @Test
+    fun `goalWantsArtifact matches file html pdf phrasing`() {
+        assertTrue(PlanResponseSanitizer.goalWantsArtifact("create an award winning website in html"))
+        assertTrue(PlanResponseSanitizer.goalWantsArtifact("make a pdf report of gold price"))
+        assertTrue(!PlanResponseSanitizer.goalWantsArtifact("what is the capital of France"))
+    }
+
+    @Test
+    fun `let me put together against a website goal is a deferral`() {
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(
+                "Love it! Let me put together something slick for you.",
+                "can u create a award winning website in html"
+            )
+        )
+    }
 }

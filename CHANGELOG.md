@@ -4,6 +4,70 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.0.6 — The agent finishes what it starts (10 field screenshots fixed)
+
+v1.0.5 still failed on-device (10 error screenshots from a real E2E run):
+"search" opened the browser instead of fetching data, a PDF-report plan died at
+step 2 with a MALFORMED_RESPONSE card, "create a website" ended as a promise
+("Love it! Let me put together something slick for you.") with no file, and
+created files were invisible — log text instead of something openable. Every
+root cause was traced to code, fixed, and pinned by new emulator E2E tests
+that replay the user's exact prompts.
+
+### Fixes
+
+1. **WEB_SEARCH no longer fakes success with a browser** — DuckDuckGo Lite
+   now serves a 202 bot-challenge to many clients, so the v1.0.5 single
+   backend parsed zero results and fell back to "Opened the browser for you."
+   — a fake success that starved every downstream plan step of data. Search
+   now walks four real backends in-app (DDG Lite → DDG HTML → Bing → Google
+   News RSS) and NEVER opens a browser; failure is honest so the planner can
+   retry with a different source.
+2. **A flaky evaluator can no longer kill a running plan** — the PDF report
+   plan died exactly at the step boundary: the advisory re-evaluation call
+   returned an unparseable answer, the loop marked the whole plan FAILED with
+   step 2 still pending. Re-evaluation (and unknown-action replanning) are
+   now advisory: a failure logs and the plan marches on to its remaining
+   steps.
+3. **Tool-call answers are executed, not rejected** — the Zen free tier
+   forces `read`/`shell` harness tools into every request, so reasoning
+   models sometimes answer with real tool calls (91 shell-call deltas,
+   zero prose) which v1.0.5 reported as "OpenCode Zen returned an unreadable
+   response". The provider now accumulates the streamed tool-call fragments
+   and surfaces them; a chat-path tool loop maps them onto the app's real
+   actions (read→READ_FILE, heredoc/echo writes→WRITE_FILE, mkdir, ls,
+   curl→FETCH_URL), feeds results back to the model, and delivers a grounded
+   final answer.
+4. **Data goals can't end as a promise** — "Let me check the current gold
+   price for you." executed as an empty CHAT step. The prose-deferral gate
+   now also covers data goals (price/fetch/search/…), and when the model
+   still fails twice the planner synthesizes a REAL executable plan: data
+   goals become a WEB_SEARCH/FETCH_URL step, artifact goals get one
+   CONTENT_NOW generation call and become WRITE_FILE/CREATE_PDF with the
+   complete content inline. The turn can no longer end in "let me build it".
+5. **Created files appear in the chat as FILES** — WRITE_FILE/CREATE_PDF
+   successes emit a file attachment card (name, size, type badge) with
+   Open (FileProvider ACTION_VIEW) and Share actions, backed by a new
+   Room migration (v11, attachmentJson) so cards persist in history.
+6. **Every information action now produces real data in-app** — GET_WEATHER
+   (Open-Meteo geocoding + forecast, wttr.in fallback), CURRENCY_CONVERT
+   (open.er-api.com, frankfurter fallback), CHECK_STOCK (Yahoo Finance),
+   DEFINE_WORD (dictionaryapi.dev), TRANSLATE (gtx endpoint, MyMemory
+   fallback), FACT_CHECK (in-app search) — no browser anywhere.
+7. **FETCH_URL survives hostile sites** — direct fetch retries with a
+   desktop user-agent, then falls back to the r.jina.ai reader proxy before
+   admitting failure (the goldratestoday.org fetch failure).
+8. **Thinking is fully viewable** — the THINKING section is scrollable to
+   400dp with no 12-line ellipsis, the live streaming trace surface grew to
+   1200 chars/10 lines, and tool-loop activity ("[tool] running the model's
+   tool calls (round 1)…") streams there too.
+9. **Emulator E2E replays the user's exact prompts** — three new on-emulator
+   tests pin the field failures: the vague "can u create a award winning
+   website in html" (a real .html artifact must appear), "ok search for
+   latest iphone price" (in-app results listing, browser-fallback asserted
+   away) and "fetch the price of gold" (real data or listing, malformed-card
+   asserted away).
+
 ## v1.0.5 — Real agent capability (complex tasks actually execute now)
 
 v1.0.4 could *chat*, but real usage showed the agent's deeper failures: a

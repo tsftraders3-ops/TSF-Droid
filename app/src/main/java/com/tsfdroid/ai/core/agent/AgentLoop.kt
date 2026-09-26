@@ -55,6 +55,12 @@ private const val MAX_NEEDS_INPUT_PROMPTS = 5
 private const val MAX_INCOMPLETE_MESSAGE_IDS = 100
 /** Tail length of the live thinking trace published during planning. */
 private const val LIVE_THINKING_TAIL = 1500
+/**
+ * v1.0.6: bounded rounds for the chat-path tool loop (model tool calls →
+ * native execution → grounded re-ask). Four rounds is generous for the
+ * read/shell patterns reasoning models emit and can never run away.
+ */
+private const val MAX_CHAT_TOOL_ROUNDS = 4
 
 /**
  * Output budget for plan generation. Plans for content-creation tasks
@@ -242,6 +248,9 @@ class AgentLoop @Inject constructor(
      * prompt is currently pending, and otherwise falls back to resolving "current".
      */
     fun processQuery(query: String, context: Context, explicitSessionId: String? = null) {
+        // v1.0.6: capture the application context for artifact-card emission
+        // and the chat tool loop (Context is not threaded everywhere).
+        appContext = context.applicationContext
         // processQuery is also the delivery path for a reply to a pending
         // awaitUserResponse() prompt (see below). That's ONLY true when this message comes
         // from the SAME session the waiting task is pinned to (waitingSessionId) - a
@@ -646,6 +655,26 @@ class AgentLoop @Inject constructor(
             _liveThinking.value = null
 
             if (!inserted || currentReplyText.isBlank()) {
+                // v1.0.6: a blank streamed reply is usually the model
+                // answering the harness contract with read/shell tool calls
+                // (the PDF field failure: 91 shell calls, zero prose, then a
+                // MALFORMED_RESPONSE card). Execute the mappable tool calls
+                // through the app's real action pipeline and finish the turn
+                // with the model's grounded final answer before ever
+                // surfacing an error.
+                val toolLoopAnswer = runChatToolLoop(provider, systemPrompt, lastMsgs, sessionId)
+                if (!toolLoopAnswer.isNullOrBlank()) {
+                    val loopMsg = replyMsg.copy(
+                        text = toolLoopAnswer,
+                        thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                    )
+                    conversationRepository.insertMessage(sessionId, loopMsg)
+                    memoryManager.storeMessage(loopMsg, sessionId)
+                    _chatError.value = null
+                    _agentState.value = AgentState.Speaking(toolLoopAnswer)
+                    onSpeakCallback?.invoke(toolLoopAnswer)
+                    return
+                }
                 publishChatError(
                     ChatErrorUiState.fromException(
                         sessionId = sessionId,
@@ -713,11 +742,13 @@ class AgentLoop @Inject constructor(
      * One LLM planning call plus a single corrective re-ask when the answer
      * cannot be parsed into a plan OR is a short prose commitment that defers
      * an artifact task ("I am creating the HTML file for you."). Bounded: at
-     * most one extra request, and when the re-ask also fails, the original
-     * conversational answer is still delivered as a CHAT plan rather than
-     * failing the turn.
+     * most one extra request, and when the re-ask also fails, [synthesize]
+     * builds an executable plan deterministically (v1.0.6) — a data goal
+     * becomes a WEB_SEARCH/FETCH_URL step, an artifact goal gets one
+     * CONTENT_NOW generation call and becomes a WRITE_FILE/CREATE_PDF step —
+     * so the turn can no longer end as a bare "let me build it" commitment.
      *
-     * v1.0.5: the planning call streams through [streamCompleteDetailed] so
+     * v1.0.5: the planning call streams through [streamCompleteWithThinking] so
      * reasoning-model thinking is published to [liveThinking] while the plan
      * is being formed — the user watches the agent reason instead of staring
      * at an indeterminate dots bubble.
@@ -749,9 +780,13 @@ class AgentLoop @Inject constructor(
                 return parsePlanFromLlmResponse(second.content, userGoal)
             } catch (_: IllegalArgumentException) {
                 // Second attempt also failed to produce an executable plan.
-                // If the FIRST answer was a genuine conversational reply,
-                // deliver it instead of failing the whole turn — the user
-                // asked something and the model answered; that is a valid
+                // v1.0.6: synthesize a REAL executable plan before ever falling
+                // back to prose delivery — the user must never watch the agent
+                // promise a file/fetch and then stop.
+                synthesizeExecutablePlan(provider, userGoal)?.let { return it }
+                // Last resort: if the FIRST answer was a genuine conversational
+                // reply, deliver it instead of failing the whole turn — the
+                // user asked something and the model answered; that is a valid
                 // agent outcome even when the goal sounded actionable.
                 PlanResponseSanitizer.classifyProseReply(
                     PlanResponseSanitizer.stripReasoningBlocks(first.content)
@@ -760,6 +795,78 @@ class AgentLoop @Inject constructor(
                 }
                 throw firstFailure
             }
+        }
+    }
+
+    /**
+     * v1.0.6: deterministic plan synthesis for goals the model repeatedly
+     * answered with prose. Artifact goals get one dedicated CONTENT_NOW
+     * generation request whose output becomes the inline content of a
+     * WRITE_FILE / CREATE_PDF step; data goals become a WEB_SEARCH (or
+     * FETCH_URL when the goal carries a URL) step with no extra LLM call.
+     * Returns null when the goal matches neither class — the caller then
+     * keeps its existing prose fallback.
+     */
+    private suspend fun synthesizeExecutablePlan(provider: LLMProvider, userGoal: String): Plan? {
+        val goal = userGoal.lowercase()
+
+        // Data goal → executable search step right now.
+        if (PlanResponseSanitizer.goalWantsWebData(userGoal) && !PlanResponseSanitizer.goalWantsArtifact(userGoal)) {
+            val url = Regex("https?://\\S+").find(userGoal)?.value
+            return if (url != null) {
+                buildSingleStepPlan(userGoal, "FETCH_URL", mapOf("url" to url))
+            } else {
+                buildSingleStepPlan(userGoal, "WEB_SEARCH", mapOf("query" to userGoal.trim()))
+            }
+        }
+
+        // Artifact goal → generate the complete file content NOW.
+        if (!PlanResponseSanitizer.goalWantsArtifact(userGoal)) return null
+        val wantsPdf = goal.contains("pdf") || goal.contains("document") ||
+            (goal.contains("report") && !goal.contains("html") && !goal.contains("website"))
+        val fileNameHint = when {
+            goal.contains("website") || goal.contains("html") -> "website.html"
+            wantsPdf -> "report.pdf"
+            goal.contains("csv") -> "data.csv"
+            goal.contains("json") -> "data.json"
+            else -> "document.txt"
+        }
+        val contentRequest = LLMRequest(
+            systemPrompt = "You are TSF Droid's content engine. Produce the COMPLETE, final file content " +
+                "for the user's request — never a description, never a promise, never a plan. " +
+                (if (wantsPdf) "Plain readable report text (it will be typeset into a PDF). " else "" ) +
+                "Very first line must be exactly: FILE: <filename>. Then output the raw file content.",
+            messages = listOf(
+                ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    text = "$userGoal\n\nOutput the complete file content now. Remember: first line 'FILE: <filename>', then the raw content.",
+                    sender = ChatMessage.Sender.USER
+                )
+            ),
+            temperature = 0.3f,
+            maxTokens = PLANNING_MAX_TOKENS,
+            responseFormat = ResponseFormat.TEXT
+        )
+        val generated = try {
+            provider.complete(contentRequest)
+        } catch (e: LLMException) {
+            return null
+        }
+        val body = PlanResponseSanitizer.stripReasoningBlocks(generated.content).trim()
+        if (body.isBlank()) return null
+        val content = if (body.startsWith("FILE:", ignoreCase = true)) {
+            val firstLineEnd = body.indexOf('\n')
+            if (firstLineEnd > 0) body.substring(firstLineEnd + 1).trim() else body
+        } else body
+        if (content.isBlank()) return null
+        val filePath = if (wantsPdf) "Documents/$fileNameHint" else "Documents/$fileNameHint"
+        return if (wantsPdf) {
+            buildSingleStepPlan(
+                userGoal, "CREATE_PDF",
+                mapOf("filePath" to filePath, "title" to userGoal.take(80), "content" to content)
+            )
+        } else {
+            buildSingleStepPlan(userGoal, "WRITE_FILE", mapOf("filePath" to filePath, "content" to content))
         }
     }
 
@@ -796,6 +903,86 @@ class AgentLoop @Inject constructor(
             provider = provider.name,
             latencyMs = System.currentTimeMillis() - startedAt
         )
+    }
+
+    /**
+     * v1.0.6: the chat-path TOOL LOOP. Reasoning models on the Zen free tier
+     * answer the harness contract (`read`/`shell` tool calls) instead of
+     * writing prose; instead of failing with MALFORMED_RESPONSE, the mappable
+     * calls execute through the SAME action pipeline plans use (permissions,
+     * internet checks, workspace sandbox), their results go back to the
+     * model, and the turn finishes with the grounded final answer. Bounded
+     * rounds; null when the loop cannot produce an answer.
+     */
+    private suspend fun runChatToolLoop(
+        provider: LLMProvider,
+        systemPrompt: String,
+        history: List<ChatMessage>,
+        sessionId: String
+    ): String? {
+        val context = contextOrNull() ?: return null
+        var messages = history
+        var round = 0
+        while (round < MAX_CHAT_TOOL_ROUNDS) {
+            round++
+            _liveThinking.value = "[tool] running the model's tool calls (round $round)…"
+            val response = try {
+                provider.complete(
+                    LLMRequest(
+                        systemPrompt = systemPrompt,
+                        messages = messages,
+                        temperature = 0.4f,
+                        maxTokens = 2000,
+                        responseFormat = ResponseFormat.TEXT
+                    )
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("AgentLoop", "Tool loop LLM call failed: ${e.localizedMessage}")
+                _liveThinking.value = null
+                return null
+            }
+            _liveThinking.value = null
+            if (response.content.isNotBlank()) return response.content
+            if (response.toolCalls.isEmpty()) return null
+
+            messages = messages + ChatMessage(
+                id = UUID.randomUUID().toString(),
+                text = "[tool calls issued]",
+                sender = ChatMessage.Sender.AGENT
+            )
+            for (call in response.toolCalls) {
+                val mapping = ToolCallBridge.map(call)
+                val mapped = mapping.mapped
+                val result: ActionResult = if (mapped != null) {
+                    try {
+                        actionDispatcher.execute(mapped.action, mapped.params, context)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        ActionResult.Failure(e.localizedMessage ?: "Tool execution failed")
+                    }
+                } else {
+                    ActionResult.Failure(mapping.unsupportedReason ?: "Tool not available")
+                }
+                android.util.Log.i(
+                    "AgentLoop",
+                    "Tool loop ${call.name} -> ${mapped?.action ?: "unsupported"}: success=${result.success}"
+                )
+                if (result.success && mapped != null &&
+                    (mapped.action == "WRITE_FILE" || mapped.action == "CREATE_PDF")
+                ) {
+                    emitArtifactCardIfNeeded(mapped.action, mapped.params, result, sessionId)
+                }
+                messages = messages + ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    text = ToolCallBridge.renderToolResult(call, result.success, result.data ?: result.error ?: ""),
+                    sender = ChatMessage.Sender.USER
+                )
+            }
+        }
+        return null
     }
 
     private suspend fun generatePlan(userMsg: ChatMessage, context: Context, sessionId: String) {
@@ -1111,6 +1298,67 @@ class AgentLoop @Inject constructor(
         }
     }
 
+    /**
+     * v1.0.6: after a WRITE_FILE / CREATE_PDF step succeeds, insert an agent
+     * chat message carrying the file as an attachment card. The card renders
+     * with the real file name/size and Open/Share actions backed by
+     * FileProvider — "show the file inside the chat like a file".
+     */
+    private suspend fun emitArtifactCardIfNeeded(
+        canonicalAction: String,
+        params: Map<String, String>,
+        actionResult: ActionResult,
+        sessionId: String
+    ) {
+        if (canonicalAction != "WRITE_FILE" && canonicalAction != "CREATE_PDF") return
+        try {
+            val pathHint = when (actionResult) {
+                is ActionResult.Success -> actionResult.dataMap["path"]
+                else -> null
+            } ?: params["filePath"] ?: params["path"] ?: return
+            val file = com.tsfdroid.ai.core.storage.StorageWorkspaceProvider.resolveFile(contextOrNull() ?: return, pathHint)
+            if (!file.exists() || file.length() == 0L) return
+            val mime = when {
+                file.name.endsWith(".pdf", true) -> "application/pdf"
+                file.name.endsWith(".html", true) || file.name.endsWith(".htm", true) -> "text/html"
+                file.name.endsWith(".css", true) -> "text/css"
+                file.name.endsWith(".js", true) -> "text/javascript"
+                file.name.endsWith(".json", true) -> "application/json"
+                file.name.endsWith(".csv", true) -> "text/csv"
+                file.name.endsWith(".md", true) -> "text/markdown"
+                else -> "text/plain"
+            }
+            val attachmentJson = org.json.JSONObject()
+                .put("name", file.name)
+                .put("path", file.absolutePath)
+                .put("mime", mime)
+                .put("size", file.length())
+                .toString()
+            val cardMsg = ChatMessage(
+                id = UUID.randomUUID().toString(),
+                text = "Created ${file.name} (${formatFileSize(file.length())}) — saved at ${file.absolutePath}.",
+                sender = ChatMessage.Sender.AGENT,
+                modelBadge = "Agent",
+                attachmentJson = attachmentJson
+            )
+            conversationRepository.insertMessage(sessionId, cardMsg)
+        } catch (e: Exception) {
+            android.util.Log.w("AgentLoop", "Artifact card emission failed: ${e.localizedMessage}")
+        }
+    }
+
+    /** Application context captured from the latest agent entry point. */
+    @Volatile
+    private var appContext: android.content.Context? = null
+
+    private fun contextOrNull(): android.content.Context? = appContext
+
+    private fun formatFileSize(bytes: Long): String = when {
+        bytes >= 1_048_576 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0)
+        bytes >= 1024 -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0)
+        else -> "$bytes B"
+    }
+
     private fun proposePlan(plan: Plan, sessionId: String) {
         proposedPlanSessionId = sessionId
         _agentState.value = AgentState.PlanProposed(plan)
@@ -1246,6 +1494,10 @@ class AgentLoop @Inject constructor(
                     StepStatus.COMPLETED,
                     result = actionResult.data ?: "Completed successfully."
                 )
+                // v1.0.6: created artifacts are FILES, not log lines — emit a
+                // chat attachment card so the user can open the HTML/PDF the
+                // agent just built directly from the conversation.
+                emitArtifactCardIfNeeded(canonicalActionName, resolvedParams, actionResult, sessionId)
             } else if (actionResult is ActionResult.PendingUserAction) {
                 // The action handed control to the user (e.g. the dialer is open awaiting a
                 // tap). Nothing failed, so no fallback and no failure replan - surface the
@@ -1299,19 +1551,17 @@ class AgentLoop @Inject constructor(
                         planId = currentPlanState.planId
                     )
                 } catch (e: LLMException) {
-                    // Nothing ever resumes a PAUSED plan - mark it FAILED so the Plan
-                    // tab shows a truthful terminal state; the error card still offers
-                    // the retry path.
-                    planManager.updatePlanStatus(PlanStatus.FAILED)
-                    publishChatError(
-                        ChatErrorUiState.fromException(
-                            sessionId = sessionId,
-                            requestId = currentPlanState.planId,
-                            runId = UUID.randomUUID().toString(),
-                            failure = e
-                        )
-                    )
-                    return
+                    // v1.0.6: a failed REPLANNER must not kill the plan — the
+                    // failed step is already FAILED; remaining steps are still
+                    // PENDING and remain executable. Log and fall through to
+                    // the normal loop so the plan finishes its own steps.
+                    android.util.Log.w("AgentLoop", "Replan after unknown action failed: ${e.localizedMessage}")
+                    null
+                }
+
+                if (replan == null) {
+                    currentPlanState = planManager.currentPlan.value ?: break
+                    continue
                 }
 
                 if (replan.speech.isNotEmpty()) {
@@ -1421,19 +1671,22 @@ class AgentLoop @Inject constructor(
                     remainingSteps = remaining,
                     planId = currentPlanState.planId
                 )
-            } catch (e: LLMException) {
-                // Same rationale as the replan failure above: PAUSED is a dead end, so
-                // fail the plan and let the error card drive recovery.
-                planManager.updatePlanStatus(PlanStatus.FAILED)
-                publishChatError(
-                    ChatErrorUiState.fromException(
-                        sessionId = sessionId,
-                        requestId = currentPlanState.planId,
-                        runId = UUID.randomUUID().toString(),
-                        failure = e
-                    )
-                )
-                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // v1.0.6: the evaluator is ADVISORY. A malformed/failed
+                // evaluation call used to fail the WHOLE plan here — the PDF
+                // field failure died exactly at this boundary (step 1 done,
+                // step 2 still PENDING, plan FAILED, MALFORMED_RESPONSE card).
+                // The plan must march on deterministically: log and treat as
+                // CONTINUE so every remaining step still executes.
+                android.util.Log.w("AgentLoop", "Step re-evaluation failed (treating as CONTINUE): ${e.localizedMessage}")
+                null
+            }
+
+            if (reEval == null) {
+                currentPlanState = planManager.currentPlan.value ?: break
+                continue
             }
 
             // Speak post-step evaluation speech if any

@@ -287,6 +287,22 @@ class OpenCodeZenProvider @Inject constructor(
         val assembled = pump.content
         if (assembled.isBlank()) {
             if (answeredWithTools) {
+                // v1.0.6: the model insisted on the harness contract even
+                // after the no-tools re-ask. Instead of failing the whole
+                // turn with MALFORMED_RESPONSE (the v1.0.5 field failure on
+                // "create a pdf report..."), surface the tool calls — the
+                // agent loop executes the mappable ones (read/shell → real
+                // app actions) or re-asks with grounded feedback.
+                if (pump.toolCalls.isNotEmpty()) {
+                    return@withContext LLMResponse(
+                        content = "",
+                        tokensUsed = pump.tokensUsed,
+                        model = selectedModel,
+                        provider = name,
+                        latencyMs = System.currentTimeMillis() - startTime,
+                        toolCalls = pump.toolCalls
+                    )
+                }
                 throw LLMErrorMapper.malformed(name, selectedModel)
             }
             throw IOException("OpenCode Zen stream completed without content")
@@ -296,7 +312,8 @@ class OpenCodeZenProvider @Inject constructor(
             tokensUsed = pump.tokensUsed,
             model = selectedModel,
             provider = name,
-            latencyMs = System.currentTimeMillis() - startTime
+            latencyMs = System.currentTimeMillis() - startTime,
+            toolCalls = pump.toolCalls
         )
     }
 
@@ -306,11 +323,47 @@ class OpenCodeZenProvider @Inject constructor(
         val tokensUsed: Int,
         val sawToolCall: Boolean,
         val bodyRejected: Boolean,
-        val reasoning: String = ""
+        val reasoning: String = "",
+        val toolCalls: List<com.tsfdroid.ai.core.llm.LLMToolCall> = emptyList()
     ) {
         /** Tool-call answer with zero prose: the corrective-retry trigger. */
         val answeredWithToolCalls: Boolean
             get() = sawToolCall && content.isBlank() && !bodyRejected
+    }
+
+    /** Fragment slot keys for tool-call delta accumulation. */
+    private val TC_ID = 0
+    private val TC_NAME = 1
+    private val TC_ARGS = 2
+
+    /**
+     * Merges indexed tool-call delta fragments (id/name/arguments triples)
+     * into complete [LLMToolCall]s. Fragments arrive spread across chunks:
+     * the name typically lands in the first, arguments stream in pieces.
+     */
+    private fun assembleToolCalls(
+        fragments: List<List<Pair<Int, String>>>
+    ): List<com.tsfdroid.ai.core.llm.LLMToolCall> {
+        if (fragments.isEmpty()) return emptyList()
+        return fragments.mapIndexedNotNull { _, slot ->
+            if (slot.isEmpty()) return@mapIndexedNotNull null
+            var id = ""
+            var name = ""
+            val args = StringBuilder()
+            for ((key, value) in slot) {
+                when (key) {
+                    TC_ID -> id = value
+                    TC_NAME -> name += value
+                    TC_ARGS -> args.append(value)
+                }
+            }
+            if (name.isBlank() && args.isBlank()) return@mapIndexedNotNull null
+            com.tsfdroid.ai.core.llm.LLMToolCall(
+                name = name,
+                arguments = args.toString(),
+                id = id
+            )
+        }
     }
 
     private suspend fun runStreamAttempt(
@@ -433,6 +486,7 @@ class OpenCodeZenProvider @Inject constructor(
             val reasoning = StringBuilder()
             var tokensUsed = 0
             var sawToolCall = false
+            val toolCallFragments = mutableListOf<MutableList<Pair<Int, String>>>()
 
             BufferedReader(InputStreamReader(source.inputStream(), StandardCharsets.UTF_8)).useLines { lines ->
                 for (line in lines) {
@@ -463,10 +517,30 @@ class OpenCodeZenProvider @Inject constructor(
                     // to [onReasoning] for the THINKING UI, but they are never
                     // emitted as chat text.
                     // Tool-call deltas mean the model answered the harness
-                    // contract instead of writing prose; the caller retries
-                    // once with a no-tools instruction before surfacing this
-                    // as a malformed response.
-                    if (delta.get("tool_calls")?.isJsonArray == true) sawToolCall = true
+                    // contract instead of writing prose. v1.0.6: the fragments
+                    // are ACCUMULATED (indexed OpenAI streaming shape) and
+                    // surfaced on the response so the agent loop can execute
+                    // the mappable ones instead of failing the turn.
+                    if (delta.get("tool_calls")?.isJsonArray == true) {
+                        sawToolCall = true
+                        for (tc in delta.getAsJsonArray("tool_calls")) {
+                            if (!tc.isJsonObject) continue
+                            val tcObj = tc.asJsonObject
+                            val idx = tcObj.get("index")?.takeIf { it.isJsonPrimitive }?.asInt ?: toolCallFragments.size
+                            val fn = tcObj.get("function")?.takeIf { it.isJsonObject }?.asJsonObject
+                            val namePiece = fn?.get("name")?.takeIf { it.isJsonPrimitive }?.asString
+                            val argsPiece = fn?.get("arguments")?.takeIf { it.isJsonPrimitive }?.asString
+                            while (toolCallFragments.size <= idx) {
+                                toolCallFragments.add(mutableListOf())
+                            }
+                            val frag = toolCallFragments[idx]
+                            if (tcObj.get("id")?.takeIf { it.isJsonPrimitive }?.asString != null) {
+                                frag.add(TC_ID to tcObj.get("id").asString)
+                            }
+                            if (!namePiece.isNullOrEmpty()) frag.add(TC_NAME to namePiece)
+                            if (!argsPiece.isNullOrEmpty()) frag.add(TC_ARGS to argsPiece)
+                        }
+                    }
                     val thinkingPiece = delta.get("reasoning")?.takeIf { it.isJsonPrimitive }?.asString
                         ?: delta.get("reasoning_content")?.takeIf { it.isJsonPrimitive }?.asString
                     if (!thinkingPiece.isNullOrEmpty()) {
@@ -486,7 +560,8 @@ class OpenCodeZenProvider @Inject constructor(
                 tokensUsed = tokensUsed,
                 sawToolCall = sawToolCall,
                 bodyRejected = false,
-                reasoning = reasoning.toString()
+                reasoning = reasoning.toString(),
+                toolCalls = assembleToolCalls(toolCallFragments)
             )
         }
     }

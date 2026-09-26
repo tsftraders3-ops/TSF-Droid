@@ -9,6 +9,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import com.tsfdroid.ai.MainActivity
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -589,5 +590,118 @@ class AgentCapabilityE2EInstrumentedTest {
             pdf
         )
         println("TSF-E2E pdf artifact: ${pdf!!.absolutePath} (${pdf.length()} bytes)")
+    }
+
+    // ---------- v1.0.6: the EXACT user field failures ----------
+    // The three tasks below are the user's own on-device prompts (10 error
+    // screenshots, 2026-09-26 08:24-08:34). They differ from the tasks above
+    // in one crucial way: they are VAGUE, natural, real-user phrasing with
+    // no file path and no "use your capability" hint — exactly the shape the
+    // v1.0.5 planner answered with "Love it! Let me put together something
+    // slick for you." and then did NOTHING.
+
+    /**
+     * Fails when the agent answers a data ask by opening the browser
+     * (the "Opened the browser for you." SYSTEM bubble) — the user's
+     * single loudest complaint.
+     */
+    private fun assertNoBrowserFallback(baseline: Set<String>, tag: String) {
+        val opened = waitNewText(
+            baseline, timeoutMs = 2_000,
+            predicate = { it.contains("Opened the browser", ignoreCase = true) }
+        )
+        assertNull(
+            "$tag: the agent fell back to opening the browser (" +
+                "SYSTEM bubble 'Opened the browser for you.' on screen) — " +
+                "web data must be fetched in-app",
+            opened
+        )
+    }
+
+    /** Vague HTML ask, no path, no capability hint: a real user's words. */
+    @Test(timeout = 900_000)
+    fun vagueWebsiteAsk_stillWritesARealHtmlFile() {
+        reachDashboard()
+        val baseline = sendTask(
+            "can u create a award winning website in html",
+            "cap5_vague_html"
+        )
+        assertNoBrowserFallback(baseline, "cap5_vague_html")
+        // The artifact bar: SOME html file with real page content appears
+        // regardless of where the planner chose to save it.
+        val file = awaitFile("html", 300_000, contentMarker = "<")
+        shoot("cap5_vague_html_done")
+        assertNotNull(
+            "vague 'create a website' ask produced NO .html artifact within 300s — " +
+                "the prose-deferral path leaked again (reply-only turn)",
+            file
+        )
+        val content = file!!.readText()
+        assertTrue("written file is not an HTML page", content.contains("<", ignoreCase = true))
+        println("TSF-E2E vague-html artifact: ${file.absolutePath} (${content.length} chars)")
+    }
+
+    /** "search for X" — results must come back IN-APP, no Chrome. */
+    @Test(timeout = 900_000)
+    fun webSearchTask_returnsInAppResults_withoutBrowser() {
+        reachDashboard()
+        val baseline = sendTask(
+            "ok search for latest iphone price",
+            "cap6_search"
+        )
+        // Real data bar: a reply bubble with a numbered result listing
+        // (WEB_SEARCH's output shape), not an error, not browser deflection.
+        val reply = waitNewText(
+            baseline, 420_000,
+            predicate = { t ->
+                t.contains("https://", ignoreCase = true) ||
+                    t.contains("Top web results", ignoreCase = true) ||
+                    (t.length > 80 && Regex("\\d\\.").containsMatchIn(t))
+            }
+        )
+        shoot("cap6_search_reply")
+        assertNotNull(
+            "search produced no in-app results listing within 420s",
+            reply
+        )
+        assertNoBrowserFallback(baseline, "cap6_search")
+        println("TSF-E2E search reply: ${reply?.take(200)}")
+    }
+
+    /** "price of gold" — the user's exact ask; data must arrive in-app. */
+    @Test(timeout = 900_000)
+    fun goldPriceAsk_completesWithoutMalformedCard() {
+        reachDashboard()
+        val baseline = sendTask(
+            "cna u fetch the price of gold now",
+            "cap7_gold"
+        )
+        assertNoBrowserFallback(baseline, "cap7_gold")
+        // Data bar: any reply carrying a number ($ or digit with context) OR
+        // the structured search listing. The hard assertion is the negative:
+        // NO "unreadable response" error card and NO browser fallback.
+        val reply = waitNewText(
+            baseline, 420_000,
+            predicate = { t ->
+                t.contains("Unreadable response", ignoreCase = true) ||
+                    t.contains("MALFORMED", ignoreCase = true) ||
+                    Regex("""\$\s?\d""").containsMatchIn(t) ||
+                    Regex("""\d{2,}(\.\d+)?\s?(usd|inr| dollars| per)""", RegexOption.IGNORE_CASE).containsMatchIn(t) ||
+                    t.startsWith("Top web results") ||
+                    t.startsWith("Latest news")
+            }
+        )
+        shoot("cap7_gold_reply")
+        assertNotNull(
+            "gold-price ask produced neither real price data nor the search listing " +
+                "within 420s (and the malformed-response card must never appear)",
+            reply
+        )
+        assertTrue(
+            "the MALFORMED/unreadable-response card appeared — the tool-call answer " +
+                "path regressed to failing the turn",
+            !(reply!!.contains("Unreadable response", true) || reply.contains("MALFORMED", true))
+        )
+        println("TSF-E2E gold reply: ${reply.take(200)}")
     }
 }

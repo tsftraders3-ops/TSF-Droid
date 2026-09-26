@@ -283,25 +283,66 @@ class OpenCodeZenNetworkTest {
     }
 
     @Test
-    fun `a persistent tool-call answer surfaces as a malformed response after the retry`() = runBlocking {
+    fun `a persistent tool-call answer is surfaced as toolCalls instead of failing the turn`() = runBlocking {
+        // v1.0.6: the field failure ("create a pdf report" → MALFORMED_RESPONSE
+        // card) happened exactly here — the model insisted on the harness
+        // contract and the provider threw. The provider now surfaces the
+        // accumulated tool calls so the agent loop can execute the mappable
+        // ones and ground the turn.
         server.enqueue(registryDown())
         server.enqueue(modelsDown())
         server.enqueue(toolCallsOnlyBody())
         server.enqueue(toolCallsOnlyBody())
 
-        val exception = requireNotNull(
-            runCatching { provider.complete(newRequest()) }.exceptionOrNull()
-        ) { "a persistent tool-call answer must not succeed" }
+        val response = provider.complete(newRequest())
 
-        val llm = exception as com.tsfdroid.ai.core.llm.error.LLMException
-        assertEquals(com.tsfdroid.ai.core.llm.error.LLMError.MalformedResponse, llm.error)
-        assertFalse("a tool-call answer is not a network problem", llm.retryable)
+        assertEquals("a persistent tool-call answer carries no prose", "", response.content)
+        assertTrue("the tool calls must be surfaced", response.toolCalls.isNotEmpty())
+
         // Exactly two completion POSTs: the original + one corrective re-ask.
         server.takeRequest() // registry
         server.takeRequest() // /models
         server.takeRequest() // first attempt
         val retry = server.takeRequest()
         assertNotNull(retry)
+    }
+
+    @Test
+    fun `tool-call fragments streamed across chunks are assembled into one call`() = runBlocking {
+        // OpenAI streams a tool call's name in the first delta and its
+        // arguments in fragments; the accumulator must merge them.
+        val fragmented = MockResponse.Builder()
+            .code(200)
+            .body(
+                """
+                data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_9","function":{"name":"shell","arguments":""}}]}}]}
+
+                data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"command\":"}}]}}]}
+
+                data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"ls -la\"}"}}]}}]}
+
+                data: {"choices":[{"index":0,"finish_reason":"tool_calls","delta":{}}]}
+
+                data: [DONE]
+
+                """.trimIndent()
+            )
+            .build()
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        // The first answer (tool-calls) triggers the corrective re-ask; the
+        // RE-ASK streams the fragmented tool call, whose assembled form is
+        // what the provider surfaces.
+        server.enqueue(toolCallsOnlyBody())
+        server.enqueue(fragmented)
+
+        val response = provider.complete(newRequest())
+
+        assertEquals("", response.content)
+        assertEquals(1, response.toolCalls.size)
+        assertEquals("shell", response.toolCalls[0].name)
+        assertEquals("""{"command":"ls -la"}""", response.toolCalls[0].arguments)
+        assertEquals("call_9", response.toolCalls[0].id)
     }
 
     @Test

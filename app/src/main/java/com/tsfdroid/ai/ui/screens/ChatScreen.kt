@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import android.content.Intent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -831,6 +832,8 @@ fun ChatBubble(
                 // above the answer so the user can inspect WHAT the agent was
                 // thinking. Auto-expanded while only thinking has arrived
                 // (still streaming), collapsed once the answer is present.
+                // v1.0.6: untruncated — the trace is scrollable to 400dp so
+                // the full reasoning stays inspectable.
                 if (isAgent && !message.thinkingText.isNullOrBlank()) {
                     var thinkingExpanded by remember(message.id) {
                         mutableStateOf(message.text.isBlank())
@@ -868,15 +871,20 @@ fun ChatBubble(
                             color = TextSecondary,
                             lineHeight = 15.sp,
                             fontFamily = FontFamily.Monospace,
-                            maxLines = 12,
-                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 180.dp)
+                                .heightIn(max = 400.dp)
                                 .verticalScroll(rememberScrollState())
                                 .padding(bottom = 4.dp)
                         )
                     }
+                }
+
+                // v1.0.6: file attachment card — agent-created artifacts are
+                // REAL files the user can open/share directly from the chat.
+                if (isAgent && message.attachmentJson != null) {
+                    FileAttachmentCard(attachmentJson = message.attachmentJson!!)
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
 
                 Text(
@@ -914,6 +922,146 @@ fun ChatBubble(
                 }
             }
         }
+    }
+}
+
+/**
+ * v1.0.6: file attachment card for agent-created artifacts. Renders the
+ * real file name, type icon and size with Open + Share actions backed by
+ * FileProvider — created files are first-class objects in the chat, never
+ * just a path inside a text bubble.
+ */
+@Composable
+fun FileAttachmentCard(attachmentJson: String) {
+    val context = LocalContext.current
+    val attachment: org.json.JSONObject = try {
+        org.json.JSONObject(attachmentJson)
+    } catch (_: Exception) {
+        return
+    }
+    val name = attachment.optString("name", "file")
+    val mime = attachment.optString("mime", "application/octet-stream")
+    val size = attachment.optLong("size", 0L)
+    val sizeLabel = when {
+        size >= 1_048_576 -> String.format(java.util.Locale.US, "%.1f MB", size / 1_048_576.0)
+        size >= 1024 -> String.format(java.util.Locale.US, "%.1f KB", size / 1024.0)
+        else -> "$size B"
+    }
+    val (typeLabel, typeColor) = when {
+        name.endsWith(".pdf", true) -> "PDF" to AccentPurple
+        name.endsWith(".html", true) || name.endsWith(".htm", true) -> "HTML" to AccentCyan
+        name.endsWith(".json", true) -> "JSON" to AccentCyan
+        name.endsWith(".csv", true) -> "CSV" to AccentNeonGreen
+        else -> "FILE" to TextSecondary
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.04f))
+            .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(typeColor.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = typeLabel.take(4),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = typeColor,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 10.dp)
+        ) {
+            Text(
+                text = name,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = sizeLabel,
+                fontSize = 10.sp,
+                color = TextSecondary
+            )
+        }
+        Text(
+            text = "OPEN",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = AccentCyan,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                    try {
+                        val path = attachment.optString("path")
+                        val file = java.io.File(path)
+                        if (file.exists()) {
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                context,
+                                context.packageName + ".fileprovider",
+                                file
+                            )
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, mime)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        }
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(
+                            context,
+                            "No app can open this file type",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+        )
+        Text(
+            text = "SHARE",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = AccentCyan,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                    try {
+                        val path = attachment.optString("path")
+                        val file = java.io.File(path)
+                        if (file.exists()) {
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                context,
+                                context.packageName + ".fileprovider",
+                                file
+                            )
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = mime
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Share file"))
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+        )
     }
 }
 
@@ -960,14 +1108,16 @@ fun ThinkingBubble(liveThinking: String? = null) {
             // v1.0.5: while a reasoning model streams its thinking, show the
             // tail of the live trace under the dots — the user watches what
             // the agent is thinking instead of an indeterminate spinner.
+            // v1.0.6: larger surface (1200 chars / 10 lines) and tool-loop
+            // status lines surface here too.
             liveThinking?.takeIf { it.isNotBlank() }?.let { trace ->
                 Text(
-                    text = trace.takeLast(600),
+                    text = trace.takeLast(1200),
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                     color = TextSecondary,
                     lineHeight = 14.sp,
-                    maxLines = 6,
+                    maxLines = 10,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 8.dp)
                 )

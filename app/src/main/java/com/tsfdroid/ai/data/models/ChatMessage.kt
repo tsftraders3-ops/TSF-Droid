@@ -17,7 +17,14 @@ data class ChatMessage(
      * agent bubbles. Null for messages without a reasoning surface; safe to
      * ignore everywhere except the chat renderer.
      */
-    val thinkingText: String? = null
+    val thinkingText: String? = null,
+    /**
+     * File attachment card (v1.0.6): JSON {"name","path","mime","size"} for
+     * a REAL file the agent created (WRITE_FILE / CREATE_PDF). Rendered as a
+     * tappable file card with Open/Share — created artifacts are files a
+     * user can open directly from the chat, never just a path in text.
+     */
+    val attachmentJson: String? = null
 ) {
     enum class Sender {
         USER, AGENT

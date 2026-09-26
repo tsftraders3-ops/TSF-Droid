@@ -198,7 +198,8 @@ class ConversationRepository @Inject constructor(
         timestamp = timestamp,
         modelBadge = modelBadge,
         contactPickerData = contactPickerData,
-        thinkingText = thinkingText
+        thinkingText = thinkingText,
+        attachmentJson = attachmentJson
     )
 
     private fun ChatMessage.toEntity(sessionId: String) = ConversationEntity(
@@ -209,6 +210,7 @@ class ConversationRepository @Inject constructor(
         modelBadge = modelBadge,
         contactPickerData = contactPickerData,
         thinkingText = thinkingText,
+        attachmentJson = attachmentJson,
         sessionId = sessionId
     )
 

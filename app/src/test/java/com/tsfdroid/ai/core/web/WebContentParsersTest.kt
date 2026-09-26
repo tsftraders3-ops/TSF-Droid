@@ -142,4 +142,58 @@ class WebContentParsersTest {
     fun `text without entities is returned as-is`() {
         assertEquals("plain text", WebContentParsers.decodeEntities("plain text"))
     }
+
+    // --- v1.0.6 multi-backend search parsers ---
+
+    @Test
+    fun `bing result blocks yield title url and snippet`() {
+        val html = """
+            <html><body><ol>
+            <li class="b_algo"><h2><a href="https://goldprice.org">Gold Price Today</a></h2>
+            <div><p>Live gold price is 4,284 USD per ounce</p></div></li>
+            <li class="b_algo"><h2><a class="anything" href="https://kitco.com/charts/gold">Kitco Gold Chart</a></h2>
+            <div><p>Gold charts and quotes</p></div></li>
+            </ol></body></html>
+        """.trimIndent()
+        val results = WebContentParsers.parseBingResults(html)
+        assertEquals(2, results.size)
+        assertEquals("Gold Price Today", results[0].title)
+        assertEquals("https://goldprice.org", results[0].url)
+        assertTrue(results[0].snippet.contains("4,284"))
+        assertEquals("https://kitco.com/charts/gold", results[1].url)
+    }
+
+    @Test
+    fun `bing challenge or empty pages yield no results`() {
+        assertTrue(WebContentParsers.parseBingResults("<html>No b_algo here</html>").isEmpty())
+        assertTrue(WebContentParsers.parseBingResults("").isEmpty())
+    }
+
+    @Test
+    fun `ddg html result anchors are parsed`() {
+        val html = """
+            <html><body>
+            <a rel="nofollow" class="result__a" href="https://example.com/one">First Result</a>
+            <a class="result__snippet" href="#">The first snippet text</a>
+            <a rel="nofollow" class="result__a" href="https://example.com/two">Second Result</a>
+            <a class="result__snippet" href="#">Second snippet</a>
+            </body></html>
+        """.trimIndent()
+        val results = WebContentParsers.parseDuckDuckGoHtml(html)
+        assertEquals(2, results.size)
+        assertEquals("First Result", results[0].title)
+        assertEquals("https://example.com/one", results[0].url)
+        assertEquals("The first snippet text", results[0].snippet)
+    }
+
+    @Test
+    fun `uddg redirect wrappers unwrap to the destination`() {
+        val wrapped = "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Ftarget&amp;rut=abc"
+        assertEquals("https://example.com/target", WebContentParsers.unwrapRedirectUrl(wrapped))
+    }
+
+    @Test
+    fun `plain urls pass through unwrap untouched`() {
+        assertEquals("https://example.com/a?b=1", WebContentParsers.unwrapRedirectUrl("https://example.com/a?b=1"))
+    }
 }
