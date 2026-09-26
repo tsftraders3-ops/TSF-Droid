@@ -171,7 +171,13 @@ fun ChatScreen(
         if (history.isNotEmpty()) {
             val lastIndex = listState.layoutInfo.totalItemsCount
                 .coerceAtLeast(history.size) - 1
-            listState.animateScrollToItem(lastIndex, scrollOffset = 100_000)
+            listState.animateScrollToItem(lastIndex)
+            // v1.0.6 loop-23: one extra clamped push reveals the tall approval
+            // card's buttons when artifact cards precede it — aligning the
+            // item's top left them below the fold, while a huge scrollOffset
+            // crashed the scroll itself (loops 21-22 "dashboard never
+            // appeared" failures). animateScrollBy clamps at the list end.
+            runCatching { listState.animateScrollBy(1_400f) }
         }
     }
 
