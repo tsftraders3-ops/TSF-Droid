@@ -1,5 +1,6 @@
 package com.tsfdroid.ai.e2e
 
+import android.content.Intent
 import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -227,33 +228,63 @@ class AgentCapabilityE2EInstrumentedTest {
         return null
     }
 
-    /** Types into the chat input (placeholder renders when focused) and closes the keyboard. */
+    /**
+     * Types into the chat input (placeholder renders when focused) and closes
+     * the keyboard. Loop-28: this is DETERMINISTIC now — a11y ACTION_SET_TEXT
+     * (atomic, IME-independent) is primary, typed input is only the fallback,
+     * and every attempt ends in a VERIFIED full-text check. Loop-27 cap3
+     * evidence: sendStringSync raced the cold Gboard and the field ended up
+     * holding only the message tail ("the heading."), the lenient
+     * unverifiable path returned true, the garbage query was sent, and the
+     * test starved its whole 600s window. No unverifiable return exists
+     * anymore: if the field cannot be read, the attempt fails and retries.
+     */
     private fun typeChatMessage(message: String): Boolean {
-        repeat(2) { attempt ->
+        repeat(3) { attempt ->
             val target = device.wait(Until.findObject(By.textContains(chatPlaceholder)), 6_000)
                 ?: device.wait(Until.findObject(By.clazz("android.widget.EditText")), 6_000)
                 ?: return@repeat
             runCatching { target.click() }
-            device.waitForIdle(1_500)
-            runCatching {
-                if (attempt == 0) {
+            device.waitForIdle(1_200)
+            var setViaA11y = false
+            runCatching { setViaA11y = target.setText(message) }
+            if (!setViaA11y) {
+                // ACTION_SET_TEXT refused (rare) — type through the IME instead.
+                runCatching {
                     InstrumentationRegistry.getInstrumentation().sendStringSync(message)
-                } else {
-                    device.findObjects(By.clazz("android.widget.EditText"))
-                        .firstOrNull()?.setText(message)
                 }
             }
             device.waitForIdle(1_000)
             dismissKeyboard()
-            // Same lenient verification as typeIntoLabel: a covering IME makes
-            // the field unverifiable — the send + reply flow is the real gate.
-            val appVisible = appNodesVisible()
-            if (!appVisible) return true
-            val typed = device.findObjects(By.clazz("android.widget.EditText"))
-                .any { runCatching { it.text }.getOrNull()?.contains(message.take(24)) == true }
-            if (typed) return true
+            if (fieldHolds(message, viaIme = !setViaA11y)) return true
+            // Mismatch (the loop-27 failure shape): clear whatever partial
+            // text landed so the retry starts from a clean field.
+            runCatching {
+                device.findObjects(By.clazz("android.widget.EditText"))
+                    .firstOrNull()?.clear()
+            }
+            device.waitForIdle(600)
         }
         return false
+    }
+
+    /**
+     * Verified field content check. a11y-set text must match the message
+     * exactly (no IME in the way); IME-typed text may legitimately pick up
+     * keyboard transforms, so head+tail containment is accepted there — but
+     * SOMETHING verifiable must always hold, never a blind pass.
+     */
+    private fun fieldHolds(message: String, viaIme: Boolean): Boolean {
+        val expected = message.trim()
+        val actual = device.findObjects(By.clazz("android.widget.EditText"))
+            .mapNotNull { runCatching { it.text }.getOrNull() }
+            .firstOrNull { it.isNotBlank() } ?: return false
+        val trimmed = actual.trim()
+        return if (viaIme) {
+            trimmed.contains(expected.take(24)) && trimmed.contains(expected.takeLast(12))
+        } else {
+            trimmed == expected
+        }
     }
 
     private fun keyboardUp(): Boolean = runCatching {
@@ -298,19 +329,31 @@ class AgentCapabilityE2EInstrumentedTest {
      */
     private fun tapSendAndVerify(message: String): Boolean {
         repeat(3) { attempt ->
-            var cx = (device.displayWidth * 0.92).toInt()
-            var cy = (device.displayHeight * 0.735).toInt()
             val input = device.findObject(By.clazz("android.widget.EditText"))
-            if (input != null) {
-                val b = runCatching { input.visibleBounds }.getOrNull()
-                if (b != null && !b.isEmpty) {
-                    cx = (b.right + 56).coerceAtMost(device.displayWidth - 24)
-                    cy = b.centerY()
+            if (input == null) {
+                if (attempt == 0) {
+                    device.pressBack()
+                    device.waitForIdle(800)
+                    return@repeat
                 }
-            } else if (attempt == 0) {
-                device.pressBack()
-                device.waitForIdle(800)
-                return@repeat
+                return false
+            }
+            // Loop-28: never send a field we did not verify. The loop-27 cap3
+            // starve began exactly here — a truncated field was "sent" and
+            // the empty-on-send check mistook the garbage delivery for
+            // success. Re-type and re-verify before any click.
+            if (!fieldHolds(message, viaIme = true)) {
+                if (!typeChatMessage(message)) return false
+            }
+            val b = runCatching { input.visibleBounds }.getOrNull()
+            val cx: Int
+            val cy: Int
+            if (b != null && !b.isEmpty) {
+                cx = (b.right + 56).coerceAtMost(device.displayWidth - 24)
+                cy = b.centerY()
+            } else {
+                cx = (device.displayWidth * 0.92).toInt()
+                cy = (device.displayHeight * 0.735).toInt()
             }
             device.click(cx, cy)
             device.waitForIdle(1_500)
@@ -367,8 +410,29 @@ class AgentCapabilityE2EInstrumentedTest {
         var approved = false
         var replied = false
         var stuckCardIterations = 0
+        var offAppScans = 0
         while (System.currentTimeMillis() < approvalDeadline) {
             device.runWatchers()
+            // Loop-28 self-heal: the loop-27 cap3 run ended stranded on the
+            // launcher (the a11y dump proves it) and spun out its window.
+            // When the app disappears from the foreground, bring it back —
+            // the task (and its approval card) survive in the DB; the UI
+            // restores to the same chat session.
+            if (!appNodesVisible()) {
+                if (++offAppScans >= 3) {
+                    runCatching {
+                        val target = InstrumentationRegistry.getInstrumentation().targetContext
+                        target.startActivity(
+                            Intent(target, MainActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        )
+                    }
+                    device.waitForIdle(3_000)
+                    offAppScans = 0
+                }
+            } else {
+                offAppScans = 0
+            }
             val approveButton = runCatching {
                 device.findObject(By.textContains("Approve & Run"))
             }.getOrNull()
@@ -659,10 +723,12 @@ class AgentCapabilityE2EInstrumentedTest {
                 device.waitForIdle(2_500)
             }
         }
+        // Loop-28: a SHORT, realistic ask. The 230-char instruction was the
+        // loop-27 truncation trigger and "Do not write any file" contradicted
+        // the artifact-based assertion below — both gone. The planner may
+        // reply in chat OR route the fetched data through a file; both count.
         val baseline = sendTask(
-            "Fetch the web page https://example.com with your URL fetch capability, " +
-                "then REPLY IN CHAT with the main heading text shown on that page. " +
-                "Do not write any file — just tell me the heading.",
+            "Fetch https://example.com in-app and tell me the page's main heading.",
             "cap3_fetch",
             planningWindowMs = 600_000
         )
