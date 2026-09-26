@@ -287,11 +287,44 @@ class AgentCapabilityE2EInstrumentedTest {
         }
     }
 
-    private fun tapSend(): Boolean {
-        if (clickDesc("Send", 3_000)) return true
-        device.pressBack()
-        device.waitForIdle(1_000)
-        return clickDesc("Send", 8_000)
+    /**
+     * Loop-26: the desc-based Send tap hit a GHOST node (boundsInParent
+     * Rect(0,0), screen bounds mid-list — cap3 loop-25 logcat: the tap
+     * landed at (280,516) while the visible arrow renders bottom-right) and
+     * the message was never sent; the test then waited 600s for a plan that
+     * was never requested. Send now taps the arrow by COORDINATES relative
+     * to the input field and VERIFIES delivery (input cleared or the sent
+     * bubble on screen) with bounded retries.
+     */
+    private fun tapSendAndVerify(message: String): Boolean {
+        repeat(3) { attempt ->
+            var cx = (device.displayWidth * 0.92).toInt()
+            var cy = (device.displayHeight * 0.735).toInt()
+            val input = device.findObject(By.clazz("android.widget.EditText"))
+            if (input != null) {
+                val b = runCatching { input.visibleBounds }.getOrNull()
+                if (b != null && !b.isEmpty) {
+                    cx = (b.right + 56).coerceAtMost(device.displayWidth - 24)
+                    cy = b.centerY()
+                }
+            } else if (attempt == 0) {
+                device.pressBack()
+                device.waitForIdle(800)
+                return@repeat
+            }
+            device.click(cx, cy)
+            device.waitForIdle(1_500)
+            val trimmed = message.trim()
+            val sent = device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))
+                .any {
+                    runCatching { it.applicationPackage }.getOrNull() == appPackage &&
+                        runCatching { it.text.trim() == trimmed }.getOrDefault(false)
+                }
+            val cleared = device.findObjects(By.clazz("android.widget.EditText"))
+                .all { runCatching { it.text }.getOrNull().isNullOrBlank() }
+            if (sent || cleared) return true
+        }
+        return false
     }
 
     /**
@@ -323,7 +356,7 @@ class AgentCapabilityE2EInstrumentedTest {
         val baseline = visibleTexts()
         assertTrue("could not type task $taskTag", typeChatMessage(message))
         shoot("${taskTag}_typed")
-        assertTrue("send button not found for task $taskTag", tapSend())
+        assertTrue("could not send task $taskTag (delivery unverified)", tapSendAndVerify(message))
 
         // Planning can take a while on the free tier — a slow model plus the
         // corrective re-ask is two LLM calls (loop-8: >240s observed), and a
