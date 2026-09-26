@@ -29,7 +29,8 @@
     "v1.0.1 hotfix: OpenCode Zen was wired into core (catalog/factory/interceptor) but absent from the Settings dropdown (hardcoded list) and the model picker (no ModelFetcher branch) - users could not find the free models. Dropdown now derives from ProviderCatalog; picker reuses the provider's probe-suppressed discovery; key card skips the keyless provider; HelpCenter de-OpenDroid-ed.",
     "v1.0.2: reverse-engineered OpenCode (sst/opencode + live endpoint + models.dev). Root cause of the user's 403 FreeTierError: our interceptor stripped Authorization while the real client sends 'Bearer public' + x-opencode-{project,session,request,client} identity headers + 4-segment UA. Implemented ZenIdentity (upstream identifier format), ModelsDevRegistry (auto ctx windows/reasoning/free/tool-call per model, probe-suppressed), optional real Zen key, FREE_TIER_BLOCKED error guidance. Server may still gate anonymous requests from unknown clients - graceful guidance ships regardless.",
     "v1.0.4: reasoning-model hardening (tool_choice:none + bounded corrective ladder), PlanResponseSanitizer (think-strip/balanced-JSON/prose classification), keyless-by-default (fresh installs start on OpenCode Zen with mimo-v2.6-flash-free), media steps stop self-failing, and the emulator E2E grew a full UI journey: onboarding driven by real taps/typing, all 7 tabs, Settings provider verification, two LIVE OpenCode Zen chats with assistant-bubble detection and per-step screenshots pulled as artifacts (am instrument run keeps the app installed for the pull). Verified end-to-end on GitHub Actions: OK (4 tests), screenshots show the 'OPENCODE ZEN / E2E hello' reply bubble in the real app.",
-    "v1.0.5: complex-task emulator E2E green end to end (capability audit answered, HTML file really written, example.com fetched in-app, real PDF with %PDF magic). Fixes shipped: CHAT steps execute, thinking UI + reasoning streaming, in-app web (DDG/RSS/FETCH_URL), CREATE_PDF, capability-truth prompt, planning output 4096, prose-deferral gate, approval-card scroll-to-bottom, rebrand. 13 CI/E2E gauntlet loops."
+    "v1.0.5: complex-task emulator E2E green end to end (capability audit answered, HTML file really written, example.com fetched in-app, real PDF with %PDF magic). Fixes shipped: CHAT steps execute, thinking UI + reasoning streaming, in-app web (DDG/RSS/FETCH_URL), CREATE_PDF, capability-truth prompt, planning output 4096, prose-deferral gate, approval-card scroll-to-bottom, rebrand. 13 CI/E2E gauntlet loops.",
+    "v1.0.6: every failure from the user 10 on-device screenshots traced to code and fixed - WEB_SEARCH browser stub replaced by DDG Lite/HTML/Bing/NewsRSS chain; MALFORMED_RESPONSE (91 tool-call deltas, zero prose) now accumulated and EXECUTED via the chat tool loop (ToolCallBridge); plan death at step boundary (advisory evaluator unparseable -> plan FAILED) made advisory; prose-deferral gate extended to data goals with synthesized executable plans; FileAttachmentCard (Room v11 attachmentJson, FileProvider Open/Share, cache-exports fallback); FETCH_URL desktop-UA + r.jina.ai fallback; E2E cap3 harness determinized (a11y ACTION_SET_TEXT, verified delivery, foreground self-heal, delivery-shaped assertion)."
   ],
   "release": {
     "workflow": ".github/workflows/release.yml",
@@ -50,5 +51,13 @@
     "sha256": "c6d5d3e92be8118a5aaa2ab238dcf9d2c3db304fb09509d48a8fa7d377f2f40b",
     "size_bytes": 73805147
   },
-  "last_release": "v1.0.4"
+  "last_release": {
+    "tag": "v1.0.6",
+    "run": "36259181617",
+    "version_code": 7,
+    "date": "2026-09-26",
+    "e2e_emulator_run": "36257163743",
+    "unit_ci_run": "36257163762",
+    "note": "10-screenshot field-fix release: real 4-backend in-app search, no-browser fetch with reader-proxy fallback, chat tool loop executing model tool calls, evaluator advisory (plans finish), artifact cards in chat, thinking UI. Emulator E2E loop-30 fully green."
+  }
 }
