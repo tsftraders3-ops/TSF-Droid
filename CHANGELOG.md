@@ -4,6 +4,60 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.1.1 — Agentic quality & reliability: the field failures, root-caused
+
+The user's field screenshot showed "tell" → a runaway thinking loop → the
+MALFORMED_RESPONSE error card, plus thin outputs, slop HTML and slow
+research. Every failure was reproduced live against the Zen endpoint,
+root-caused in code, fixed, and pinned by tests and emulator E2E.
+
+### Reliability
+
+- **`tool_choice` follows intent** — every request carried
+  `tool_choice:"none"` while the system prompt demanded "CALL THE TOOL";
+  the model looped its reasoning and answered with zero-prose tool calls
+  (the screenshot's unreadable-response card). Agentic turns now send
+  `tool_choice:"auto"` (live-verified accepted by the free-tier gate);
+  planning/JSON turns keep `"none"`.
+- **Runaway-reasoning fuse** — 16k chars of thinking with zero answer
+  content aborts the attempt and walks the model hierarchy instead of
+  burning 1-2 minutes.
+- **Streaming timeouts** — read timeout 15s → 300s (reasoning models pause
+  longer than 15s between SSE chunks; that cut answers off mid-stream),
+  write timeout 60s.
+- **Chat error card graceful degradation** — a malformed reply with nothing
+  on screen retries through the tool loop, then a plain snag message; the
+  red error card is reserved for partial text and plan failures.
+
+### Output quality
+
+- **Full-size answers** — chat budget 500 → 4096 tokens (the old budget
+  truncated a 1,500-char answer mid-sentence; the "small outputs" complaint).
+- **Research-grounded artifacts** — the content engine now runs two real web
+  searches first and writes the report from them (title, sections, concrete
+  numbers, Sources with URLs) instead of from memory alone; the deep-research
+  PDF grew from a thin stub to a 4-page / 79KB report on the emulator.
+- **Synthesized answers, not echo dumps** — after a web_search round the
+  tool loop detects a raw listing echo and forces a synthesis round ("key
+  facts and dates first, cite source URLs inline").
+- **Rewritten chat system prompt** — adaptive answer length, mandatory
+  search discipline for current events, artifact quality bar (complete valid
+  HTML, structured reports), never promise without calling the tool.
+- **Cleaner source URLs** — Bing `/ck/a` tracking redirects are unwrapped to
+  the real destination (double-encoded hrefs and `u=a1/a2` variants), pinned
+  by a test with the exact URL from the field run.
+- **Tool-loop wrap-up** — a "you have enough research, answer now" turn on
+  the second-to-last round stops endless search loops.
+
+### Verification
+
+- 650/650 unit tests; two new provider tests pin the `tool_choice` contract
+  and the runaway walk.
+- Emulator E2E: two new live tests — the exact screenshot scenario
+  (current-events ask → real data reply, no error card) and the
+  deep-research PDF substantial-artifact bar; agent-written PDFs/HTML are
+  pulled into CI artifacts for quality review.
+
 ## v1.1.0 — Aurora: the prototype design system, implemented
 
 The user designed a complete Material 3 Expressive prototype
