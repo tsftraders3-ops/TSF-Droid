@@ -166,6 +166,13 @@ class OpenCodeZenProvider @Inject constructor(
         throw lastError
     }
 
+    /**
+     * v1.1.1: an attempt whose model burned the reasoning budget without ever
+     * producing answer content. Treated like a model-level rejection so the
+     * hierarchy walk retries on the next model instead of failing the turn.
+     */
+    internal class RunawayReasoningException(message: String) : IOException(message)
+
     override fun streamComplete(request: LLMRequest): Flow<String> = channelFlow {
         streamChain(
             request,
@@ -420,11 +427,17 @@ class OpenCodeZenProvider @Inject constructor(
             "tools" to buildToolsPayload(request)
         )
         if (sendToolChoice) {
-            // The app never executes OpenAI tool calls, so the model must
-            // answer in prose/JSON even with tools present. Live-verified
-            // (2026-09-25): the free-tier gate accepts `tool_choice: "none"`
-            // with the mandatory read+shell harness tools.
-            requestBodyMap["tool_choice"] = "none"
+            // Live-verified (2026-09-27, probe A/B): the free-tier gate accepts
+            // BOTH "none" and "auto". v1.1.1: the choice now follows the
+            // caller's intent — an allowToolCalls request (chat tool loop)
+            // previously sent "none" while its system prompt simultaneously
+            // told the model "CALL THE TOOL". That contradiction made mimo
+            // loop its reasoning ("Let me search for it." forever) and emit
+            // tool_calls with zero prose anyway — the screenshot's
+            // MALFORMED_RESPONSE card and the 1-2 minute stalls. With "auto"
+            // the same question returns two clean web_search calls in one
+            // round and a grounded prose answer on the next.
+            requestBodyMap["tool_choice"] = if (request.allowToolCalls) "auto" else "none"
         }
         // Note: response_format is deliberately NOT sent — the official
         // client never does, and free-tier models reject the field.
@@ -563,6 +576,21 @@ class OpenCodeZenProvider @Inject constructor(
                     if (!thinkingPiece.isNullOrEmpty()) {
                         reasoning.append(thinkingPiece)
                         onReasoning?.invoke(thinkingPiece)
+                        // v1.1.1 runaway-reasoning fuse: the screenshot field
+                        // failure showed mimo repeating "Let me search for
+                        // it." for minutes with zero content (driven by the
+                        // tool_choice contradiction, but it can also happen
+                        // standalone on a weak upstream). Burned server tokens
+                        // AND 1-2 minutes of user patience. When the answer
+                        // content is still empty and the reasoning alone has
+                        // blown past a generous budget, abort THIS attempt:
+                        // no content was emitted, so the caller's model-chain
+                        // walk may still rescue the turn on the next model.
+                        if (content.isEmpty() && reasoning.length > REASONING_RUNAWAY_CHARS) {
+                            throw RunawayReasoningException(
+                                "OpenCode Zen: ${reasoning.length} reasoning chars with no answer content"
+                            )
+                        }
                     }
                     val piece = delta.get("content")?.takeIf { it.isJsonPrimitive }?.asString
                     if (!piece.isNullOrEmpty()) {
@@ -764,6 +792,7 @@ class OpenCodeZenProvider @Inject constructor(
      * entry brick every request.
      */
     private fun isModelLevelRejection(throwable: Throwable): Boolean {
+        if (throwable is RunawayReasoningException) return true
         if (throwable is LLMException) {
             when (throwable.error) {
                 LLMError.ModelUnavailable -> return true
@@ -820,6 +849,13 @@ class OpenCodeZenProvider @Inject constructor(
 
         private const val DISCOVERY_TTL = 60 * 60 * 1000L      // 1 hour
         private const val FAILURE_COOLDOWN = 10 * 60 * 1000L   // 10 minutes
+
+        /**
+         * v1.1.1 runaway-reasoning fuse. Generous: real long thinking on
+         * deep questions is ~1-2k chars for these models; 16k chars of
+         * reasoning with zero answer content is a degenerate loop.
+         */
+        private const val REASONING_RUNAWAY_CHARS = 16_000
 
         /** Minimal harness `read` tool — name is what the free tier gates on. */
         private val HARNESS_READ_TOOL: Map<String, Any> = mapOf(

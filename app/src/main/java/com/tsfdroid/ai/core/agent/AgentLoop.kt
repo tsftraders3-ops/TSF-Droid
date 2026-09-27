@@ -47,6 +47,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import com.tsfdroid.ai.core.llm.Tool
 import com.tsfdroid.ai.core.util.NetworkErrorFormatter
+import com.tsfdroid.ai.core.llm.error.LLMError
 import com.tsfdroid.ai.core.llm.error.LLMException
 import java.util.UUID
 import javax.inject.Inject
@@ -533,13 +534,20 @@ class AgentLoop @Inject constructor(
             val autoModeLabel = settingsRepository.llmConfig.first().approvalSettings().mode.name
 
             val systemPrompt = """
-                You are TSF Droid, a friendly and helpful Android AI assistant.
-                Talk like a real person — warm, casual, and natural. Avoid sounding robotic.
-                Keep your answers short and to the point, but feel free to be friendly.
-                
-                You can control this Android device: open apps, set alarms, toggle WiFi/Bluetooth/flashlight, send messages, make calls, and more. If someone asks you to do something, just do it or let them know you can help.
-                
-                REAL TOOL ACCESS (v1.0.6): your tool calls are EXECUTED by the app and their
+                You are TSF Droid, a capable Android AI assistant with real device and web tools.
+                Talk like a real person — warm, natural, never robotic.
+
+                ANSWER LENGTH — match the question:
+                - Casual small talk ("hi", "tell me a fun fact"): 2-4 sentences.
+                - Explanations, opinions, how-tos: a thorough, well-structured answer
+                  (short paragraphs or bullet points, key facts first). Never stop
+                  mid-sentence; finish the full answer.
+                - Questions about current events, prices, dates, scores, weather: ALWAYS
+                  call web_search first, then answer from the results with sources.
+                  Never answer current-info questions from memory, and never say
+                  "let me search" without actually calling the tool.
+
+                REAL TOOL ACCESS: your tool calls are EXECUTED by the app and their
                 results are returned to you — act like OpenCode/Claude Code, not a chatbot:
                 - write_file {path, content} — write a real file (HTML pages, CSV, anything);
                   put the COMPLETE content in content, never a placeholder.
@@ -550,7 +558,15 @@ class AgentLoop @Inject constructor(
                   curl, and heredoc writes (cat > path << 'EOF' ... EOF).
                 When the user asks you to create or fetch something, CALL THE TOOL and use the
                 result in your answer. Never say you cannot — never only PROMISE to do it.
-                
+
+                QUALITY BAR for produced artifacts (HTML/PDF/files):
+                - HTML: a complete, valid document (doctype, meta viewport, styled with
+                  modern CSS, responsive, readable typography, real content — never lorem
+                  ipsum, never TODO placeholders).
+                - PDF/reports: a real structure — title, intro, sections with headings,
+                  specifics from research, and a sources list with URLs.
+                - Cite sources for researched facts with their URLs.
+
                 Never dump raw error messages or technical details. If something goes wrong, say it simply and suggest what to do next.
 
                 Plan auto-approval mode is currently: $autoModeLabel (OFF = every plan needs manual approval, AUTO = allowlisted plans run automatically, YOLO = plans run automatically except destructive actions, which still need confirmation). You cannot change this mode; the user changes it in Settings or via the chat mode chip.
@@ -610,7 +626,12 @@ class AgentLoop @Inject constructor(
                         systemPrompt = systemPrompt,
                         messages = lastMsgs,
                         temperature = 0.5f,
-                        maxTokens = 500,
+                        // v1.1.1: 500 truncated real answers mid-sentence (the
+                        // field complaint "unnecessarily small outputs"; live
+                        // probe: a 1500-char answer clipped at 500 tokens).
+                        // 4096 gives full answers; the provider still clamps
+                        // to the model's registry context window.
+                        maxTokens = 4096,
                         responseFormat = ResponseFormat.TEXT,
                         // v1.0.6: chat turns may answer with tool calls — when
                         // they do, the streamed reply stays blank and the tool
@@ -652,6 +673,39 @@ class AgentLoop @Inject constructor(
                 throw streamError
             } catch (streamError: LLMException) {
                 _liveThinking.value = null
+                // v1.1.1: a MALFORMED_RESPONSE with nothing on screen yet (no
+                // partial text) must not greet a casual chat turn with the
+                // scary red error card — the screenshot field failure. The
+                // tool loop below already knows how to recover tool-call
+                // answers; give the turn one more shot there, and only fall
+                // back to a plain conversational snag message when even that
+                // cannot produce an answer. Partial text + other errors keep
+                // the actionable error card (Retry/Dismiss).
+                if (streamError.error == LLMError.MalformedResponse && currentReplyText.isBlank()) {
+                    val toolLoopAnswer = runChatToolLoop(provider, systemPrompt, lastMsgs, sessionId)
+                    if (!toolLoopAnswer.isNullOrBlank()) {
+                        val loopMsg = replyMsg.copy(
+                            text = toolLoopAnswer,
+                            thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                        )
+                        conversationRepository.insertMessage(sessionId, loopMsg)
+                        memoryManager.storeMessage(loopMsg, sessionId)
+                        _chatError.value = null
+                        _agentState.value = AgentState.Speaking(toolLoopAnswer)
+                        onSpeakCallback?.invoke(toolLoopAnswer)
+                        return
+                    }
+                    val snagMsg = replyMsg.copy(
+                        text = "I hit a snag completing that one — the model's reply came back " +
+                            "in a shape I couldn't use. Please try again in a moment.",
+                        thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                    )
+                    conversationRepository.insertMessage(sessionId, snagMsg)
+                    memoryManager.storeMessage(snagMsg, sessionId)
+                    _chatError.value = null
+                    _agentState.value = AgentState.Idle
+                    return
+                }
                 val partialId = if (inserted && currentReplyText.isNotBlank()) {
                     incompleteMessageIds.add(replyId)
                     conversationRepository.insertMessage(sessionId, replyMsg.copy(text = currentReplyText))
@@ -894,20 +948,62 @@ class AgentLoop @Inject constructor(
             goal.contains("json") -> "data.json"
             else -> "document.txt"
         }
+
+        // v1.1.1 RESEARCH-GROUNDED content engine: the old engine wrote
+        // artifacts from model memory alone — the user's "deep research PDF"
+        // compared against OpenCode (which researches first) came out thin
+        // and stale. Run real in-app searches FIRST (two query angles), then
+        // hand the model the results as grounding for the final document.
+        val researchQuery = userGoal.take(300)
+        val searchOne = try {
+            withContext(Dispatchers.IO) { com.tsfdroid.ai.actions.InformationActions.searchWeb(researchQuery) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("AgentLoop", "content-engine search 1 failed: ${e.localizedMessage}")
+            null
+        }
+        val searchTwo = try {
+            withContext(Dispatchers.IO) { com.tsfdroid.ai.actions.InformationActions.searchWeb("$researchQuery latest news facts 2026") }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("AgentLoop", "content-engine search 2 failed: ${e.localizedMessage}")
+            null
+        }
+        val researchGrounding = listOfNotNull(searchOne, searchTwo)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString("\n\n") { it.take(4000) }
+
         val contentRequest = LLMRequest(
             systemPrompt = "You are TSF Droid's content engine. Produce the COMPLETE, final file content " +
                 "for the user's request — never a description, never a promise, never a plan. " +
-                (if (wantsPdf) "Plain readable report text (it will be typeset into a PDF). " else "" ) +
+                (if (wantsPdf)
+                    "Plain readable report text (it will be typeset into a PDF): a title line, an intro, " +
+                    "sections with headings, concrete facts and numbers from the research below, a short " +
+                    "conclusion, and a final 'Sources:' list quoting the URLs you used. "
+                else "") +
                 "Very first line must be exactly: FILE: <filename>. Then output the raw file content.",
             messages = listOf(
                 ChatMessage(
                     id = UUID.randomUUID().toString(),
-                    text = "$userGoal\n\nOutput the complete file content now. Remember: first line 'FILE: <filename>', then the raw content.",
+                    text = buildString {
+                        append("$userGoal\n\nOutput the complete file content now. Remember: first line 'FILE: <filename>', then the raw content.")
+                        if (researchGrounding.isNotBlank()) {
+                            append("\n\nRESEARCH RESULTS (ground every factual claim in these; cite the URLs):\n")
+                            append(researchGrounding)
+                        } else {
+                            append("\n\n(No live research was available — write from your best knowledge and say nothing about missing research.)")
+                        }
+                    },
                     sender = ChatMessage.Sender.USER
                 )
             ),
             temperature = 0.3f,
-            maxTokens = PLANNING_MAX_TOKENS,
+            // A full researched report is a large artifact: give it the full
+            // artifact budget (the provider clamps to the model's context).
+            maxTokens = 8192,
             responseFormat = ResponseFormat.TEXT
         )
         val generated = try {

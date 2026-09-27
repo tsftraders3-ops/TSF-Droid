@@ -923,4 +923,98 @@ class AgentCapabilityE2EInstrumentedTest {
         )
         println("TSF-E2E gold reply: ${reply.take(200)}")
     }
+
+    // ---------- v1.1.1: the 2026-09-27 field screenshot failures ----------
+    // The user's screenshot showed "tell" → a runaway reasoning loop ("Let me
+    // search for it." repeated forever) ending in the MALFORMED_RESPONSE
+    // error card on a current-events question. Root cause: every request
+    // carried tool_choice:"none" while the system prompt demanded "CALL THE
+    // TOOL" — the model looped and answered with zero-prose tool calls.
+    // v1.1.1 sends tool_choice:"auto" for agentic turns; these tests pin the
+    // fix on the live endpoint.
+
+    /** The EXACT screenshot scenario: a current-events question in chat. */
+    @Test(timeout = 1_200_000)
+    fun currentEventsAsk_answersWithRealData_noErrorCard() {
+        reachDashboard()
+        val baseline = sendTask(
+            "What are the CBSE class 10 board exam dates for 2026?",
+            "cap8_cbse",
+            planningWindowMs = 600_000
+        )
+        assertNoBrowserFallback(baseline, "cap8_current_events")
+        val reply = waitNewText(
+            baseline, 600_000,
+            predicate = { t ->
+                t.contains("Unreadable response", ignoreCase = true) ||
+                    t.contains("MALFORMED", ignoreCase = true) ||
+                    t.contains("CBSE", ignoreCase = true) ||
+                    Regex("""(january|february|march|april|feb|mar|apr)\s*\d{1,2}""", RegexOption.IGNORE_CASE).containsMatchIn(t) ||
+                    Regex("""\d{1,2}\s+(january|february|march|april|feb|mar|apr)""", RegexOption.IGNORE_CASE).containsMatchIn(t) ||
+                    t.startsWith("Top web results")
+            }
+        )
+        shoot("cap8_current_events_reply")
+        assertNotNull(
+            "the current-events ask produced no data reply within 600s — the " +
+                "thinking-loop/MALFORMED failure from the field screenshot",
+            reply
+        )
+        assertTrue(
+            "the MALFORMED/unreadable-response card appeared on a plain current-events " +
+                "question (the field screenshot regression)",
+            !(reply!!.contains("Unreadable response", true) || reply.contains("MALFORMED", true))
+        )
+        println("TSF-E2E current-events reply: ${reply.take(240)}")
+    }
+
+    /**
+     * The user's deep-research bar: a vague "write a report" ask must produce
+     * a REAL, research-grounded PDF — not the thin memory-only output the
+     * v1.1.0 content engine wrote. The artifact bar is size/structure: a
+     * memory-only stub is tiny and one page; a researched structured report
+     * is multi-page or multi-KB.
+     */
+    @Test(timeout = 1_500_000)
+    fun deepResearchReportPdf_isRealAndSubstantial() {
+        reachDashboard()
+        sendTask(
+            "write a deep research report about solar energy growth in india as a pdf",
+            "cap9_research_pdf",
+            planningWindowMs = 700_000
+        )
+        val deadline = System.currentTimeMillis() + 600_000
+        var pdf: File? = null
+        while (System.currentTimeMillis() < deadline && pdf == null) {
+            pdf = newWorkspaceFiles("pdf").firstOrNull { f ->
+                runCatching {
+                    f.inputStream().use { stream ->
+                        val header = ByteArray(5)
+                        stream.read(header)
+                        String(header) == "%PDF-"
+                    }
+                }.getOrDefault(false)
+            }
+            if (pdf == null) Thread.sleep(4_000)
+        }
+        shoot("cap9_research_pdf_done")
+        assertNotNull(
+            "the deep-research PDF never appeared in the agent workspace within 600s",
+            pdf
+        )
+        val bytes = pdf!!.readBytes()
+        val pageMarkers = Regex("/Type\\s*/Page[^s]").findAll(bytes.toString(LatinIsSafe)).count()
+        println(
+            "TSF-E2E research pdf: ${pdf.absolutePath} bytes=${bytes.size} " +
+                "pageMarkers=$pageMarkers"
+        )
+        assertTrue(
+            "the research PDF is too thin to be a researched report (${bytes.size} bytes, " +
+                "$pageMarkers pages) — the content engine likely wrote from memory alone",
+            bytes.size > 8_000 || pageMarkers >= 2
+        )
+    }
+
+    /** Latin-1 is byte-safe for scanning PDF markers without a charset lib. */
+    private val LatinIsSafe = Charsets.ISO_8859_1
 }

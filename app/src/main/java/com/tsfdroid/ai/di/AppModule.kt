@@ -77,8 +77,14 @@ object AppModule {
     fun provideOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
+            // v1.1.1: 15s read timeout was fatal for reasoning models — mimo
+            // et al. routinely pause longer than 15s between SSE chunks while
+            // thinking, so the stream died mid-answer (the "cut off" outputs)
+            // or after the thinking phase with zero content (the screenshot's
+            // MALFORMED_RESPONSE card). Read timeout is per-read, not per-call:
+            // short API GETs are unaffected, long streams survive.
+            .readTimeout(300, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
             .build()
     }
 

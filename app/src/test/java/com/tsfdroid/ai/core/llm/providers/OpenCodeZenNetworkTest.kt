@@ -358,9 +358,49 @@ class OpenCodeZenNetworkTest {
         val posted = server.takeRequest()
         val json = com.google.gson.JsonParser.parseString(posted.body!!.utf8()).asJsonObject
         // Live-verified (2026-09-25) that the gate accepts tool_choice:"none"
-        // alongside the harness tools; it prevents reasoning models from
-        // answering the harness contract with tool calls the app cannot run.
+        // alongside the harness tools; planning/JSON requests keep it so
+        // models answer in prose instead of the harness contract.
         assertEquals("none", json.get("tool_choice")?.asString)
+    }
+
+    @Test
+    fun `an allowToolCalls request carries tool_choice auto so the model can call tools`() = runBlocking {
+        // v1.1.1 regression: every request used to carry tool_choice:"none"
+        // while the chat system prompt told the model "CALL THE TOOL". That
+        // contradiction made mimo loop its reasoning and answer with
+        // zero-prose tool calls (the screenshot MALFORMED_RESPONSE card).
+        // Live-verified (2026-09-27) that the gate accepts "auto".
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(successBody())
+
+        provider.complete(newRequest().copy(allowToolCalls = true))
+
+        server.takeRequest() // registry
+        server.takeRequest() // /models
+        val posted = server.takeRequest()
+        val json = com.google.gson.JsonParser.parseString(posted.body!!.utf8()).asJsonObject
+        assertEquals("auto", json.get("tool_choice")?.asString)
+    }
+
+    @Test
+    fun `runaway reasoning with no content walks the model hierarchy`() = runBlocking {
+        // v1.1.1 fuse: a degenerate reasoning loop (16k+ chars, zero answer
+        // content) aborts the attempt and the chain tries the next model.
+        server.enqueue(registryDown())
+        server.enqueue(modelsDown())
+        server.enqueue(runawayReasoningBody())
+        server.enqueue(successBody())
+
+        val response = provider.complete(newRequest())
+
+        server.takeRequest() // registry
+        server.takeRequest() // /models
+        server.takeRequest() // the runaway attempt (pinned model)
+        assertEquals("ok", response.content)
+        // The next link in the chain answered: the request that succeeded
+        // carries a different model id than the runaway one.
+        assertEquals("mimo-v2.6-flash-free", response.model)
     }
 
     @Test
@@ -444,6 +484,19 @@ class OpenCodeZenNetworkTest {
             """.trimIndent()
         )
         .build()
+
+    /**
+     * A degenerate stream: reasoning deltas far past the runaway fuse with
+     * zero answer content (the screenshot field failure). The repeating
+     * sentence mimics the live "Let me search for it." loop.
+     */
+    private fun runawayReasoningBody(): MockResponse {
+        val loop = "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning\":\"The user wants info. Let me search for it.\"}}]}\n\n"
+        return MockResponse.Builder()
+            .code(200)
+            .body(loop.repeat(700) + "data: [DONE]\n\n")
+            .build()
+    }
 
     private fun newRequest(model: String? = "x-preview-f-free") = LLMRequest(
         systemPrompt = "you are a test",
