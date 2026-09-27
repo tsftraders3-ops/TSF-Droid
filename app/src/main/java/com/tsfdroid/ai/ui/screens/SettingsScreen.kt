@@ -1759,44 +1759,41 @@ fun SettingsScreen(
                         var showYoloWarning by remember { mutableStateOf(false) }
                         val autoMode = config.resolvedAutoMode()
 
-                        Text(
-                            text = "Auto Mode",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = "Auto runs plans whose every step you've allowed. YOLO runs everything without asking.",
-                            fontSize = 12.sp,
-                            color = TextSecondary
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AutoMode.entries.forEach { mode ->
-                                val selected = autoMode == mode
-                                val accent = if (mode == AutoMode.YOLO) AccentRed else AccentCyan
-                                OutlinedButton(
-                                    onClick = {
-                                        if (mode == AutoMode.YOLO && !selected) showYoloWarning = true
-                                        else viewModel.setAutoMode(mode)
-                                    },
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        contentColor = if (selected) accent else TextSecondary
-                                    ),
-                                    border = BorderStroke(1.dp, if (selected) accent else BorderColor),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(
-                                        text = when (mode) {
-                                            AutoMode.OFF -> "Off"
-                                            AutoMode.AUTO -> "Auto"
-                                            AutoMode.YOLO -> "YOLO"
-                                        },
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                }
-                            }
+                        // Aurora modecard — the ONE bold block on Settings:
+                        // primary-container card + lime-on segmented control
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    AppTheme.colors.primaryContainer,
+                                    RoundedCornerShape(20.dp)
+                                )
+                                .padding(15.dp)
+                        ) {
+                            Text(
+                                text = "Auto Mode",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AppTheme.colors.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            com.tsfdroid.ai.ui.components.AuroraSegmented(
+                                options = listOf("OFF", "AUTO", "YOLO"),
+                                selectedIndex = AutoMode.entries.indexOf(autoMode).coerceAtLeast(0),
+                                onSelect = { idx ->
+                                    val mode = AutoMode.entries[idx]
+                                    if (mode == AutoMode.YOLO && mode != autoMode) showYoloWarning = true
+                                    else viewModel.setAutoMode(mode)
+                                },
+                                limeOn = true
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Auto runs plans whose every step you've allowed. YOLO runs everything without asking.",
+                                fontSize = 12.5.sp,
+                                lineHeight = 18.sp,
+                                color = AppTheme.colors.onPrimaryContainer.copy(alpha = 0.85f)
+                            )
                         }
 
                         if (showYoloWarning) {
