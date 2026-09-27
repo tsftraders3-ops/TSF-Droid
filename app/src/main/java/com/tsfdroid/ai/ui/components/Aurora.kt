@@ -27,7 +27,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.addCircle
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -65,9 +64,19 @@ fun auroraDroidIcon(): ImageVector = ImageVector.Builder(
         curveToRelative(0f, -3.8f, -3.1f, -6.8f, -7f, -6.8f)
         close()
     }
-    // eyes (filled dots)
-    addCircle(centerX = 9f, centerY = 11.5f, radius = 1.15f, fill = SolidColor(Color.Black))
-    addCircle(centerX = 15f, centerY = 11.5f, radius = 1.15f, fill = SolidColor(Color.Black))
+    // eyes (filled dots) — circles drawn as two SVG arcs each (no addCircle in this compose version)
+    path(fill = SolidColor(Color.Black)) {
+        // left eye: circle center (9, 11.5) r 1.15
+        moveTo(10.15f, 11.5f)
+        arcToRelative(1.15f, 1.15f, 0f, true, true, -2.3f, 0f)
+        arcToRelative(1.15f, 1.15f, 0f, true, true, 2.3f, 0f)
+        close()
+        // right eye: circle center (15, 11.5) r 1.15
+        moveTo(16.15f, 11.5f)
+        arcToRelative(1.15f, 1.15f, 0f, true, true, -2.3f, 0f)
+        arcToRelative(1.15f, 1.15f, 0f, true, true, 2.3f, 0f)
+        close()
+    }
     // smile: M9.5 15.5c.7.7 1.6 1 2.5 1s1.8-.3 2.5-1
     strokePath {
         moveTo(9.5f, 15.5f)
