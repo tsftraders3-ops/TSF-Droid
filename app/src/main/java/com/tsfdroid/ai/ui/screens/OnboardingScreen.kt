@@ -147,8 +147,8 @@ private fun OnboardingHero(modifier: Modifier = Modifier) {
         val tall = maxHeight >= 700.dp
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             AuroraBlob(
-                size = (if (tall) 168 else 96).dp,
-                iconSize = (if (tall) 84 else 48).dp
+                size = (if (tall) 168 else 76).dp,
+                iconSize = (if (tall) 84 else 38).dp
             )
         }
     }
@@ -223,7 +223,7 @@ private fun IntroductionPanel(
             ) {
                 OnboardingHero()
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(if (tallEnough) 12.dp else 6.dp))
 
                 Text(
                     text = "TSF Droid",
@@ -237,7 +237,12 @@ private fun IntroductionPanel(
 
                 Text(
                     text = "Your phone.\nYour rules.\nYour AI.",
-                    style = AuroraType.onboardingTitle,
+                    style = if (tallEnough) AuroraType.onboardingTitle
+                    else AuroraType.onboardingTitle.copy(
+                        fontSize = 30.sp,
+                        lineHeight = 33.sp,
+                        letterSpacing = (-0.8).sp
+                    ),
                     color = ob.ink
                 )
 
