@@ -1,6 +1,6 @@
 {
   "project": "TSF Droid",
-  "current_phase": "PHASE_10_UI_PROTOTYPE_IMPLEMENTATION",
+  "current_phase": "COMPLETE",
   "completed_steps": [
     "PHASE_1_REPO_AND_CI",
     "PHASE_2.1_SANITIZE_REBRAND",
@@ -19,9 +19,10 @@
     "PHASE_7_V1.0.3_KEYLESS_BODY_CONTRACT_AND_EMULATOR_E2E",
     "PHASE_8_V1.0.4_REASONING_MODEL_HARDENING_AND_FULL_UI_JOURNEY_E2E",
     "PHASE_9_V1.0.5_REAL_AGENT_CAPABILITY_AND_THINKING_UI",
-    "PHASE_9.1_V1.0.6_FIELD_FAILURES_CLOSED"
+    "PHASE_9.1_V1.0.6_FIELD_FAILURES_CLOSED",
+    "PHASE_10_AURORA_UI_PROTOTYPE_IMPLEMENTED_V1.1.0"
   ],
-  "active_step": "PHASE_10.1_AURORA_TOKEN_FOUNDATION",
+  "active_step": "DONE",
   "last_ci_run_id": 36137785969,
   "last_ci_status": "SUCCESS",
   "notes": [
@@ -32,7 +33,8 @@
     "v1.0.4: reasoning-model hardening (tool_choice:none + bounded corrective ladder), PlanResponseSanitizer (think-strip/balanced-JSON/prose classification), keyless-by-default (fresh installs start on OpenCode Zen with mimo-v2.6-flash-free), media steps stop self-failing, and the emulator E2E grew a full UI journey: onboarding driven by real taps/typing, all 7 tabs, Settings provider verification, two LIVE OpenCode Zen chats with assistant-bubble detection and per-step screenshots pulled as artifacts (am instrument run keeps the app installed for the pull). Verified end-to-end on GitHub Actions: OK (4 tests), screenshots show the 'OPENCODE ZEN / E2E hello' reply bubble in the real app.",
     "v1.0.5: complex-task emulator E2E green end to end (capability audit answered, HTML file really written, example.com fetched in-app, real PDF with %PDF magic). Fixes shipped: CHAT steps execute, thinking UI + reasoning streaming, in-app web (DDG/RSS/FETCH_URL), CREATE_PDF, capability-truth prompt, planning output 4096, prose-deferral gate, approval-card scroll-to-bottom, rebrand. 13 CI/E2E gauntlet loops.",
     "v1.0.6: every failure from the user 10 on-device screenshots traced to code and fixed - WEB_SEARCH browser stub replaced by DDG Lite/HTML/Bing/NewsRSS chain; MALFORMED_RESPONSE (91 tool-call deltas, zero prose) now accumulated and EXECUTED via the chat tool loop (ToolCallBridge); plan death at step boundary (advisory evaluator unparseable -> plan FAILED) made advisory; prose-deferral gate extended to data goals with synthesized executable plans; FileAttachmentCard (Room v11 attachmentJson, FileProvider Open/Share, cache-exports fallback); FETCH_URL desktop-UA + r.jina.ai fallback; E2E cap3 harness determinized (a11y ACTION_SET_TEXT, verified delivery, foreground self-heal, delivery-shaped assertion).",
-    "PHASE 10: user supplied prototype-a-aurora.html (Material 3 Expressive design). GAUNTLET BAR: the prototype IS the bar - named, fetchable, comparable. Builder=Compose implementation; critic=fresh-context blind A/B on emulator screenshots vs prototype renders at 412x915. Exit when the app screenshots win or match on every screen; no fixed round count. Sub-bars: (1) token fidelity: exact Aurora hex values in both themes; (2) per-screen structural match: nav=Chat/Plan/Memory/Macros/More sheet, asymmetric bubbles 30/30/30|6, hero-corner 24/24/24/8 active containers, stepped-dot plan track, wavy macro stroke, tier spines, seg controls; (3) type: Bricolage Grotesque display + Inter UI bundled as variable fonts; (4) motion: emphasized entrances 240ms + spring answers; (5) emulator E2E screenshots of all 10 screens attached as artifacts every loop."
+    "PHASE 10: user supplied prototype-a-aurora.html (Material 3 Expressive design). GAUNTLET BAR: the prototype IS the bar - named, fetchable, comparable. Builder=Compose implementation; critic=fresh-context blind A/B on emulator screenshots vs prototype renders at 412x915. Exit when the app screenshots win or match on every screen; no fixed round count. Sub-bars: (1) token fidelity: exact Aurora hex values in both themes; (2) per-screen structural match: nav=Chat/Plan/Memory/Macros/More sheet, asymmetric bubbles 30/30/30|6, hero-corner 24/24/24/8 active containers, stepped-dot plan track, wavy macro stroke, tier spines, seg controls; (3) type: Bricolage Grotesque display + Inter UI bundled as variable fonts; (4) motion: emphasized entrances 240ms + spring answers; (5) emulator E2E screenshots of all 10 screens attached as artifacts every loop.",
+    "v1.1.0 AURORA: the user's prototype-a-aurora.html (M3 Expressive, 10 screens) implemented across the app. Bar = the prototype itself; fresh-context critic verified 29/29 color tokens exact and drove 2 fix rounds (mirrored hero-corner CSS order, dead plan banner wired, static font instances after 2 variation-API dead ends, onboarding signature pieces, nav icons, sheet handle). Emulator E2E green twice consecutively; tab swaps asserted via unique markers (Crossfade fix after 06_tab_plan.png artifact). Light default per prototype. Screenshots: download/tsf-droid-aurora-e2e-screens (43 files) + prototype renders in download/aurora-prototype (14 files)."
   ],
   "release": {
     "workflow": ".github/workflows/release.yml",
@@ -54,12 +56,11 @@
     "size_bytes": 73805147
   },
   "last_release": {
-    "tag": "v1.0.6",
-    "run": "36259181617",
-    "version_code": 7,
-    "date": "2026-09-26",
-    "e2e_emulator_run": "36257163743",
-    "unit_ci_run": "36257163762",
-    "note": "10-screenshot field-fix release: real 4-backend in-app search, no-browser fetch with reader-proxy fallback, chat tool loop executing model tool calls, evaluator advisory (plans finish), artifact cards in chat, thinking UI. Emulator E2E loop-30 fully green."
+    "tag": "v1.1.0",
+    "run": "pending",
+    "version_code": 8,
+    "date": "2026-09-27",
+    "e2e_emulator_run": "36308025571",
+    "note": "Aurora design system release"
   }
 }
