@@ -125,7 +125,7 @@ val LightPalette = OpenDroidColors(
     onboardingBackground = Color(0xFF101033),
     onboardingInk = Color(0xFFF0EEFF),
     onboardingSub = Color(0xFFC9C5EE),
-    blobGradient = listOf(Color(0xFF6E63FF), Color(0xFF3F3FD1), Color(0xFF00A896)),
+    blobGradient = listOf(Color(0xFF6E63FF), Color(0xFF3F3FD1), Color(0xFF3F3FD1), Color(0xFF00A896)),
 
     // bridges
     accentNeonGreen = Color(0xFF00695B),  // teal: success marks readable as text
@@ -170,7 +170,7 @@ val DarkPalette = OpenDroidColors(
     onboardingBackground = Color(0xFF101033),
     onboardingInk = Color(0xFFF0EEFF),
     onboardingSub = Color(0xFFC9C5EE),
-    blobGradient = listOf(Color(0xFF6E63FF), Color(0xFF3F3FD1), Color(0xFF00A896)),
+    blobGradient = listOf(Color(0xFF6E63FF), Color(0xFF3F3FD1), Color(0xFF3F3FD1), Color(0xFF00A896)),
 
     // bridges
     accentNeonGreen = Color(0xFF5EDCC1),

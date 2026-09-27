@@ -107,8 +107,8 @@ object AuroraOnboardingColors {
 }
 
 @Composable
-private fun OnboardingHero(modifier: Modifier = Modifier, blobSize: Int = 130, iconSize: Int = 64) {
-    Column(modifier.fillMaxWidth().padding(top = 36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+private fun OnboardingHero(modifier: Modifier = Modifier, blobSize: Int = 96, iconSize: Int = 48) {
+    Column(modifier.fillMaxWidth().padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         AuroraBlob(size = blobSize.dp, iconSize = iconSize.dp)
     }
 }
@@ -130,50 +130,50 @@ private fun IntroductionPanel(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 26.dp, vertical = 24.dp),
+            .padding(horizontal = 22.dp, vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         OnboardingHero()
 
-        Spacer(modifier = Modifier.height(22.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Text(
             text = "TSF Droid",
-            fontSize = 15.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.ExtraBold,
             letterSpacing = 0.4.sp,
             color = ob.lime
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         Text(
             text = "Your phone.\nYour rules.\nYour AI.",
-            style = AuroraType.onboardingTitle,
+            style = AuroraType.onboardingTitle.copy(fontSize = 34.sp, lineHeight = 36.sp),
             color = ob.ink
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         Text(
-            text = "An on-device agent that plans multi-step goals, executes them on your phone, verifies the result, and re-plans when something fails. Introduce yourself so I can serve you personally.",
-            fontSize = 15.sp,
-            lineHeight = 24.sp,
+            text = "An on-device agent that plans, executes and verifies. Introduce yourself so I can serve you personally.",
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
             color = ob.sub
         )
 
         if (profileMustBeReentered) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = "Your saved details could not be unlocked on this device, so they were " +
                         "not kept. Nothing was stored unencrypted - please enter them again.",
                 color = Color(0xFFFFB4AB),
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold
             )
         }
 
-        Spacer(modifier = Modifier.height(26.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedTextField(
             value = name,
@@ -275,7 +275,7 @@ private fun IntroductionPanel(
             )
         }
 
-        Spacer(modifier = Modifier.height(30.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         AuroraHeroButton(
             text = "Let's Go",
@@ -285,7 +285,7 @@ private fun IntroductionPanel(
             contentColor = Color(0xFF12124E)
         )
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
