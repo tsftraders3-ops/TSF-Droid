@@ -66,12 +66,9 @@ fun MemoryScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "PERSONAL MEMORY",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp
+                        text = "Memory",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary
                     )
                 },
                 actions = {

@@ -47,12 +47,9 @@ fun RoutinesScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "HABITS & ROUTINES",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = AppTheme.colors.textPrimary,
-                        fontSize = 18.sp,
-                        letterSpacing = 1.5.sp
+                        text = "Routines",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = AppTheme.colors.textPrimary
                     )
                 },
                 navigationIcon = {
@@ -288,65 +285,60 @@ fun SuggestedRoutineCard(
     onDismiss: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(true) }
+    val c = AppTheme.colors
 
-    Card(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, AppTheme.colors.borderColor, RoundedCornerShape(12.dp)),
-        colors = CardDefaults.cardColors(containerColor = AppTheme.colors.cardBackground)
+            .background(c.surface, RoundedCornerShape(20.dp))
+            .padding(16.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Surface(
-                    color = AppTheme.colors.accentCyan.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = "💡 ROUTINE DETECTED",
-                        color = AppTheme.colors.accentCyan,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                Surface(
-                    color = AppTheme.colors.surface,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = "${(routine.confidence * 100).toInt()}% match",
-                        color = AppTheme.colors.textSecondary,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = routine.suggestionMessage.ifBlank { "I noticed you usually do these tasks. Would you like me to automate them?" },
-                color = AppTheme.colors.textPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                lineHeight = 22.sp
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            com.tsfdroid.ai.ui.components.AuroraChip(
+                text = "Routine detected",
+                style = com.tsfdroid.ai.ui.components.AuroraChipStyle.Tonal
             )
+            Spacer(modifier = Modifier.weight(1f))
+        }
 
-            Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-            Text(
-                text = "⚡ ${routine.triggerLabel}",
-                color = AppTheme.colors.accentCyan,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace
-            )
+        // Aurora hero figure: the routine's confidence is the one loud number
+        Text(
+            text = "${(routine.confidence * 100).toInt()}",
+            style = com.tsfdroid.ai.ui.theme.AuroraType.heroFigure,
+            color = c.onTertiaryContainer
+        )
+        Text(
+            text = "% confidence — seen as a repeating habit",
+            fontSize = 12.sp,
+            color = c.textSecondary,
+            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+        )
+        com.tsfdroid.ai.ui.components.AuroraConfBar(fraction = routine.confidence)
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Text(
+            text = routine.suggestionMessage.ifBlank { "I noticed you usually do these tasks. Would you like me to automate them?" },
+            color = AppTheme.colors.textPrimary,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            lineHeight = 22.sp
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = routine.triggerLabel,
+            color = AppTheme.colors.tertiary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = FontFamily.Monospace
+        )
 
             if (routine.detectedActions.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -355,16 +347,17 @@ fun SuggestedRoutineCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     routine.detectedActions.forEach { action ->
-                        Surface(
-                            color = AppTheme.colors.surface,
-                            shape = RoundedCornerShape(4.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, AppTheme.colors.borderColor)
+                        Box(
+                            modifier = Modifier
+                                .background(AppTheme.colors.surfaceHigh, RoundedCornerShape(999.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
                                 text = action,
                                 color = AppTheme.colors.textSecondary,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.Monospace
                             )
                         }
                     }
@@ -430,41 +423,41 @@ fun SuggestedRoutineCard(
                 Button(
                     onClick = onApprove,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = AppTheme.colors.textPrimary,
-                        contentColor = AppTheme.colors.background
+                        containerColor = AppTheme.colors.tertiary,
+                        contentColor = AppTheme.colors.onTertiary
                     ),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(999.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
-                        tint = AppTheme.colors.background,
+                        tint = AppTheme.colors.onTertiary,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Approve & Automate",
-                        color = AppTheme.colors.background,
-                        fontWeight = FontWeight.Bold,
+                        color = AppTheme.colors.onTertiary,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp
                     )
                 }
 
                 OutlinedButton(
                     onClick = onDismiss,
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, AppTheme.colors.borderColor)
+                    shape = RoundedCornerShape(999.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, AppTheme.colors.outlineVariant)
                 ) {
                     Text(
                         text = "Dismiss",
-                        color = AppTheme.colors.textSecondary,
-                        fontSize = 13.sp
+                        color = AppTheme.colors.textPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
         }
-    }
 }
 
 @Composable

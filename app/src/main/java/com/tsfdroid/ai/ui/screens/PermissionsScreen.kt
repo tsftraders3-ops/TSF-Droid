@@ -105,12 +105,9 @@ fun PermissionsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "PERMISSIONS",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp,
+                        text = "Permissions",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary
                     )
                 },
                 navigationIcon = {

@@ -36,12 +36,9 @@ fun AboutScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "ABOUT",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp
+                        text = "About",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary
                     )
                 },
                 navigationIcon = {

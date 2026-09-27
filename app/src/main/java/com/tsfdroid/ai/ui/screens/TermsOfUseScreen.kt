@@ -28,12 +28,9 @@ fun TermsOfUseScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "TERMS OF USE",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp
+                        text = "Terms of use",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary
                     )
                 },
                 navigationIcon = {

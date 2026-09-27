@@ -28,12 +28,9 @@ fun PrivacyPolicyScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "PRIVACY POLICY",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp
+                        text = "Privacy policy",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary
                     )
                 },
                 navigationIcon = {

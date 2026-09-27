@@ -59,12 +59,9 @@ fun MacrosScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "MACRO ENGINE",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp
+                        text = "Macros",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary
                     )
                 },
                 actions = {
@@ -92,45 +89,44 @@ fun MacrosScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            // Habit & Routine Detection Entry Banner
+            // Habit & Routine Detection Entry Banner — Aurora routine-jump card
             item {
-                Card(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, AccentCyan.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                        .clickable { onNavigateToRoutines() },
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
+                        .background(
+                            AppTheme.colors.primaryContainer,
+                            RoundedCornerShape(20.dp)
+                        )
+                        .clickable { onNavigateToRoutines() }
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("⚡", fontSize = 24.sp)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "HABIT & ROUTINE DETECTION",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = AccentCyan
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Detect repeated daily habits (Gmail, Calendar, Slack) & automate morning routines.",
-                                fontSize = 11.sp,
-                                color = TextSecondary,
-                                lineHeight = 16.sp
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "View Routines",
-                            tint = AccentCyan
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = AppTheme.colors.onPrimaryContainer
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Habits & routines detected",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AppTheme.colors.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Review the habits I noticed and turn them into macros.",
+                            fontSize = 11.5.sp,
+                            color = AppTheme.colors.onPrimaryContainer.copy(alpha = 0.8f)
                         )
                     }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "View Routines",
+                        tint = AppTheme.colors.onPrimaryContainer
+                    )
                 }
             }
 

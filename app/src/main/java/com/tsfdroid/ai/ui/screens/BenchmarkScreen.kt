@@ -44,12 +44,9 @@ fun BenchmarkScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "BRAIN BENCHMARK",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 18.sp,
-                        letterSpacing = 2.sp
+                        text = "Benchmark",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary
                     )
                 },
                 navigationIcon = {

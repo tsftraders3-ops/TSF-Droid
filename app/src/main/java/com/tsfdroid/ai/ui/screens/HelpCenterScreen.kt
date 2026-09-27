@@ -28,12 +28,9 @@ fun HelpCenterScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "HELP CENTER",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp
+                        text = "Help",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary
                     )
                 },
                 navigationIcon = {
