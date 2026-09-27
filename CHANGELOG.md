@@ -4,6 +4,68 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.1.0 — Aurora: the prototype design system, implemented
+
+The user designed a complete Material 3 Expressive prototype
+(prototype-a-aurora.html, "Aurora") and this release implements it across the
+whole app, gauntlet-looped against the prototype itself: every token
+digit-verified by a fresh-context design critic, every screen captured on the
+GitHub Actions emulator, tab content swaps now asserted by the E2E suite.
+
+### Design system (the prototype is the bar)
+
+- **Color** — exact Aurora palette in both themes: violet primary #3F3FD1
+  (container #E4E1FF / on #0D0D63), teal tertiary #00695B (container #9CF0DC),
+  lime #C9F16F as the fill-only surprise reserved for brand + running states,
+  amber #FFDDB8 partial-grant family, filled error #B3261E critical gates, and
+  a 5-step violet-cast tonal surface ladder (#FBF9FF → #DFDBF0 light,
+  #11121D → #2B2C40 dark). App now defaults to LIGHT, per the prototype's
+  `data-theme="light"`.
+- **Type** — Bricolage Grotesque display + Inter UI, bundled as static
+  weights baked from the variable fonts (fonttools instancer: Bricolage at
+  opsz=48, Inter at opsz=14). Display styles carry the prototype's tracking
+  (-0.2 to -1.2); 149 monospace usages kept only where the prototype wants
+  mono (action IDs).
+- **Shape** — radius hierarchy 30 hero / 20 card / 16 tile / 12 row / 999 pill;
+  asymmetric chat bubbles 30/30/30|6 with the flat corner pointing at the
+  speaker; hero-corner 24/24/24/8 (8px at bottom-left, CSS 4-value order) on
+  the ONE active container per screen; 28px sheet crown.
+- **Motion** — 240ms emphasized screen entrances, spring answers, 9s
+  ease-in-out blob morph.
+- **The blob** — the gradient agent mark (CSS border-radius geometry: four
+  elliptical corner arcs interpolating the prototype's three morph keyframes)
+  lives on the onboarding hero and the chat greeting.
+
+### Screens
+
+- **Bottom nav** rebuilt to the prototype: Chat / Plan / Memory / Macros +
+  More sheet (Routines, Social, Notifications, Permissions, Logs, Settings);
+  56×31 primary-container pill indicator, surface-low bar, 1.5px top hairline.
+- **Onboarding**: #101033 night sky with radial washes, morphing blob hero,
+  lime wordmark, Bricolage "Your phone. Your rules. Your AI.", glass chips +
+  lime surprise chip, white hero CTA with ghost secondary — adaptive hero so
+  both form fields stay above the fold on short screens, CTA pinned bottom
+  (prototype flex-end anatomy).
+- **Chat**: greeting blob + "Good morning", asymmetric bubbles (agent surface-
+  high / user primary), 30px-radius input capsule, primary send button.
+- **Plan**: five-state banner (proposed = primary-container, running = LIME,
+  done = teal container, rejected = surface-highest), stepped-dot progress
+  track, hero-corner running steps with rail + mono action IDs + status chips.
+- **Routines**: hero confidence figure + teal confidence bar, tonal cards.
+- **Settings**: Auto Mode modecard (primary-container + lime-on segmented
+  control). **Memory**: sentence-case tabs. All top bars sentence-case
+  Bricolage. 29 hairline cards converted to borderless tonal containers.
+
+### Verified end to end
+
+- Two consecutive full-green emulator E2E runs; tab content swaps asserted
+  with unique per-screen markers (a Crossfade fix after artifact
+  06_tab_plan.png showed the nav pill moving while Chat content stayed).
+- Fresh-context design critic: all 29 Aurora color tokens verified exact in
+  both themes; 6 critical deviations found in round 1 and all fixed
+  (mirrored hero corner, dead plan-banner, missing onboarding signature,
+  bubble shapes, unwired gate anatomy, display weights not rendering).
+
 ## v1.0.6 — The agent finishes what it starts (10 field screenshots fixed)
 
 v1.0.5 still failed on-device (10 error screenshots from a real E2E run):
