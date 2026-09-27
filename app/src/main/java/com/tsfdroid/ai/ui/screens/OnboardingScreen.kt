@@ -208,33 +208,38 @@ private fun IntroductionPanel(
     val ob = AuroraOnboardingColors
     BoxWithConstraints(modifier.fillMaxSize()) {
         val tallEnough = maxHeight >= 700.dp
+        // Prototype #s-onboarding: content flows, CTA anchors at the bottom.
         Column(
-        modifier = modifier
-            .fillMaxSize()
-            .auroraNightWashes()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp, vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        OnboardingHero()
+            modifier = Modifier
+                .fillMaxSize()
+                .auroraNightWashes()
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 22.dp, vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                OnboardingHero()
 
-        Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-        Text(
-            text = "TSF Droid",
-            fontSize = 14.sp,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = 0.4.sp,
-            color = ob.lime
-        )
+                Text(
+                    text = "TSF Droid",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.4.sp,
+                    color = ob.lime
+                )
 
-        Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-        Text(
-            text = "Your phone.\nYour rules.\nYour AI.",
-            style = AuroraType.onboardingTitle,
-            color = ob.ink
-        )
+                Text(
+                    text = "Your phone.\nYour rules.\nYour AI.",
+                    style = AuroraType.onboardingTitle,
+                    color = ob.ink
+                )
 
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -364,41 +369,45 @@ private fun IntroductionPanel(
                 fontWeight = FontWeight.SemiBold
             )
         }
+            } // ← scrollable hero content
 
-        Spacer(modifier = Modifier.height(14.dp))
+            // Pinned CTA block (prototype justify-content:flex-end): the hero
+            // button is always on screen, whatever the content above does.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp, vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                AuroraHeroButton(
+                    text = "Let's Go",
+                    onClick = onContinue,
+                    modifier = Modifier.fillMaxWidth(),
+                    container = Color.White,
+                    contentColor = Color(0xFF12124E)
+                )
 
-        AuroraHeroButton(
-            text = "Let's Go",
-            onClick = onContinue,
-            modifier = Modifier.fillMaxWidth(),
-            container = Color.White,
-            contentColor = Color(0xFF12124E)
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Ghost secondary CTA (prototype .ob-cta .btn.ghost) — tall screens only
-        if (tallEnough) {
-            Box(
-            Modifier
-                .fillMaxWidth()
-                .height(46.dp)
-                .clip(RoundedCornerShape(30.dp))
-                .border(1.5.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(30.dp))
-                .clickable { onSkipToPermissions() },
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                "Review permissions first",
-                color = Color(0xFFE7E4FF),
-                fontSize = 14.5.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+                if (tallEnough) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(30.dp))
+                            .border(1.5.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(30.dp))
+                            .clickable { onSkipToPermissions() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Review permissions first",
+                            color = Color(0xFFE7E4FF),
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
-    }
     }
 }
 
@@ -428,6 +437,7 @@ fun PermissionPromptPanel(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .auroraNightWashes()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 26.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
