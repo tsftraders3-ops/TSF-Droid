@@ -53,7 +53,7 @@ data class LLMConfig(
     val copilotUrl: String = "",
     val multiAgentModeEnabled: Boolean = false,
     val showFloatingButton: Boolean = true,
-    val isDarkMode: Boolean = true,
+    val isDarkMode: Boolean = false, // Aurora default = light (prototype data-theme="light")
     val lastModelFetch: Map<String, Long> = emptyMap(), // Provider -> last fetch timestamp
     val modelCache: Map<String, List<AIModel>> = emptyMap() // Provider -> cached AIModels list
 )

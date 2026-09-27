@@ -41,11 +41,11 @@ import java.util.Date
 import java.util.Locale
 
 enum class MemoryScreenTab(val title: String) {
-    GROWTH_GRAPH("GROWTH GRAPH"),
-    SEMANTIC("LONG-TERM"),
-    WORKING("TEMPORARY"),
-    EPISODIC("EPISODIC"),
-    PROCEDURAL("MACROS")
+    GROWTH_GRAPH("Growth graph"),
+    SEMANTIC("Long-term"),
+    WORKING("Temporary"),
+    EPISODIC("History"),
+    PROCEDURAL("Macros")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,9 +115,8 @@ fun MemoryScreen(
                         text = {
                             Text(
                                 text = tab.title,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal
+                                fontSize = 13.sp,
+                                fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Medium
                             )
                         }
                     )

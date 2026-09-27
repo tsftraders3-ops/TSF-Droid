@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -423,13 +425,20 @@ private fun AuroraMoreSheet(
             color = colors.textPrimary,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
         )
-        MoreSheetItem(Icons.Default.AutoAwesome, "Routines", "$routineCount detected") { onNavigateToRoutines() }
-        MoreSheetItem(Icons.Default.Share, "Social", "7 platforms") { onNavigate(Screen.Social) }
-        MoreSheetItem(Icons.Default.Notifications, "Notifications", "$pendingCount pending") { onNavigateToNotificationHistory() }
-        MoreSheetItem(Icons.Default.Lock, "Permissions", null) { onNavigateToPermissions() }
-        MoreSheetItem(Icons.Default.History, "Logs", null) { onNavigate(Screen.History) }
-        MoreSheetItem(Icons.Default.Settings, "Settings", null) { onNavigate(Screen.Settings) }
-        Spacer(Modifier.height(26.dp))
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(bottom = 10.dp)
+        ) {
+            MoreSheetItem(Icons.Default.AutoAwesome, "Routines", "$routineCount detected") { onNavigateToRoutines() }
+            MoreSheetItem(Icons.Default.Share, "Social", "7 platforms") { onNavigate(Screen.Social) }
+            MoreSheetItem(Icons.Default.Notifications, "Notifications", "$pendingCount pending") { onNavigateToNotificationHistory() }
+            MoreSheetItem(Icons.Default.Lock, "Permissions", null) { onNavigateToPermissions() }
+            MoreSheetItem(Icons.Default.History, "Logs", null) { onNavigate(Screen.History) }
+            MoreSheetItem(Icons.Default.Settings, "Settings", null) { onNavigate(Screen.Settings) }
+        }
+        Spacer(Modifier.height(12.dp))
     }
 }
 
