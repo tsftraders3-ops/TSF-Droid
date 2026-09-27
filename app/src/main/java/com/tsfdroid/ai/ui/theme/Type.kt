@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+
 package com.tsfdroid.ai.ui.theme
 
 import androidx.compose.material3.Typography
@@ -7,6 +9,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.tsfdroid.ai.R
 
 /**
  * Aurora type system (prototype-a-aurora.html):

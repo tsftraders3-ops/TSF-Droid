@@ -10,6 +10,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,7 +75,7 @@ object AuroraMotion {
     const val DurationSlow = 300
 }
 
-val LocalAuroraShapes = staticCompositionLocalOf { AuroraShapes }
+val LocalAuroraShapes = staticCompositionLocalOf { M3Shapes }
 
 /** Access the Aurora shape tokens from any @Composable: `AuroraTheme.shapes.card`. */
 object AuroraTheme {

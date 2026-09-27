@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -64,8 +65,8 @@ fun auroraDroidIcon(): ImageVector = ImageVector.Builder(
         close()
     }
     // eyes (filled dots)
-    addCircle(cx = 9f, cy = 11.5f, radius = 1.15f, fill = SolidColor(Color.Black))
-    addCircle(cx = 15f, cy = 11.5f, radius = 1.15f, fill = SolidColor(Color.Black))
+    addCircle(centerX = 9f, centerY = 11.5f, radius = 1.15f, fill = SolidColor(Color.Black))
+    addCircle(centerX = 15f, centerY = 11.5f, radius = 1.15f, fill = SolidColor(Color.Black))
     // smile: M9.5 15.5c.7.7 1.6 1 2.5 1s1.8-.3 2.5-1
     strokePath {
         moveTo(9.5f, 15.5f)

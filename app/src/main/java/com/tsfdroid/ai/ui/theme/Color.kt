@@ -85,7 +85,12 @@ data class OpenDroidColors(
     /** Warm warning ink → Aurora amber family. */
     val accentOrange: Color,
     val isDark: Boolean
-)
+) {
+    /** Legacy alias — pre-Aurora screens read `.borderColor`. */
+    val borderColor: Color get() = outlineVariant
+    /** Legacy alias — cards sit on the tonal surface in Aurora. */
+    val cardBackground: Color get() = surface
+}
 
 // ── Light palette: Aurora violet-cast tonal scheme ─────────────
 val LightPalette = OpenDroidColors(
