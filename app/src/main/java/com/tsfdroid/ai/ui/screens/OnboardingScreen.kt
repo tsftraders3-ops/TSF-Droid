@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -206,7 +207,8 @@ private fun IntroductionPanel(
 ) {
     val ob = AuroraOnboardingColors
     BoxWithConstraints(modifier.fillMaxSize()) {
-    Column(
+        val tallEnough = maxHeight >= 700.dp
+        Column(
         modifier = modifier
             .fillMaxSize()
             .auroraNightWashes()

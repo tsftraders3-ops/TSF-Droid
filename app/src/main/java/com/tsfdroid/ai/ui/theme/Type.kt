@@ -1,12 +1,9 @@
-@file:OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
-
 package com.tsfdroid.ai.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.tsfdroid.ai.R
@@ -16,72 +13,33 @@ import com.tsfdroid.ai.R
  *   · Display: Bricolage Grotesque — an expressive humanist grotesque with ink
  *     traps; gives the Google-native warmth personality at display sizes.
  *   · Body/UI: Inter — Bricolage's quirk would cost legibility at 13–15px in
- *     dense lists; Inter carries UI. Roboto/system fallbacks keep an offline
- *     load M3-native.
- *   · Scale: 44/28/20/15/13/12 — display reserved for the Chat greeting,
- *     Onboarding hero, and one hero figure per screen.
+ *     dense lists; Inter carries UI.
+ *   · Scale: 44/38/31/24/22/20/15/14/13/12/11.5/10.5.
  *
- * Both families ship as variable fonts; each weight instantiates its `wght`
- * axis explicitly (API 26+, matching minSdk).
+ * The families ship as pre-instantiated static weights (fonttools instancer
+ * pinned from the variable originals: Bricolage opsz=48 wdth=100; Inter
+ * opsz=14) so every declared weight renders exactly — no runtime variation
+ * API dependence.
  */
 val BricolageGrotesque = FontFamily(
-    Font(
-        R.font.bricolage_grotesque,
-        weight = FontWeight.Normal,
-        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 400))
-    ),
-    Font(
-        R.font.bricolage_grotesque,
-        weight = FontWeight.Medium,
-        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 500))
-    ),
-    Font(
-        R.font.bricolage_grotesque,
-        weight = FontWeight.SemiBold,
-        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 600))
-    ),
-    Font(
-        R.font.bricolage_grotesque,
-        weight = FontWeight.Bold,
-        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 700))
-    ),
-    Font(
-        R.font.bricolage_grotesque,
-        weight = FontWeight.ExtraBold,
-        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 800))
-    )
+    Font(R.font.bricolage_grotesque_semi_bold, FontWeight.SemiBold),
+    Font(R.font.bricolage_grotesque_bold, FontWeight.Bold),
+    Font(R.font.bricolage_grotesque_extra_bold, FontWeight.ExtraBold)
 )
 
 val Inter = FontFamily(
-    Font(
-        R.font.inter_variable,
-        weight = FontWeight.Normal,
-        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 400))
-    ),
-    Font(
-        R.font.inter_variable,
-        weight = FontWeight.Medium,
-        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 500))
-    ),
-    Font(
-        R.font.inter_variable,
-        weight = FontWeight.SemiBold,
-        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 600))
-    ),
-    Font(
-        R.font.inter_variable,
-        weight = FontWeight.Bold,
-        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 700))
-    )
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semi_bold, FontWeight.SemiBold),
+    Font(R.font.inter_bold, FontWeight.Bold)
 )
 
 /**
  * Extra display styles used by the prototype's hero moments (not part of the
- * M3 default roles): the 52px onboarding title, 38px chat greeting / screen
- * big titles at 31px, and the 34px routine confidence figure.
+ * M3 default roles).
  */
 object AuroraType {
-    /** Onboarding hero — "Your phone. Your rules. Your AI." */
+    /** Onboarding hero — "Your phone. Your rules. Your AI." (52px/-1.5 in the prototype). */
     val onboardingTitle = TextStyle(
         fontFamily = BricolageGrotesque,
         fontWeight = FontWeight.ExtraBold,
@@ -90,7 +48,7 @@ object AuroraType {
         letterSpacing = (-1.2).sp
     )
 
-    /** Chat greeting + screen big titles (38px in the prototype). */
+    /** Chat greeting + screen big titles (38px/-0.8 in the prototype). */
     val bigTitle = TextStyle(
         fontFamily = BricolageGrotesque,
         fontWeight = FontWeight.ExtraBold,
@@ -108,7 +66,7 @@ object AuroraType {
         letterSpacing = (-0.7).sp
     )
 
-    /** Hero figures — routine confidence (34px), stat tiles (26px), tier counts (21px). */
+    /** Hero figures — routine confidence (34px/-1), stat tiles (26px), tier counts (21px). */
     val heroFigure = TextStyle(
         fontFamily = BricolageGrotesque,
         fontWeight = FontWeight.ExtraBold,
@@ -144,7 +102,7 @@ val Typography = Typography(
         fontWeight = FontWeight.ExtraBold,
         fontSize = 44.sp,
         lineHeight = 46.sp,
-        letterSpacing = (-1.0).sp
+        letterSpacing = (-1.2).sp
     ),
     displayMedium = TextStyle(
         fontFamily = BricolageGrotesque,
