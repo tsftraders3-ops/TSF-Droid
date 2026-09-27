@@ -60,10 +60,8 @@ fun TermsOfUseScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth(),
-                                            colors = CardDefaults.cardColors(
-                        containerColor = CardBackground,
-                        shape = RoundedCornerShape(20.dp)
-                    )
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = CardBackground)
                 ) {
                     Row(
                         modifier = Modifier

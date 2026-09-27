@@ -142,10 +142,8 @@ fun AboutScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth(),
-                                            colors = CardDefaults.cardColors(
-                        containerColor = CardBackground,
-                        shape = RoundedCornerShape(20.dp)
-                    )
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = CardBackground)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
@@ -176,10 +174,8 @@ fun AboutScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth(),
-                                            colors = CardDefaults.cardColors(
-                        containerColor = CardBackground,
-                        shape = RoundedCornerShape(20.dp)
-                    )
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = CardBackground)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
@@ -208,10 +204,8 @@ fun AboutScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth(),
-                                            colors = CardDefaults.cardColors(
-                        containerColor = CardBackground,
-                        shape = RoundedCornerShape(20.dp)
-                    )
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = CardBackground)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
@@ -240,10 +234,8 @@ fun AboutScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth(),
-                                            colors = CardDefaults.cardColors(
-                        containerColor = CardBackground,
-                        shape = RoundedCornerShape(20.dp)
-                    )
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = CardBackground)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
