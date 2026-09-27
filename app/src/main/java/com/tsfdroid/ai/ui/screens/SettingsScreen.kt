@@ -128,12 +128,9 @@ fun SettingsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "AGENT PREFERENCES",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp
+                        text = "Settings",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground)

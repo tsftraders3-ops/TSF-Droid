@@ -60,12 +60,9 @@ fun LogsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "SYSTEM LOGS",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp
+                        text = "Logs",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary
                     )
                 },
                 actions = {

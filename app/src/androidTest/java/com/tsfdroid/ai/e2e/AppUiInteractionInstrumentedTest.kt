@@ -368,9 +368,11 @@ class AppUiInteractionInstrumentedTest {
             device.waitForIdle(5_000)
             shoot("05_dashboard_chat_empty")
 
-            // ---- 3. Visit every other tab, screenshot each ----
-            val tabs = listOf("Plan", "Memory", "Social", "Macros", "Logs", "Settings")
-            tabs.forEachIndexed { index, tab ->
+            // ---- 3. Visit every other destination, screenshot each ----
+            // Aurora navigation (prototype): Chat / Plan / Memory / Macros live in the
+            // bottom bar; Social / Logs / Settings open through the More bottom sheet.
+            val barTabs = listOf("Plan", "Memory", "Macros")
+            barTabs.forEachIndexed { index, tab ->
                 assertTrue("tab $tab not clickable", clickTextContains(tab, 10_000))
                 device.waitForIdle(3_000)
                 shoot(String.format("%02d_tab_%s", 6 + index, tab.lowercase()))
@@ -379,9 +381,22 @@ class AppUiInteractionInstrumentedTest {
                     assertTrue("activity finishing after opening $tab", !activity.isFinishing)
                 }
             }
+            val sheetTabs = listOf("Social", "Logs", "Settings")
+            sheetTabs.forEachIndexed { index, tab ->
+                assertTrue("More sheet did not open", clickTextContains("More", 10_000))
+                device.waitForIdle(2_000)
+                shoot(String.format("%02d_more_sheet_%s", 9 + index, tab.lowercase()))
+                assertTrue("sheet item $tab not clickable", clickTextContains(tab, 10_000))
+                device.waitForIdle(3_000)
+                shoot(String.format("%02d_tab_%s", 9 + index, tab.lowercase()))
+                scenario.onActivity { activity ->
+                    assertTrue("activity finishing after opening $tab", !activity.isFinishing)
+                }
+            }
 
             // ---- 4. Settings: the provider row must show the keyless default ----
-            assertTrue("Settings tab not reachable", clickTextContains("Settings", 10_000))
+            // (Settings was already opened through the More sheet in step 3 — the
+            // Aurora navigation has no persistent Settings tab to click again.)
             device.waitForIdle(3_000)
             val providerVisible = waitTextContains("OpenCode Zen", 20_000)
             shoot("12_settings_provider_default")

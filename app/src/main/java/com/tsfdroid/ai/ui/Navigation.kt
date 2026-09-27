@@ -288,6 +288,172 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 }
 
+/**
+ * Aurora bottom navigation (prototype `.bnav`): four primary destinations —
+ * Chat / Plan / Memory / Macros — plus More, which opens the M3 bottom sheet
+ * holding the remaining sections. The selected indicator is the 56×31 primary-
+ * container pill; colors adapt via AppTheme tokens.
+ */
+private val primaryNavScreens = listOf(Screen.Chat, Screen.Plan, Screen.Memory, Screen.Macros)
+
+@Composable
+private fun AuroraBottomNav(
+    currentTab: Screen,
+    onSelect: (Screen) -> Unit,
+    onMore: () -> Unit
+) {
+    val colors = AppTheme.colors
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(colors.surfaceLow)
+    ) {
+        // top hairline only, per prototype `.bnav`
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.5.dp)
+                .background(colors.outlineVariant)
+        )
+        Row(
+            Modifier
+                .navigationBarsPadding()
+                .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            primaryNavScreens.forEach { screen ->
+                AuroraNavItem(
+                    screen = screen,
+                    selected = currentTab == screen,
+                    onClick = { onSelect(screen) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            AuroraNavItem(
+                screen = null,
+                label = "More",
+                selected = currentTab !in primaryNavScreens,
+                onClick = onMore,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AuroraNavItem(
+    screen: Screen?,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = AppTheme.colors
+    val icon = screen?.icon
+    val textColor by animateColorAsState(
+        if (selected) colors.onPrimaryContainer else colors.textSecondary,
+        tween(160), label = "navText"
+    )
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(top = 4.dp, bottom = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Box(
+            Modifier
+                .width(56.dp)
+                .height(31.dp)
+                .background(
+                    if (selected) colors.primaryContainer else Color.Transparent,
+                    RoundedCornerShape(999.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (icon != null) {
+                Icon(icon, contentDescription = label, tint = textColor, modifier = Modifier.size(21.dp))
+            } else {
+                Icon(Icons.Default.MoreHoriz, contentDescription = label, tint = textColor, modifier = Modifier.size(21.dp))
+            }
+        }
+        Text(label, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = textColor)
+    }
+}
+
+/**
+ * The Aurora "More" bottom sheet (prototype `.sheet`): 28px crown, grab handle,
+ * Bricolage heading, sheet items with trailing hint labels.
+ */
+@Composable
+private fun AuroraMoreSheet(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    onNavigate: (Screen) -> Unit,
+    onNavigateToRoutines: () -> Unit,
+    onNavigateToPermissions: () -> Unit,
+    onNavigateToNotificationHistory: () -> Unit,
+    routineCount: Int,
+    pendingCount: Int
+) {
+    val colors = AppTheme.colors
+    if (!visible) return
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = colors.surfaceHigh,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        tonalElevation = 0.dp
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(bottom = 14.dp)
+                .width(34.dp)
+                .height(4.dp)
+                .background(colors.outline, RoundedCornerShape(99.dp))
+        )
+        Text(
+            "More",
+            style = MaterialTheme.typography.headlineSmall,
+            color = colors.textPrimary,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+        )
+        MoreSheetItem(Icons.Default.AutoAwesome, "Routines", "$routineCount detected") { onNavigateToRoutines() }
+        MoreSheetItem(Icons.Default.Share, "Social", "7 platforms") { onNavigate(Screen.Social) }
+        MoreSheetItem(Icons.Default.Notifications, "Notifications", "$pendingCount pending") { onNavigateToNotificationHistory() }
+        MoreSheetItem(Icons.Default.Lock, "Permissions", null) { onNavigateToPermissions() }
+        MoreSheetItem(Icons.Default.History, "Logs", null) { onNavigate(Screen.History) }
+        MoreSheetItem(Icons.Default.Settings, "Settings", null) { onNavigate(Screen.Settings) }
+        Spacer(Modifier.height(26.dp))
+    }
+}
+
+@Composable
+private fun MoreSheetItem(
+    icon: ImageVector,
+    label: String,
+    hint: String?,
+    onClick: () -> Unit
+) {
+    val colors = AppTheme.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp + 8.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Icon(icon, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+        Text(label, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, color = colors.textPrimary, modifier = Modifier.weight(1f))
+        if (hint != null) {
+            Text(hint, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = colors.textSecondary)
+        }
+    }
+}
+
 @Composable
 fun MainDashboard(
     onNavigateToBenchmark: () -> Unit,
@@ -327,6 +493,7 @@ fun MainDashboard(
     }
 
     var currentTab by remember { mutableStateOf<Screen>(Screen.Chat) }
+    var moreSheetVisible by remember { mutableStateOf(false) }
 
     val chatViewModel: ChatViewModel = hiltViewModel()
     val planViewModel: PlanViewModel = hiltViewModel()
@@ -336,65 +503,13 @@ fun MainDashboard(
     val historyViewModel: HistoryViewModel = hiltViewModel()
     val settingsViewModel: SettingsViewModel = hiltViewModel()
 
-    val tabs = listOf(
-        Screen.Chat,
-        Screen.Plan,
-        Screen.Memory,
-        Screen.Social,
-        Screen.Macros,
-        Screen.History,
-        Screen.Settings
-    )
-
     Scaffold(
         bottomBar = {
-            NavigationBar(
-                containerColor = AppTheme.colors.surface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                    .border(1.dp, AppTheme.colors.borderColor, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
-                tonalElevation = 6.dp
-            ) {
-                tabs.forEach { tab ->
-                    val isSelected = currentTab == tab
-                    val iconScale by animateFloatAsState(
-                        targetValue = if (isSelected) 1.15f else 1.0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessLow
-                        ),
-                        label = "tabIconScale"
-                    )
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { currentTab = tab },
-                        icon = {
-                            Icon(
-                                imageVector = tab.icon,
-                                contentDescription = tab.title,
-                                modifier = Modifier.scale(iconScale),
-                                tint = if (isSelected) AppTheme.colors.textPrimary else AppTheme.colors.textSecondary
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = tab.title,
-                                fontSize = 10.sp,
-                                color = if (isSelected) AppTheme.colors.textPrimary else AppTheme.colors.textSecondary,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            indicatorColor = AppTheme.colors.textPrimary.copy(alpha = 0.08f),
-                            selectedIconColor = AppTheme.colors.textPrimary,
-                            unselectedIconColor = AppTheme.colors.textSecondary,
-                            selectedTextColor = AppTheme.colors.textPrimary,
-                            unselectedTextColor = AppTheme.colors.textSecondary
-                        )
-                    )
-                }
-            }
+            AuroraBottomNav(
+                currentTab = currentTab,
+                onSelect = { currentTab = it },
+                onMore = { moreSheetVisible = true }
+            )
         },
         containerColor = AppTheme.colors.background
     ) { paddingValues ->
@@ -407,7 +522,8 @@ fun MainDashboard(
             AnimatedContent(
                 targetState = currentTab,
                 transitionSpec = {
-                    (fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.98f, animationSpec = tween(220)))
+                    (fadeIn(animationSpec = tween(AuroraMotion.DurationScreenEnter, easing = AuroraMotion.EasingEmphasized)) +
+                        slideInVertically(animationSpec = tween(AuroraMotion.DurationScreenEnter, easing = AuroraMotion.EasingEmphasized)) { it / 16 })
                         .togetherWith(fadeOut(animationSpec = tween(180)))
                 },
                 label = "DashboardTabTransition"
@@ -440,4 +556,27 @@ fun MainDashboard(
             }
         }
     }
+
+    AuroraMoreSheet(
+        visible = moreSheetVisible,
+        onDismiss = { moreSheetVisible = false },
+        onNavigate = { screen ->
+            moreSheetVisible = false
+            currentTab = screen
+        },
+        onNavigateToRoutines = {
+            moreSheetVisible = false
+            onNavigateToRoutines()
+        },
+        onNavigateToPermissions = {
+            moreSheetVisible = false
+            onNavigateToPermissions()
+        },
+        onNavigateToNotificationHistory = {
+            moreSheetVisible = false
+            onNavigateToNotificationHistory()
+        },
+        routineCount = 3,
+        pendingCount = 2
+    )
 }

@@ -215,12 +215,9 @@ fun ChatScreen(
                 title = {
                     Column {
                         Text(
-                            text = "TSF DROID",
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
-                            fontSize = 20.sp,
-                            letterSpacing = 2.sp
+                            text = "Chat",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = TextPrimary
                         )
                         AgentStatusSubtitle(visibleAgentState, runningElsewhere)
                     }
@@ -386,6 +383,34 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp)
                 ) {
+                    // Aurora greeting — the onboarding blob survives into the app as
+                    // the greeting avatar above the first exchange.
+                    if (history.isEmpty() && visibleAgentState !is AgentState.Thinking) {
+                        item(key = "aurora-greeting") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 18.dp, start = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                com.tsfdroid.ai.ui.components.AuroraBlob(size = 64.dp, iconSize = 32.dp)
+                                Column {
+                                    Text(
+                                        text = "Good morning",
+                                        style = MaterialTheme.typography.displayMedium,
+                                        color = TextPrimary
+                                    )
+                                    Text(
+                                        text = "Agent ready — give me a goal and I'll plan, execute and verify it.",
+                                        fontSize = 14.sp,
+                                        lineHeight = 20.sp,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    }
                     items(history) { msg ->
                         ChatBubble(
                             message = msg,
@@ -559,15 +584,15 @@ fun ChatScreen(
 
                         Spacer(modifier = Modifier.width(12.dp))
 
-                        // Text Input Field / Voice Waveform Area
+                        // Text Input Field / Voice Waveform Area — Aurora chatfield:
+                        // r-hero 30px, tonal surface-high fill, no border
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .heightIn(min = 56.dp, max = 120.dp)
-                                .clip(RoundedCornerShape(28.dp))
-                                .background(CardBackground)
-                                .border(1.dp, BorderColor, RoundedCornerShape(28.dp))
-                                .padding(horizontal = 16.dp),
+                                .heightIn(min = 54.dp, max = 120.dp)
+                                .clip(RoundedCornerShape(30.dp))
+                                .background(AuroraSurfaceHigh)
+                                .padding(horizontal = 18.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
                             if (isListening) {
@@ -610,14 +635,14 @@ fun ChatScreen(
                                 IconButton(
                                     onClick = { submitInput() },
                                     modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(TextPrimary)
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(30.dp))
+                                        .background(AuroraPrimary)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Send,
                                         contentDescription = "Send",
-                                        tint = DarkBackground
+                                        tint = AuroraOnPrimary
                                     )
                                 }
                             }
@@ -744,17 +769,12 @@ fun ChatBubble(
 ) {
     val isAgent = message.sender == ChatMessage.Sender.AGENT
     val alignment = if (isAgent) Alignment.Start else Alignment.End
-    val bubbleColor = if (isAgent) {
-        CardBackground
-    } else {
-        if (AppTheme.colors.isDark) Color(0xFF1E1E22) else Color(0xFFF1F3F5)
-    }
-    val bubbleBorder = if (isAgent) {
-        BorderColor
-    } else {
-        if (AppTheme.colors.isDark) Color(0xFF2E2E34) else Color(0xFFE2E8F0)
-    }
-    val textColor = TextPrimary
+    val colors = AppTheme.colors
+    // Aurora bubbles: agent = surface-high with the flat corner pointing at the
+    // speaker (bottom-left); user = primary fill with the flat corner bottom-right.
+    val bubbleColor = if (isAgent) colors.surfaceHigh else colors.primary
+    val bubbleTextColor = if (isAgent) colors.textPrimary else colors.onPrimary
+    val stampColor = if (isAgent) colors.textSecondary else colors.onPrimary.copy(alpha = 0.72f)
     val timeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
 
     // If this is a contact picker message, render the ContactPickerCard instead
@@ -794,27 +814,17 @@ fun ChatBubble(
         ) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = 290.dp)
+                    .widthIn(max = 340.dp)
                     .clip(
                         RoundedCornerShape(
-                            topStart = 18.dp,
-                            topEnd = 18.dp,
-                            bottomStart = if (isAgent) 4.dp else 18.dp,
-                            bottomEnd = if (isAgent) 18.dp else 4.dp
+                            topStart = 30.dp,
+                            topEnd = 30.dp,
+                            bottomStart = if (isAgent) 6.dp else 30.dp,
+                            bottomEnd = if (isAgent) 30.dp else 6.dp
                         )
                     )
                     .background(bubbleColor)
-                    .border(
-                        1.dp,
-                        bubbleBorder,
-                        RoundedCornerShape(
-                            topStart = 18.dp,
-                            topEnd = 18.dp,
-                            bottomStart = if (isAgent) 4.dp else 18.dp,
-                            bottomEnd = if (isAgent) 18.dp else 4.dp
-                        )
-                    )
-                    .padding(14.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 if (isAgent && message.modelBadge != null) {
                     val displayName = when (message.modelBadge) {
@@ -895,8 +905,8 @@ fun ChatBubble(
                 Text(
                     text = message.text,
                     fontSize = 14.sp,
-                    color = textColor,
-                    lineHeight = 20.sp
+                    color = bubbleTextColor,
+                    lineHeight = 21.sp
                 )
                 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -922,7 +932,7 @@ fun ChatBubble(
                     Text(
                         text = timeFormat.format(Date(message.timestamp)),
                         fontSize = 9.sp,
-                        color = TextSecondary
+                        color = stampColor
                     )
                 }
             }

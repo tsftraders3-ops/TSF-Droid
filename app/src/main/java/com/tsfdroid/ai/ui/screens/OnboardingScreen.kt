@@ -1,15 +1,11 @@
 package com.tsfdroid.ai.ui.screens
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.*
@@ -17,14 +13,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.tsfdroid.ai.ui.components.AuroraBlob
+import com.tsfdroid.ai.ui.components.AuroraHeroButton
 import com.tsfdroid.ai.ui.theme.*
 import com.tsfdroid.ai.ui.viewmodel.OnboardingViewModel
 
@@ -34,7 +31,12 @@ enum class OnboardingStage {
     PERMISSIONS
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Aurora onboarding (prototype screen 1): the night sky — fixed #101033 with
+ * radial color washes, the morphing gradient blob hero, Bricolage display
+ * title, glass chips, and white hero CTA. The profile form lives in the same
+ * visual world; its labels are E2E anchors and stay verbatim.
+ */
 @Composable
 fun OnboardingScreen(
     onFinished: () -> Unit,
@@ -52,21 +54,9 @@ fun OnboardingScreen(
         }
     }
 
+    val obColors = AuroraOnboardingColors
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    val titleText = when (stage) {
-                        OnboardingStage.INTRODUCTION -> "About You"
-                        OnboardingStage.PERMISSION_PROMPT -> "Permissions"
-                        OnboardingStage.PERMISSIONS -> "Grant Permissions"
-                    }
-                    Text(titleText, color = TextPrimary, fontWeight = FontWeight.Bold)
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground)
-            )
-        },
-        containerColor = DarkBackground
+        containerColor = obColors.background
     ) { padding ->
         when (stage) {
             OnboardingStage.INTRODUCTION -> {
@@ -107,7 +97,22 @@ fun OnboardingScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Fixed night-sky palette used by onboarding in both system themes (prototype `#s-onboarding`). */
+object AuroraOnboardingColors {
+    val background = Color(0xFF101033)
+    val ink = Color(0xFFF0EEFF)
+    val sub = Color(0xFFC9C5EE)
+    val lime = Color(0xFFC9F16F)
+    val onLime = Color(0xFF253200)
+}
+
+@Composable
+private fun OnboardingHero(modifier: Modifier = Modifier, blobSize: Int = 130, iconSize: Int = 64) {
+    Column(modifier.fillMaxWidth().padding(top = 36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        AuroraBlob(size = blobSize.dp, iconSize = iconSize.dp)
+    }
+}
+
 @Composable
 private fun IntroductionPanel(
     name: String,
@@ -120,44 +125,41 @@ private fun IntroductionPanel(
     profileMustBeReentered: Boolean = false,
     storageError: Boolean = false
 ) {
+    val ob = AuroraOnboardingColors
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(horizontal = 26.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier
-                .size(130.dp)
-                .clip(CircleShape)
-                .background(CardBackground)
-                .border(2.5.dp, Brush.horizontalGradient(listOf(TextPrimary.copy(alpha = 0.4f), AccentCyan)), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                painter = painterResource(id = com.tsfdroid.ai.R.drawable.bot),
-                contentDescription = "TSF Droid Bot Avatar",
-                modifier = Modifier.size(120.dp)
-            )
-        }
+        OnboardingHero()
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(22.dp))
 
         Text(
-            text = "Hello! I am TSF Droid",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
+            text = "TSF Droid",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.4.sp,
+            color = ob.lime
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Your open autonomous device assistant. Please introduce yourself so I can serve you personally.",
-            fontSize = 14.sp,
-            color = TextSecondary,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            text = "Your phone.\nYour rules.\nYour AI.",
+            style = AuroraType.onboardingTitle,
+            color = ob.ink
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Text(
+            text = "An on-device agent that plans multi-step goals, executes them on your phone, verifies the result, and re-plans when something fails. Introduce yourself so I can serve you personally.",
+            fontSize = 15.sp,
+            lineHeight = 24.sp,
+            color = ob.sub
         )
 
         if (profileMustBeReentered) {
@@ -165,28 +167,27 @@ private fun IntroductionPanel(
             Text(
                 text = "Your saved details could not be unlocked on this device, so they were " +
                         "not kept. Nothing was stored unencrypted - please enter them again.",
-                color = AccentRed,
+                color = Color(0xFFFFB4AB),
                 fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                fontWeight = FontWeight.SemiBold
             )
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(26.dp))
 
         OutlinedTextField(
             value = name,
             onValueChange = onNameChange,
-            label = { Text("What should I call you?", color = TextSecondary) },
-            placeholder = { Text("Enter your name", color = TextSecondary.copy(alpha = 0.6f)) },
+            label = { Text("What should I call you?", color = ob.sub) },
+            placeholder = { Text("Enter your name", color = ob.sub.copy(alpha = 0.6f)) },
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = AccentCyan,
-                unfocusedBorderColor = BorderColor,
-                focusedLabelColor = TextPrimary,
-                unfocusedLabelColor = TextSecondary,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                cursorColor = TextPrimary
+                focusedBorderColor = ob.lime,
+                unfocusedBorderColor = Color(0xFF3D3E5C),
+                focusedLabelColor = ob.ink,
+                unfocusedLabelColor = ob.sub,
+                focusedTextColor = ob.ink,
+                unfocusedTextColor = ob.ink,
+                cursorColor = ob.lime
             ),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -200,25 +201,25 @@ private fun IntroductionPanel(
         OutlinedTextField(
             value = dob,
             onValueChange = onDobChange,
-            label = { Text("When is your birthday?", color = TextSecondary) },
-            placeholder = { Text("e.g. MM/DD/YYYY", color = TextSecondary.copy(alpha = 0.6f)) },
+            label = { Text("When is your birthday?", color = ob.sub) },
+            placeholder = { Text("e.g. MM/DD/YYYY", color = ob.sub.copy(alpha = 0.6f)) },
             trailingIcon = {
                 IconButton(onClick = { showDatePicker = true }) {
                     Icon(
                         imageVector = Icons.Default.DateRange,
                         contentDescription = "Pick your birthday",
-                        tint = TextPrimary
+                        tint = ob.ink
                     )
                 }
             },
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = AccentCyan,
-                unfocusedBorderColor = BorderColor,
-                focusedLabelColor = TextPrimary,
-                unfocusedLabelColor = TextSecondary,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                cursorColor = TextPrimary
+                focusedBorderColor = ob.lime,
+                unfocusedBorderColor = Color(0xFF3D3E5C),
+                focusedLabelColor = ob.ink,
+                unfocusedLabelColor = ob.sub,
+                focusedTextColor = ob.ink,
+                unfocusedTextColor = ob.ink,
+                cursorColor = ob.lime
             ),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
@@ -242,11 +243,11 @@ private fun IntroductionPanel(
                             showDatePicker = false
                         },
                         enabled = datePickerState.selectedDateMillis != null
-                    ) { Text("OK", color = TextPrimary, fontWeight = FontWeight.Bold) }
+                    ) { Text("OK", color = ob.ink, fontWeight = FontWeight.Bold) }
                 },
                 dismissButton = {
                     TextButton(onClick = { showDatePicker = false }) {
-                        Text("Cancel", color = TextSecondary)
+                        Text("Cancel", color = ob.sub)
                     }
                 }
             ) {
@@ -258,7 +259,7 @@ private fun IntroductionPanel(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "Please enter both your name and birth date.",
-                color = AccentRed,
+                color = Color(0xFFFFB4AB),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -268,22 +269,23 @@ private fun IntroductionPanel(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "Your details could not be saved securely. Please try again.",
-                color = AccentRed,
+                color = Color(0xFFFFB4AB),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(30.dp))
 
-        Button(
+        AuroraHeroButton(
+            text = "Let's Go",
             onClick = onContinue,
-            modifier = Modifier.fillMaxWidth().height(50.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = TextPrimary, contentColor = DarkBackground),
-            shape = RoundedCornerShape(8.dp)
-        ) {
-            Text("Let's Go", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        }
+            modifier = Modifier.fillMaxWidth(),
+            container = Color.White,
+            contentColor = Color(0xFF12124E)
+        )
+
+        Spacer(modifier = Modifier.height(18.dp))
     }
 }
 
@@ -309,36 +311,23 @@ fun PermissionPromptPanel(
     onContinue: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val ob = AuroraOnboardingColors
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(horizontal = 26.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(130.dp)
-                .clip(CircleShape)
-                .background(CardBackground)
-                .border(3.dp, Brush.horizontalGradient(listOf(AccentCyan, AccentPurple)), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                painter = painterResource(id = com.tsfdroid.ai.R.drawable.bot),
-                contentDescription = "TSF Droid Bot Avatar",
-                modifier = Modifier.size(120.dp)
-            )
-        }
+        OnboardingHero()
 
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
             text = "Permissions Setup",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
+            style = AuroraType.bigTitle,
+            color = ob.ink
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -347,7 +336,7 @@ fun PermissionPromptPanel(
             text = "Let's give me permission so I can serve you well",
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
-            color = AccentCyan,
+            color = ob.lime,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
 
@@ -356,19 +345,19 @@ fun PermissionPromptPanel(
         Text(
             text = "To allow me to interact with your device, run commands, list files, and operate system features, some standard Android permissions are required.",
             fontSize = 14.sp,
-            color = TextSecondary,
+            lineHeight = 21.sp,
+            color = ob.sub,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(44.dp))
 
-        Button(
+        AuroraHeroButton(
+            text = "Grant Permissions",
             onClick = onContinue,
-            modifier = Modifier.fillMaxWidth().height(50.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = TextPrimary, contentColor = DarkBackground),
-            shape = RoundedCornerShape(8.dp)
-        ) {
-            Text("Grant Permissions", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        }
+            modifier = Modifier.fillMaxWidth(),
+            container = Color.White,
+            contentColor = Color(0xFF12124E)
+        )
     }
 }
