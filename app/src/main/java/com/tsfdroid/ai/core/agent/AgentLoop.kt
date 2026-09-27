@@ -1082,6 +1082,7 @@ class AgentLoop @Inject constructor(
         val context = contextOrNull() ?: return null
         var messages = history
         var round = 0
+        var synthesisAttempted = false
         while (round < MAX_CHAT_TOOL_ROUNDS) {
             round++
             _liveThinking.value = "[tool] running the model's tool calls (round $round)…"
@@ -1108,7 +1109,30 @@ class AgentLoop @Inject constructor(
                 return null
             }
             _liveThinking.value = null
-            if (response.content.isNotBlank()) return response.content
+            if (response.content.isNotBlank()) {
+                // v1.1.1 blind-critic fix: after a web_search round the model
+                // often just ECHOES the raw result listing back as its
+                // "answer" (the cap8 field evidence: ten numbered listings
+                // with bing tracking URLs delivered to the user instead of a
+                // synthesized reply). Detect the echo and force one synthesis
+                // round; if the synthesis still comes back listing-shaped,
+                // deliver what we have rather than looping.
+                val echoedListing =
+                    response.content.startsWith("Top web results", ignoreCase = true) ||
+                        response.content.startsWith("Web results for", ignoreCase = true)
+                if (echoedListing && !synthesisAttempted && round < MAX_CHAT_TOOL_ROUNDS) {
+                    synthesisAttempted = true
+                    messages = messages + ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        text = "Do not repeat the raw result listing. Synthesize the search results " +
+                            "you received into a direct, complete answer to the user's question — " +
+                            "key facts and dates first, cite source URLs inline.",
+                        sender = ChatMessage.Sender.USER
+                    )
+                    continue
+                }
+                return response.content
+            }
             if (response.toolCalls.isEmpty()) return null
 
             messages = messages + ChatMessage(
