@@ -247,7 +247,6 @@ private fun IntroductionPanel(
 
         // Full Aurora hero extras only where the viewport is tall enough to keep
         // both form fields above the fold (the 640dp CI emulator stays compact).
-        val tallEnough = maxHeight >= 700.dp
         if (tallEnough) {
             Spacer(modifier = Modifier.height(16.dp))
             OnboardingChips()
