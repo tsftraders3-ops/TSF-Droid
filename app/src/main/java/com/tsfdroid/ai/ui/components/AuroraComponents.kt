@@ -345,26 +345,25 @@ fun AuroraGateCritical(
                 .fillMaxHeight()
                 .background(c.error)
         )
-        Column(Modifier.padding(start = 19.dp, top = 14.dp, end = 16.dp, bottom = 14.dp)) {
-                Text(heading, color = c.error, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+        Column(Modifier.weight(1f).padding(start = 19.dp, top = 14.dp, end = 16.dp, bottom = 14.dp)) {
+            Text(heading, color = c.error, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text(body, color = c.textSecondary, fontSize = 13.sp, lineHeight = 19.sp)
+            Spacer(Modifier.height(12.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .background(c.error, AuroraPillShape)
+                    .clickable(onClick = onConfirm),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(confirmLabel, color = c.onError, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            }
+            if (cancelLabel != null && onCancel != null) {
                 Spacer(Modifier.height(6.dp))
-                Text(body, color = c.textSecondary, fontSize = 13.sp, lineHeight = 19.sp)
-                Spacer(Modifier.height(12.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .background(c.error, AuroraPillShape)
-                        .clickable(onClick = onConfirm),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(confirmLabel, color = c.onError, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                }
-                if (cancelLabel != null && onCancel != null) {
-                    Spacer(Modifier.height(6.dp))
-                    TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                        Text(cancelLabel, color = c.textSecondary, fontWeight = FontWeight.SemiBold)
-                    }
+                TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text(cancelLabel, color = c.textSecondary, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
