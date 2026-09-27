@@ -217,9 +217,11 @@ fun WorkingMemoryView(viewModel: MemoryViewModel) {
         item {
             Card(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    .fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                    containerColor = CardBackground,
+                    shape = RoundedCornerShape(20.dp)
+                )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -262,9 +264,11 @@ fun WorkingMemoryView(viewModel: MemoryViewModel) {
         item {
             Card(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    .fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                    containerColor = CardBackground,
+                    shape = RoundedCornerShape(20.dp)
+                )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -388,9 +392,11 @@ fun WorkingMemoryView(viewModel: MemoryViewModel) {
         item {
             Card(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    .fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                    containerColor = CardBackground,
+                    shape = RoundedCornerShape(20.dp)
+                )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -487,9 +493,11 @@ fun EpisodicMemoryView(viewModel: MemoryViewModel, searchQuery: String) {
             items(filteredLogs) { log ->
                 Card(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
+                        .fillMaxWidth(),
+                                            colors = CardDefaults.cardColors(
+                        containerColor = CardBackground,
+                        shape = RoundedCornerShape(20.dp)
+                    )
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(
@@ -578,9 +586,11 @@ fun SemanticMemoryView(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp)
-                    .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    .padding(vertical = 12.dp),
+                    colors = CardDefaults.cardColors(
+                    containerColor = CardBackground,
+                    shape = RoundedCornerShape(20.dp)
+                )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -684,9 +694,11 @@ fun MemoryItemCard(
 
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-        colors = CardDefaults.cardColors(containerColor = CardBackground)
+            .fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+            containerColor = CardBackground,
+            shape = RoundedCornerShape(20.dp)
+        )
     ) {
         Row(
             modifier = Modifier
@@ -746,9 +758,11 @@ fun ProceduralMemoryView(viewModel: MemoryViewModel, searchQuery: String) {
             items(filteredMacros) { macro ->
                 Card(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
+                        .fillMaxWidth(),
+                                            colors = CardDefaults.cardColors(
+                        containerColor = CardBackground,
+                        shape = RoundedCornerShape(20.dp)
+                    )
                 ) {
                     Row(
                         modifier = Modifier
@@ -1000,9 +1014,11 @@ fun KnowledgeGraphView(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-                    .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    .padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                    containerColor = CardBackground,
+                    shape = RoundedCornerShape(20.dp)
+                )
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Text(
@@ -1140,9 +1156,11 @@ fun KnowledgeNodeCard(
 
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-        colors = CardDefaults.cardColors(containerColor = CardBackground)
+            .fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+            containerColor = CardBackground,
+            shape = RoundedCornerShape(20.dp)
+        )
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(

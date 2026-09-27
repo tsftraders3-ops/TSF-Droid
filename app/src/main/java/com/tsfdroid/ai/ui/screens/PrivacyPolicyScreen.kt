@@ -59,9 +59,11 @@ fun PrivacyPolicyScreen(
             item {
                 Card(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
+                        .fillMaxWidth(),
+                                            colors = CardDefaults.cardColors(
+                        containerColor = CardBackground,
+                        shape = RoundedCornerShape(20.dp)
+                    )
                 ) {
                     Row(
                         modifier = Modifier
@@ -244,9 +246,11 @@ internal fun PolicySection(
 ) {
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-        colors = CardDefaults.cardColors(containerColor = CardBackground)
+            .fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+            containerColor = CardBackground,
+            shape = RoundedCornerShape(20.dp)
+        )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
