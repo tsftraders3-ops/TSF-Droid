@@ -1,9 +1,12 @@
+@file:OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+
 package com.tsfdroid.ai.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.tsfdroid.ai.R
@@ -22,18 +25,54 @@ import com.tsfdroid.ai.R
  * axis explicitly (API 26+, matching minSdk).
  */
 val BricolageGrotesque = FontFamily(
-    Font(R.font.bricolage_grotesque, weight = FontWeight.Normal),
-    Font(R.font.bricolage_grotesque, weight = FontWeight.Medium),
-    Font(R.font.bricolage_grotesque, weight = FontWeight.SemiBold),
-    Font(R.font.bricolage_grotesque, weight = FontWeight.Bold),
-    Font(R.font.bricolage_grotesque, weight = FontWeight.ExtraBold)
+    Font(
+        R.font.bricolage_grotesque,
+        weight = FontWeight.Normal,
+        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 400))
+    ),
+    Font(
+        R.font.bricolage_grotesque,
+        weight = FontWeight.Medium,
+        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 500))
+    ),
+    Font(
+        R.font.bricolage_grotesque,
+        weight = FontWeight.SemiBold,
+        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 600))
+    ),
+    Font(
+        R.font.bricolage_grotesque,
+        weight = FontWeight.Bold,
+        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 700))
+    ),
+    Font(
+        R.font.bricolage_grotesque,
+        weight = FontWeight.ExtraBold,
+        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 800))
+    )
 )
 
 val Inter = FontFamily(
-    Font(R.font.inter_variable, weight = FontWeight.Normal),
-    Font(R.font.inter_variable, weight = FontWeight.Medium),
-    Font(R.font.inter_variable, weight = FontWeight.SemiBold),
-    Font(R.font.inter_variable, weight = FontWeight.Bold)
+    Font(
+        R.font.inter_variable,
+        weight = FontWeight.Normal,
+        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 400))
+    ),
+    Font(
+        R.font.inter_variable,
+        weight = FontWeight.Medium,
+        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 500))
+    ),
+    Font(
+        R.font.inter_variable,
+        weight = FontWeight.SemiBold,
+        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 600))
+    ),
+    Font(
+        R.font.inter_variable,
+        weight = FontWeight.Bold,
+        variationSettings = FontVariation.Settings(FontVariation.Axis("wght", 700))
+    )
 )
 
 /**

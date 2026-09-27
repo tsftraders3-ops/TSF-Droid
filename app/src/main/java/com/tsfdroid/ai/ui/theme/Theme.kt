@@ -55,7 +55,7 @@ object AuroraShapes {
     val row = RoundedCornerShape(12.dp)
     val pill = RoundedCornerShape(999.dp)
     /** The ONE active container per screen: running plan step, open tier, running macro. */
-    val heroCorner = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 8.dp)
+    val heroCorner = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 8.dp, bottomEnd = 24.dp)
     /** Chat bubbles — the flat corner points at the speaker (agent left, user right). */
     val bubbleAgent = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp, bottomStart = 6.dp, bottomEnd = 30.dp)
     val bubbleUser = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp, bottomStart = 30.dp, bottomEnd = 6.dp)

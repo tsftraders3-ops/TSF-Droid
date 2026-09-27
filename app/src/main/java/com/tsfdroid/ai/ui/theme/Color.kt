@@ -2,7 +2,7 @@ package com.tsfdroid.ai.ui.theme
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
@@ -182,7 +182,7 @@ val DarkPalette = OpenDroidColors(
     isDark = true
 )
 
-val LocalOpenDroidColors = compositionLocalOf { DarkPalette }
+val LocalOpenDroidColors = staticCompositionLocalOf { DarkPalette }
 
 /** Access the active palette from any @Composable */
 object AppTheme {

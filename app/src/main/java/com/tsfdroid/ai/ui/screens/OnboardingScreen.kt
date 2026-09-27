@@ -1,6 +1,8 @@
 package com.tsfdroid.ai.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -13,6 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -76,6 +81,7 @@ fun OnboardingScreen(
                             viewModel.saveProfile { stage = OnboardingStage.PERMISSION_PROMPT }
                         }
                     },
+                    onSkipToPermissions = { stage = OnboardingStage.PERMISSION_PROMPT },
                     modifier = Modifier.padding(padding)
                 )
             }
@@ -106,10 +112,82 @@ object AuroraOnboardingColors {
     val onLime = Color(0xFF253200)
 }
 
+/**
+ * Onboarding radial color washes (prototype ::before): violet, teal and lime
+ * lights over the #101033 night sky.
+ */
 @Composable
-private fun OnboardingHero(modifier: Modifier = Modifier, blobSize: Int = 96, iconSize: Int = 48) {
-    Column(modifier.fillMaxWidth().padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        AuroraBlob(size = blobSize.dp, iconSize = iconSize.dp)
+private fun Modifier.auroraNightWashes(): Modifier = this.then(
+    Modifier.drawBehind {
+        drawRect(Color(0xFF101033))
+        fun wash(color: Color, cx: Float, cy: Float, r: Float) {
+            val center = Offset(size.width * cx, size.height * cy)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(color, Color.Transparent),
+                    center = center,
+                    radius = size.width * r
+                ),
+                center = center,
+                radius = size.width * r
+            )
+        }
+        wash(Color(0xFF786EFF).copy(alpha = 0.55f), 0.24f, 0.20f, 0.85f)
+        wash(Color(0xFF00BEA5).copy(alpha = 0.34f), 0.78f, 0.12f, 0.75f)
+        wash(Color(0xFFC9F16F).copy(alpha = 0.18f), 0.66f, 0.32f, 0.55f)
+    }
+)
+
+@Composable
+private fun OnboardingHero(modifier: Modifier = Modifier) {
+    // Tall screens get the full prototype hero; short screens (test emulators
+    // at 640dp) get the compact variant so both form fields stay reachable.
+    BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+        val tall = maxHeight >= 700.dp
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            AuroraBlob(
+                size = (if (tall) 168 else 96).dp,
+                iconSize = (if (tall) 84 else 48).dp
+            )
+        }
+    }
+}
+
+/** Glass chips row (prototype .ob-chips): white 10% fills, hairline borders, lime surprise. */
+@Composable
+private fun OnboardingChips() {
+    val ob = AuroraOnboardingColors
+    Row(
+        Modifier.padding(horizontal = 22.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OnboardingGlassChip("Plans, executes, verifies")
+        OnboardingGlassChip("You confirm the sensitive ones", surprise = true)
+    }
+}
+
+@Composable
+private fun OnboardingGlassChip(text: String, surprise: Boolean = false) {
+    val ob = AuroraOnboardingColors
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(
+                if (surprise) ob.lime else Color.White.copy(alpha = 0.10f)
+            )
+            .border(
+                1.dp,
+                if (surprise) Color.Transparent else Color.White.copy(alpha = 0.22f),
+                RoundedCornerShape(999.dp)
+            )
+            .padding(horizontal = 11.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (surprise) ob.onLime else Color(0xFFEDEBFF)
+        )
     }
 }
 
@@ -123,12 +201,15 @@ private fun IntroductionPanel(
     onContinue: () -> Unit,
     modifier: Modifier = Modifier,
     profileMustBeReentered: Boolean = false,
-    storageError: Boolean = false
+    storageError: Boolean = false,
+    onSkipToPermissions: () -> Unit = {}
 ) {
     val ob = AuroraOnboardingColors
+    BoxWithConstraints(modifier.fillMaxSize()) {
     Column(
         modifier = modifier
             .fillMaxSize()
+            .auroraNightWashes()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 22.dp, vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -149,7 +230,7 @@ private fun IntroductionPanel(
 
         Text(
             text = "Your phone.\nYour rules.\nYour AI.",
-            style = AuroraType.onboardingTitle.copy(fontSize = 34.sp, lineHeight = 36.sp),
+            style = AuroraType.onboardingTitle,
             color = ob.ink
         )
 
@@ -161,6 +242,14 @@ private fun IntroductionPanel(
             lineHeight = 20.sp,
             color = ob.sub
         )
+
+        // Full Aurora hero extras only where the viewport is tall enough to keep
+        // both form fields above the fold (the 640dp CI emulator stays compact).
+        val tallEnough = maxHeight >= 700.dp
+        if (tallEnough) {
+            Spacer(modifier = Modifier.height(16.dp))
+            OnboardingChips()
+        }
 
         if (profileMustBeReentered) {
             Spacer(modifier = Modifier.height(10.dp))
@@ -285,7 +374,30 @@ private fun IntroductionPanel(
             contentColor = Color(0xFF12124E)
         )
 
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Ghost secondary CTA (prototype .ob-cta .btn.ghost) — tall screens only
+        if (tallEnough) {
+            Box(
+            Modifier
+                .fillMaxWidth()
+                .height(46.dp)
+                .clip(RoundedCornerShape(30.dp))
+                .border(1.5.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(30.dp))
+                .clickable { onSkipToPermissions() },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "Review permissions first",
+                color = Color(0xFFE7E4FF),
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            }
+        }
+
         Spacer(modifier = Modifier.height(12.dp))
+    }
     }
 }
 

@@ -91,7 +91,7 @@ fun RoutinesScreen(
             if (suggestedRoutines.isNotEmpty()) {
                 item {
                     Text(
-                        text = "DISCOVERED HABITS & SUGGESTIONS",
+                        text = "Habits I noticed",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         color = AppTheme.colors.accentCyan,
@@ -193,7 +193,7 @@ fun RoutinesScreen(
             // ── 3. PRE-BUILT TEMPLATES ──────────────────────────────────
             item {
                 Text(
-                    text = "SAMPLE ROUTINE TEMPLATES",
+                    text = "Habit learning engine",
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     color = AppTheme.colors.textSecondary,

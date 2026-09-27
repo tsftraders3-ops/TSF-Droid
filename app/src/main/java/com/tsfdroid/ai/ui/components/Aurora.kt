@@ -124,7 +124,7 @@ fun AuroraBlob(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(4500, easing = LinearEasing),
+            animation = tween(9000, easing = androidx.compose.animation.core.FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "blobPhase"

@@ -145,99 +145,61 @@ fun PlanHeaderCard(
     onStop: () -> Unit
 ) {
     val c = AppTheme.colors
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(20.dp))
-            .padding(16.dp)
-    ) {
+
+    // Aurora plan banner — the five prototype states:
+    // proposed = primary-container, running = LIME, done = teal container,
+    // rejected/cancelled = surface-highest, failed = error container.
+    val bannerState = when (plan.status) {
+        PlanStatus.PROPOSED -> com.tsfdroid.ai.ui.components.PlanBannerState.Proposed
+        PlanStatus.RUNNING -> com.tsfdroid.ai.ui.components.PlanBannerState.Running
+        PlanStatus.COMPLETED -> com.tsfdroid.ai.ui.components.PlanBannerState.Done
+        PlanStatus.CANCELLED, PlanStatus.FAILED -> com.tsfdroid.ai.ui.components.PlanBannerState.Rejected
+        else -> com.tsfdroid.ai.ui.components.PlanBannerState.Proposed
+    }
+    val subtitle = if (isCurrentActive) {
+        when (plan.status) {
+            PlanStatus.PROPOSED -> "Plan proposed — approve it to run the sequence below."
+            PlanStatus.RUNNING -> "Running — each step verifies before the next one moves."
+            PlanStatus.COMPLETED -> "Plan completed — every step verified."
+            PlanStatus.CANCELLED -> "Stopped — nothing ran after the stop."
+            PlanStatus.FAILED -> "Failed — the replan ladder engaged; check the steps below."
+            else -> plan.status.name
+        }
+    } else {
+        "Past run — ${plan.steps.size} steps"
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        com.tsfdroid.ai.ui.components.AuroraPlanBanner(
+            title = plan.goal,
+            subtitle = subtitle,
+            state = bannerState,
+            trackDone = plan.steps.count { it.status == StepStatus.COMPLETED },
+            trackActive = plan.steps.indexOfFirst { it.status == StepStatus.RUNNING } + 1,
+            trackSteps = plan.steps.size
+        )
+        Spacer(modifier = Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val statusColor = when (plan.status) {
-                    PlanStatus.COMPLETED -> c.tertiary
-                    PlanStatus.RUNNING -> c.textPrimary
-                    PlanStatus.FAILED -> c.error
-                    PlanStatus.CANCELLED -> c.onAmberContainer
-                    else -> TextSecondary
-                }
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(statusColor)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = plan.status.name,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = statusColor
-                )
-            }
+            Text(
+                text = "${plan.steps.size} steps — est. ${plan.estimatedDuration}",
+                fontSize = 12.sp,
+                color = TextSecondary
+            )
             if (!isCurrentActive) {
                 com.tsfdroid.ai.ui.components.AuroraChip(
                     text = "Viewing Past Run",
                     style = com.tsfdroid.ai.ui.components.AuroraChipStyle.Tonal,
                     modifier = Modifier.clickable { onClearSelection() }
                 )
-            } else {
+            } else if (plan.status == PlanStatus.RUNNING) {
                 com.tsfdroid.ai.ui.components.AuroraChip(
-                    text = "Active run",
-                    style = com.tsfdroid.ai.ui.components.AuroraChipStyle.Tertiary
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = plan.goal,
-            style = MaterialTheme.typography.titleLarge,
-            color = TextPrimary
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        // Aurora stepped-dot track — progress is shape, not prose
-        com.tsfdroid.ai.ui.components.PlanDotTrack(
-            done = plan.steps.count { it.status == StepStatus.COMPLETED },
-            active = plan.steps.indexOfFirst { it.status == StepStatus.RUNNING } + 1,
-            steps = plan.steps.size,
-            color = c.primary
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text("Steps", fontSize = 10.sp, color = TextSecondary)
-                Text("${plan.steps.size} scheduled", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text("Estimated duration", fontSize = 10.sp, color = TextSecondary)
-                Text(plan.estimatedDuration, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-            }
-        }
-
-        if (isCurrentActive && plan.status == PlanStatus.RUNNING) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = onStop,
-                colors = ButtonDefaults.buttonColors(containerColor = c.error, contentColor = c.onError),
-                shape = com.tsfdroid.ai.ui.components.AuroraPillShape,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Stop,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
                     text = "Stop task",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
+                    style = com.tsfdroid.ai.ui.components.AuroraChipStyle.Await,
+                    modifier = Modifier.clickable { onStop() }
                 )
             }
         }

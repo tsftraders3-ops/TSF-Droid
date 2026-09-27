@@ -81,7 +81,7 @@ fun PlanStepCard(
         else -> Color.Transparent
     }
     val containerShape = if (isActive) {
-        RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 8.dp)
+        RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 8.dp, bottomEnd = 24.dp)
     } else {
         RoundedCornerShape(12.dp)
     }

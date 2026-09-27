@@ -283,9 +283,9 @@ fun OpenDroidNavigation(
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Chat : Screen("chat", "Chat", Icons.Default.Chat)
     object Plan : Screen("plan", "Plan", Icons.Default.List)
-    object Memory : Screen("memory", "Memory", Icons.Default.Star)
+    object Memory : Screen("memory", "Memory", Icons.Default.Hub)
     object Social : Screen("social", "Social", Icons.Default.Share)
-    object Macros : Screen("macros", "Macros", Icons.Default.Build)
+    object Macros : Screen("macros", "Macros", Icons.Default.PlayCircle)
     object History : Screen("history", "Logs", Icons.Default.History)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 }
@@ -406,7 +406,8 @@ private fun AuroraMoreSheet(
         onDismissRequest = onDismiss,
         containerColor = colors.surfaceHigh,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        tonalElevation = 0.dp
+        tonalElevation = 0.dp,
+        dragHandle = null
     ) {
         Box(
             Modifier

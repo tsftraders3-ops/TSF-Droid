@@ -295,7 +295,7 @@ fun PlanDotTrack(done: Int, active: Int, steps: Int, color: Color, modifier: Mod
             Box(
                 Modifier
                     .size(15.dp)
-                    .background(if (isDone || isActive) color else color.copy(alpha = 0.25f), dotShape)
+                    .background(if (isDone || isActive) color else Color.Transparent, dotShape)
                     .border(2.5.dp, color.copy(alpha = if (isDone || isActive) 0f else 0.45f), dotShape)
             )
             if (step < steps) {
@@ -315,7 +315,7 @@ fun PlanDotTrack(done: Int, active: Int, steps: Int, color: Color, modifier: Mod
  * (running/awaiting plan step, open memory tier, running macro).
  */
 fun Modifier.auroraHeroCorner(bg: Color): Modifier =
-    this.background(bg, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 8.dp))
+    this.background(bg, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 8.dp, bottomEnd = 24.dp))
 
 /**
  * Critical gate card — the loudest error moment: 8px leading accent bar,
