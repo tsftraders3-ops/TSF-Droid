@@ -1145,6 +1145,19 @@ class AgentLoop @Inject constructor(
                     sender = ChatMessage.Sender.USER
                 )
             }
+            // v1.1.1 wrap-up nudge: live probes showed mimo happily issuing
+            // fresh web_search calls forever (the CLI-shaped bar harness hit
+            // the hop limit twice). On the second-to-last round, tell the
+            // model its research budget is done so the final call answers
+            // instead of the loop expiring into a null → snag message.
+            if (round == MAX_CHAT_TOOL_ROUNDS - 1) {
+                messages = messages + ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    text = "You have enough research. Answer the user's request now in full — " +
+                        "no more tool calls.",
+                    sender = ChatMessage.Sender.USER
+                )
+            }
         }
         return null
     }

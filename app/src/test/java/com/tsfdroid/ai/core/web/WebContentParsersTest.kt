@@ -193,6 +193,29 @@ class WebContentParsersTest {
     }
 
     @Test
+    fun `the exact bing tracking url from the field run unwraps to the real article`() {
+        // verbatim from the v1.1.1 E2E cap8 reply bubble (run 36323902906):
+        // the model echoed raw bing.com/ck/a URLs because the unwrap failed
+        // on the live href shape — this pins the fix.
+        val href = "https://www.bing.com/ck/a?!&amp;&amp;p=ec8e5e371f674e29506cd6730f2f2b560e6211ac21d78f2fd2aa70408922caeaJmltdHM9MTc5MDQ2NzIwMA" +
+            "&amp;ptn=3&amp;ver=2&amp;hsh=4&amp;fclid=2f764d30-d0f8-66f4-12ce-5ad1d1416718" +
+            "&amp;u=a1aHR0cHM6Ly93d3cuaW5kaWF0b2RheS5pbi9lZHVjYXRpb24vc3RvcnkvY2JzZS1kYXRlLXNoZWV0LTIwMjYtY2xhc3MtMTAtMTItcGRmLWRvd25sb2FkLWRpcmVjdC1saW5rLWVuZ2xpc2gtaGluZGktMjczNTYzNC0yMDI1LTExLTIx" +
+            "&amp;utm_medium=Native&amp;utm_campaign=Native&amp;utm_source=Native"
+        val unwrapped = WebContentParsers.unwrapRedirectUrl(href)
+        assertTrue(
+            "expected the indiatoday.in destination, got: $unwrapped",
+            unwrapped.startsWith("https://www.indiatoday.in/education/story/")
+        )
+    }
+
+    @Test
+    fun `double-encoded bing hrefs unwrap too`() {
+        val href = "https://www.bing.com/ck/a?%21&amp;amp;u=a1aHR0cHM6Ly9leGFtcGxlLmNvbS90YXJnZXQ=&amp;ved=1"
+        val unwrapped = WebContentParsers.unwrapRedirectUrl(href)
+        assertTrue("expected example.com/target, got: $unwrapped", unwrapped.startsWith("https://example.com/target"))
+    }
+
+    @Test
     fun `plain urls pass through unwrap untouched`() {
         assertEquals("https://example.com/a?b=1", WebContentParsers.unwrapRedirectUrl("https://example.com/a?b=1"))
     }

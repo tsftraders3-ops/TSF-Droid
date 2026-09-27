@@ -123,20 +123,40 @@ object WebContentParsers {
      * unrecognized passes through untouched.
      */
     fun unwrapRedirectUrl(url: String): String {
-        val decoded = decodeEntities(url)
+        // v1.1.1: entity-decode repeatedly until stable — live Bing hrefs are
+        // sometimes double-encoded (&amp;amp;u=a1...), which defeated the
+        // single pass and let raw tracking URLs reach the model's answer.
+        var decoded = decodeEntities(url)
+        repeat(2) {
+            val again = decodeEntities(decoded)
+            if (again == decoded) return@repeat
+            decoded = again
+        }
         val uddg = Regex("[?&]uddg=([^&]+)").find(decoded)?.groupValues?.get(1)
         if (uddg != null) {
             return runCatching { java.net.URLDecoder.decode(uddg, "UTF-8") }.getOrElse { uddg }
         }
-        // Bing /ck/a wraps the destination in a u=a1<a1-base64-url> param.
-        if (decoded.contains("/ck/a")) {
-            val u = Regex("[?&]u=a1([^&]+)").find(decoded)?.groupValues?.get(1)
+        // Bing /ck/a wraps the destination in a u=a1<a1-base64-url> (or
+        // u=a2<base64>) param. Accept both; try the standard base64 alphabet
+        // (a2 payloads may carry '+'/'/') before the URL-safe one.
+        if (decoded.contains("/ck/")) {
+            val u = Regex("[?&]u=a[0-9]([^&]+)").find(decoded)?.groupValues?.get(1)
             if (u != null) {
-                val b64 = u.replace('-', '+').replace('_', '/')
-                val padded = b64 + "=".repeat((4 - b64.length % 4) % 4)
+                val paddedStandard = run {
+                    val b64 = u.replace('-', '+').replace('_', '/')
+                    b64 + "=".repeat((4 - b64.length % 4) % 4)
+                }
+                val paddedUrlSafe = run {
+                    val b64 = u.replace('+', '-').replace('/', '_')
+                    b64 + "=".repeat((4 - b64.length % 4) % 4)
+                }
                 val decodedUrl = runCatching {
-                    String(java.util.Base64.getUrlDecoder().decode(padded), Charsets.UTF_8)
-                }.getOrNull()
+                    String(java.util.Base64.getDecoder().decode(paddedStandard), Charsets.UTF_8)
+                }.getOrElse {
+                    runCatching {
+                        String(java.util.Base64.getUrlDecoder().decode(paddedUrlSafe), Charsets.UTF_8)
+                    }.getOrNull()
+                }
                 if (decodedUrl != null && decodedUrl.startsWith("http")) return decodedUrl
             }
         }
