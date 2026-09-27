@@ -523,13 +523,13 @@ fun MainDashboard(
                 .padding(paddingValues)
                 .consumeWindowInsets(paddingValues)
         ) {
-            AnimatedContent(
+            // Deterministic tab swap (Crossfade): AnimatedContent + slide specs
+            // kept the previous screen's content visible after the nav pill had
+            // already moved (E2E artifact 06_tab_plan.png — pill on Plan, header
+            // still Chat). Crossfade guarantees exactly the target composable.
+            Crossfade(
                 targetState = currentTab,
-                transitionSpec = {
-                    (fadeIn(animationSpec = tween(AuroraMotion.DurationScreenEnter, easing = AuroraMotion.EasingEmphasized)) +
-                        slideInVertically(animationSpec = tween(AuroraMotion.DurationScreenEnter, easing = AuroraMotion.EasingEmphasized)) { it / 16 })
-                        .togetherWith(fadeOut(animationSpec = tween(180)))
-                },
+                animationSpec = tween(AuroraMotion.DurationScreenEnter, easing = AuroraMotion.EasingEmphasized),
                 label = "DashboardTabTransition"
             ) { tab ->
                 when (tab) {

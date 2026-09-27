@@ -371,11 +371,21 @@ class AppUiInteractionInstrumentedTest {
             // ---- 3. Visit every other destination, screenshot each ----
             // Aurora navigation (prototype): Chat / Plan / Memory / Macros live in the
             // bottom bar; Social / Logs / Settings open through the More bottom sheet.
-            val barTabs = listOf("Plan", "Memory", "Macros")
-            barTabs.forEachIndexed { index, tab ->
+            // Each bar tab must (a) swap the content — asserted via a marker that
+            // only exists on THAT screen (nav labels would collide) — and (b) survive.
+            val barTabs = listOf(
+                Triple("Plan", "No active plans running", "plan"),
+                Triple("Memory", "Wipe Category", "memory"),
+                Triple("Macros", "Habits & routines detected", "macros")
+            )
+            barTabs.forEachIndexed { index, (tab, marker, slug) ->
                 assertTrue("tab $tab not clickable", clickTextContains(tab, 10_000))
                 device.waitForIdle(3_000)
-                shoot(String.format("%02d_tab_%s", 6 + index, tab.lowercase()))
+                assertTrue(
+                    "tab $tab content did not swap (unique marker '$marker' never appeared)",
+                    device.wait(Until.hasObject(By.textContains(marker)), 8_000) == true
+                )
+                shoot(String.format("%02d_tab_%s", 6 + index, slug))
                 // The activity must survive every tab switch.
                 scenario.onActivity { activity ->
                     assertTrue("activity finishing after opening $tab", !activity.isFinishing)
