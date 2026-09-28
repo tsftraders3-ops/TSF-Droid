@@ -4,6 +4,76 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.2.0 — The OpenCode-grade harness: multi-call loop, Chat/Agent modes, no output caps, uploads
+
+The app now calls the model the way OpenCode/Hermes do — repeatedly, until the
+turn is genuinely done — with two operating modes, real reasoning-effort
+control, file/image uploads with vision-model routing, and a new launcher
+icon. Every feature is pinned by unit tests and proven on the emulator
+against the live Zen free tier.
+
+### The harness (Agent + Chat)
+
+- **Multi-call agentic loop** — the model is called round after round
+  (up to 10) whenever it issues tool calls; every result is executed for
+  real and fed back with the full shared context (30-message window, was
+  10). OpenCode's doom-loop guard is built in: three identical consecutive
+  tool calls draw a warning, and a fourth identical round ends the loop —
+  efficiency, not infinity.
+- **No artificial output limit** — every call runs at the model's real
+  output capability (32k ceiling, OpenCode's own OUTPUT_TOKEN_MAX,
+  registry-clamped per model). `finish_reason` is parsed off the stream
+  now; a "length" answer is automatically continued with a CONTINUE call
+  (up to 3 segments, mid-sentence-aware rejoining) so "teach me the whole
+  chapter" arrives complete — never silently truncated again.
+- **Chat mode (read-only)** — read-and-explain: web_search, fetch_url,
+  read_file, list_files, attachments. Writing is refused twice: the prompt
+  forbids it, and the execution gate REFUSES any mutating action before
+  dispatch (proven on the emulator: the write ask produced the refusal and
+  zero files). Chat mode also skips the intent router — one less LLM round
+  trip per message.
+- **Agent mode** — everything Chat has plus write_file, create_pdf, device
+  actions and the planning pipeline. Default mode; capability unchanged.
+- **Powerful system prompts, one per mode** — tool contract ("call the tool
+  or say nothing about doing it"), artifact quality bar, continuation
+  protocol, attachment awareness, adaptive answer length.
+
+### Reasoning effort (real, not cosmetic)
+
+- The effort selector cycles the levels the ACTIVE model actually
+  advertises (models.dev variants, the same source OpenCode reads) and
+  sends `reasoning_effort` on the wire — only when the model lists the
+  level; unsupported levels never reach the endpoint. Hidden entirely for
+  models without reasoning levels.
+
+### Uploads the model can see
+
+- Attach photos or files (text, code, PDF, video) from the chat field.
+  Images are downscaled (1600px) through a JPEG quality ladder; text and
+  code files are inlined (up to 100k chars); PDFs become rendered page
+  images; videos become sampled frames — like Claude/ChatGPT, the bubble
+  shows exactly what the model was given.
+- **Vision routing** — image turns walk a vision-capable model chain
+  (registry modalities); a text-only pinned model is suspended for that
+  turn. When no vision model exists, the images degrade to an honest
+  in-message note instead of a text model answering about nothing.
+
+### Also
+
+- **New launcher icon** — Aurora-violet gradient with a friendly white
+  droid glyph; adaptive vector + monochrome themed icon + regenerated
+  raster mipmaps.
+- **Fixed a latent v1.1.1 bug**: the advertised `write_file` tool name was
+  never mapped in ToolCallBridge (only the bare `write` alias was), so
+  native write_file calls landed in "not available".
+- **Top-bar layout fix on 320dp screens** — the Clear action moved into
+  the chats menu, the title/status render on one line, and the plan card
+  can scroll fully above the input overlay.
+- 684 unit tests green (34 new: harness loop, wire contract, prompts,
+  attachments); emulator E2E extended to 12 capability proofs — chat-mode
+  read-only, agent-mode write, upload UI, plus the existing v1.0.5-v1.1.1
+  bars — all green against the live endpoint.
+
 ## v1.1.1 — Agentic quality & reliability: the field failures, root-caused
 
 The user's field screenshot showed "tell" → a runaway thinking loop → the
