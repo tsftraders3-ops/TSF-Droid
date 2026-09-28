@@ -735,22 +735,22 @@ class AgentCapabilityE2EInstrumentedTest {
             "cap3_fetch",
             planningWindowMs = 600_000
         )
-        // example.com's content is stable: the page heading is "Example
-        // Domain". Loop-30: assert on DELIVERY, whichever shape the agent
-        // legitimately picks — the loop-29 screenshot PROVED the in-app
-        // fetch works end-to-end (SYSTEM bubble: "Content of
-        // https://example.com/: Example Domain — ...") while the loop-24
-        // file-only assertion demanded an artifact the reply-shaped task
-        // never promised. A chat reply carrying the content OR a workspace
-        // file carrying it both prove real web data reached the user.
+        // example.com's content marker. NOTE (v1.2.0): IANA revised the page —
+        // the old <h1>Example Domain</h1> is GONE (the phrase now only lives in
+        // <title>, which body-text extraction does not return); the new body
+        // copy is "This domain is for use in documentation examples...". Accept
+        // either revision's stable marker — the bar is REAL page data arriving
+        // in-app, not one specific phrasing.
+        val pageMarkers = listOf("example domain", "documentation examples", "iana.org")
         val deadline = System.currentTimeMillis() + 420_000
         var delivered: String? = null
         while (System.currentTimeMillis() < deadline && delivered == null) {
             val replyHit = device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))
                 .any {
                     runCatching { it.applicationPackage }.getOrNull() == appPackage &&
-                        runCatching { it.text }
-                            .getOrNull()?.contains("Example Domain", ignoreCase = true) == true
+                        runCatching { it.text }.getOrNull()
+                            ?.let { text -> pageMarkers.any { text.contains(it, ignoreCase = true) } }
+                            ?: false
                 }
             if (replyHit) {
                 delivered = "chat reply"
@@ -762,8 +762,8 @@ class AgentCapabilityE2EInstrumentedTest {
                     .filter { it.isFile }
                     .filter { it.lastModified() >= startedAtMs.get() }
                     .firstOrNull { f ->
-                        runCatching { f.readText().contains("Example Domain", ignoreCase = true) }
-                            .getOrDefault(false)
+                        val text = runCatching { f.readText() }.getOrDefault("")
+                        pageMarkers.any { text.contains(it, ignoreCase = true) }
                     }
                 if (file != null) delivered = file.absolutePath
             }
@@ -772,7 +772,8 @@ class AgentCapabilityE2EInstrumentedTest {
         shoot("cap3_fetch_reply")
         assertNotNull(
             "the in-app fetch path delivered neither a chat reply nor a workspace file " +
-                "containing 'Example Domain' within 420s — no real web data reached the user",
+                "containing an example.com page marker within 420s — no real web data " +
+                "reached the user",
             delivered
         )
         println("TSF-E2E fetch delivery: $delivered")
