@@ -243,7 +243,12 @@ fun ChatScreen(
                         Text(
                             text = "Chat",
                             style = MaterialTheme.typography.headlineSmall,
-                            color = TextPrimary
+                            color = TextPrimary,
+                            // v1.2.0: the bar hosts the mode + effort + approval
+                            // chips on 320dp CI screens — a wrapped title shoves
+                            // the plan card's approve button behind the input
+                            // overlay. One line, always.
+                            maxLines = 1
                         )
                         AgentStatusSubtitle(visibleAgentState, runningElsewhere)
                     }
@@ -427,10 +432,20 @@ fun ChatScreen(
                                     }
                                 )
                             }
+                            // v1.2.0: moved out of the top-bar actions — the bar
+                            // hosts mode/effort/approval chips too, and on narrow
+                            // screens the extra TextButton overflowed the layout
+                            // (the plan card's approve button ended up behind the
+                            // input overlay). Same action, same target chat.
+                            HorizontalDivider(color = TextSecondary.copy(alpha = 0.2f))
+                            DropdownMenuItem(
+                                text = { Text("Clear chat", color = TextPrimary, fontSize = 13.sp) },
+                                onClick = {
+                                    showChatMenu = false
+                                    viewModel.clearChat()
+                                }
+                            )
                         }
-                    }
-                    TextButton(onClick = { viewModel.clearChat() }) {
-                        Text("Clear", color = TextSecondary, fontSize = 12.sp)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground)
@@ -459,7 +474,12 @@ fun ChatScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
-                    contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp)
+                    // v1.2.0: 96dp bottom padding — the plan card is often the
+                    // last item, and its Approve & Run row must be scrollable
+                    // fully ABOVE the floating input overlay (on 320dp screens
+                    // the old 16dp let the buttons hide behind it: the E2E
+                    // cap1-cap4/cap9/cap11 stalls).
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp)
                 ) {
                     // Aurora greeting — the onboarding blob survives into the app as
                     // the greeting avatar above the first exchange.
@@ -959,7 +979,9 @@ fun AgentStatusSubtitle(state: AgentState, runningElsewhere: Boolean = false) {
         text = text,
         fontSize = 11.sp,
         color = color,
-        fontFamily = FontFamily.SansSerif
+        fontFamily = FontFamily.SansSerif,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
     )
 }
 
