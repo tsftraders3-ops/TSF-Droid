@@ -1,6 +1,6 @@
 {
   "project": "TSF Droid",
-  "current_phase": "PHASE_12_OPENCODE_GRADE_HARNESS_V1.2.0",
+  "current_phase": "COMPLETE",
   "completed_steps": [
     "PHASE_1_REPO_AND_CI",
     "PHASE_2.1_SANITIZE_REBRAND",
@@ -21,9 +21,10 @@
     "PHASE_9_V1.0.5_REAL_AGENT_CAPABILITY_AND_THINKING_UI",
     "PHASE_9.1_V1.0.6_FIELD_FAILURES_CLOSED",
     "PHASE_10_AURORA_UI_PROTOTYPE_IMPLEMENTED_V1.1.0",
-    "PHASE_11_AGENTIC_QUALITY_V1.1.1"
+    "PHASE_11_AGENTIC_QUALITY_V1.1.1",
+    "PHASE_12_OPENCODE_GRADE_HARNESS_V1.2.0"
   ],
-  "active_step": "AWAITING_CI_EMULATOR_E2E",
+  "active_step": "PHASE_12_OPENCODE_GRADE_HARNESS_V1.2.0_SHIPPED",
   "last_ci_run_id": 36331586530,
   "last_ci_status": "SUCCESS",
   "notes": [
@@ -38,7 +39,8 @@
     "v1.1.0 AURORA: the user's prototype-a-aurora.html (M3 Expressive, 10 screens) implemented across the app. Bar = the prototype itself; fresh-context critic verified 29/29 color tokens exact and drove 2 fix rounds (mirrored hero-corner CSS order, dead plan banner wired, static font instances after 2 variation-API dead ends, onboarding signature pieces, nav icons, sheet handle). Emulator E2E green twice consecutively; tab swaps asserted via unique markers (Crossfade fix after 06_tab_plan.png artifact). Light default per prototype. Screenshots: download/tsf-droid-aurora-e2e-screens (43 files) + prototype renders in download/aurora-prototype (14 files).",
     "PHASE 11 (v1.1.1): user screenshot showed 'tell' -> reasoning loop -> MALFORMED_RESPONSE card. GAUNTLET BAR: the OpenCode CLI experience on the same endpoint+model (named: sst/opencode; fetchable: probe scripts reproduce its wire shape; comparable: app answers/artifacts vs CLI-shaped probe output, fresh-context critic). Sub-bars: (1) wire: allowToolCalls requests carry tool_choice:auto (MockWebServer-asserted); (2) current-events chat question completes with real data and NO error card (cap8); (3) chat answers not truncated (4096 budget); (4) vague deep-research PDF is real + substantial >8KB or multi-page (cap9); (5) unit tests 648/648. Fixes: tool_choice auto by intent, runaway-reasoning fuse + chain walk, readTimeout 300s, chat maxTokens 4096, system-prompt rewrite, chat MALFORMED graceful degradation, research-grounded content engine, planning research pattern.",
     "PHASE 11 CLOSED (v1.1.1): bar = OpenCode CLI experience (probes reproduce its wire shape; fresh-context critic compares blind). All 6 root causes fixed (tool_choice auto by intent, runaway fuse + chain walk, 300s read timeout, 4096 chat budget, research-grounded content engine, chat MALFORMED graceful degradation). Blind critic: research PDF beat the bar; chat echo defect caught -> synthesis round added -> E2E green (36329075598: PDF 77KB/5pp, HTML 23.8KB). 650/650 unit tests. Released v1.1.1 (run 36331586530 SUCCESS).",
-    "v1.2.0 (versionCode 10): OpenCode-grade harness per user-approved spec - finish_reason parsing + auto-continuation (32k budget, 3 segments), multi-round tool loop (10 rounds, doom guard x3), CHAT/AGENT modes (read-only execution gate allowlist), HarnessPrompts, reasoning_effort selector (variants-driven), attachments (image downscale, text inline, PDF pages, video frames) + vision chain routing, new Aurora-violet droid icon, MIGRATION_11_12, unit tests 684 green (HarnessLoopTest, OpenCodeZenFinishReasonTest, HarnessPromptsTest, MessageAttachmentsTest), E2E cap10 chat-read-only / cap11 agent-write / cap12 attach+mode UI, write_file ToolCallBridge alias bug fixed"
+    "v1.2.0 (versionCode 10): OpenCode-grade harness per user-approved spec - finish_reason parsing + auto-continuation (32k budget, 3 segments), multi-round tool loop (10 rounds, doom guard x3), CHAT/AGENT modes (read-only execution gate allowlist), HarnessPrompts, reasoning_effort selector (variants-driven), attachments (image downscale, text inline, PDF pages, video frames) + vision chain routing, new Aurora-violet droid icon, MIGRATION_11_12, unit tests 684 green (HarnessLoopTest, OpenCodeZenFinishReasonTest, HarnessPromptsTest, MessageAttachmentsTest), E2E cap10 chat-read-only / cap11 agent-write / cap12 attach+mode UI, write_file ToolCallBridge alias bug fixed",
+    "v1.2.0 gauntlet COMPLETE: E2E run 36471928616 SUCCESS (16/16 incl. cap10 chat-read-only, cap11 agent-write, cap12 attach UI); unit 684 green (CI run 36471928659); two real defects fixed en route (top-bar overflow hid Approve button on 320dp; example.com page revision broke cap3 marker); release tag v1.2.0 pushed"
   ],
   "release": {
     "workflow": ".github/workflows/release.yml",
