@@ -1,6 +1,7 @@
 package com.tsfdroid.ai.core.llm
 
 import com.tsfdroid.ai.data.models.ChatMessage
+import com.tsfdroid.ai.data.models.parseMessageAttachments
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
@@ -31,6 +32,16 @@ sealed class StreamChunk {
 sealed class LLMStreamEvent {
     data class Content(val text: String) : LLMStreamEvent()
     data class Reasoning(val text: String) : LLMStreamEvent()
+
+    /**
+     * v1.2.0: emitted once at the end of a successful stream with the final
+     * OpenAI `finish_reason` ("stop", "length", "tool_calls", ...). The
+     * harness loop keys auto-continuation on `"length"` — the signal that
+     * the model hit its output budget mid-answer and the app must call the
+     * API again to finish the reply. Providers without a finish surface
+     * simply never emit it; consumers must treat absence as "stop".
+     */
+    data class Finished(val reason: String?) : LLMStreamEvent()
 }
 
 interface AIProvider {
@@ -107,6 +118,20 @@ data class LLMRequest(
      * (false) because it must answer with a JSON plan, not tool calls.
      */
     @Transient val allowToolCalls: Boolean = false,
+    /**
+     * v1.2.0 reasoning-effort selection (the OpenCode "variant" mechanism):
+     * when non-null AND the model's registry entry lists this level, the
+     * provider sends `reasoning_effort` on the wire. Silently ignored for
+     * models without reasoning levels — the selector is real, not cosmetic.
+     */
+    @Transient val reasoningEffort: String? = null,
+    /**
+     * v1.2.0: the turn carries images the model must actually SEE. Providers
+     * route these requests along a vision-capable model chain (registry
+     * `modalities.input` contains "image") instead of whichever model is
+     * pinned — a text model would silently ignore the images.
+     */
+    @Transient val requireVision: Boolean = false,
     @Transient
     val providerConfig: ProviderRequestConfig? = null
 )
@@ -149,29 +174,65 @@ data class LLMResponse(
     val provider: String,
     val latencyMs: Long,
     /** Non-empty when the model answered with function tool calls. */
-    @Transient val toolCalls: List<LLMToolCall> = emptyList()
+    @Transient val toolCalls: List<LLMToolCall> = emptyList(),
+    /**
+     * v1.2.0: final OpenAI finish_reason of the stream ("stop", "length",
+     * "tool_calls", ...). Null when the provider does not surface one.
+     * `"length"` is the output-truncation signal the harness continuation
+     * loop acts on — never treat it as a complete answer.
+     */
+    @Transient val finishReason: String? = null
 )
+
+/**
+ * Builds the OpenAI wire shape for one user message body: the text part plus
+ * every image the message carries (screenshot, uploads) as `image_url` parts.
+ * Inline file text is appended to the text as structured blocks the model can
+ * quote from — the OpenCode pattern for non-image attachments.
+ */
+private fun buildUserContent(msg: ChatMessage): Any {
+    val images = msg.allImages()
+    val attachments = parseMessageAttachments(msg.attachmentsJson)
+    val inlineBlocks = attachments?.files?.mapNotNull { file ->
+        val text = file.inlineText?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        "[Attached file: ${file.name} (${file.mime})]\n${file.inlineText}"
+    }.orEmpty()
+    val notes = attachments?.notes.orEmpty()
+    val textWithAttachments = buildString {
+        append(msg.text)
+        inlineBlocks.forEach { block ->
+            append("\n\n")
+            append(block)
+        }
+        notes.forEach { note ->
+            append("\n\n[Attachment note: ")
+            append(note)
+            append("]")
+        }
+    }.ifBlank { msg.text }
+
+    if (images.isEmpty()) return textWithAttachments
+    val parts = mutableListOf<Map<String, Any>>(
+        mapOf("type" to "text", "text" to textWithAttachments)
+    )
+    for (base64 in images) {
+        parts.add(
+            mapOf(
+                "type" to "image_url",
+                "image_url" to mapOf("url" to "data:image/jpeg;base64,$base64")
+            )
+        )
+    }
+    return parts
+}
 
 fun List<ChatMessage>.toOpenAIMessages(systemPrompt: String): List<Map<String, Any>> {
     val messagesList = mutableListOf<Map<String, Any>>()
     messagesList.add(mapOf("role" to "system", "content" to systemPrompt))
     this.forEach { msg ->
         val role = if (msg.sender == ChatMessage.Sender.USER) "user" else "assistant"
-        if (msg.imageBase64 != null && role == "user") {
-            messagesList.add(
-                mapOf(
-                    "role" to role,
-                    "content" to listOf(
-                        mapOf("type" to "text", "text" to msg.text),
-                        mapOf(
-                            "type" to "image_url",
-                            "image_url" to mapOf(
-                                "url" to "data:image/jpeg;base64,${msg.imageBase64}"
-                            )
-                        )
-                    )
-                )
-            )
+        if (msg.sender == ChatMessage.Sender.USER && msg.allImages().isNotEmpty()) {
+            messagesList.add(mapOf("role" to role, "content" to buildUserContent(msg)))
         } else {
             messagesList.add(mapOf("role" to role, "content" to msg.text))
         }

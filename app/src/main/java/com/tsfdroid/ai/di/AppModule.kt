@@ -98,4 +98,14 @@ object AppModule {
         },
         hasAction = { action -> actionDispatcher.get().hasAction(action) }
     )
+
+    /** v1.2.0: the harness executes tools through the same real pipeline. */
+    @Provides
+    @Singleton
+    fun provideHarnessToolExecutor(
+        actionDispatcher: dagger.Lazy<ActionDispatcher>
+    ): com.tsfdroid.ai.core.agent.HarnessToolExecutor =
+        com.tsfdroid.ai.core.agent.HarnessToolExecutor { action, params, context ->
+            actionDispatcher.get().execute(action, params, context)
+        }
 }

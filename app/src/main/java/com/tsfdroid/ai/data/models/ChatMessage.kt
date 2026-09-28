@@ -24,9 +24,61 @@ data class ChatMessage(
      * tappable file card with Open/Share — created artifacts are files a
      * user can open directly from the chat, never just a path in text.
      */
-    val attachmentJson: String? = null
+    val attachmentJson: String? = null,
+    /**
+     * v1.2.0 user uploads: JSON [MessageAttachments] carried on the message
+     * the user attached files/images to. Images are pre-processed, send-ready
+     * base64 JPEGs; text files carry their inline text; PDFs/videos arrive as
+     * rendered page/frame images plus a note. Null for messages without uploads.
+     */
+    val attachmentsJson: String? = null
 ) {
     enum class Sender {
         USER, AGENT
     }
+
+    /** Parsed [attachmentsJson]; null when the message carries no uploads. */
+    fun attachments(): MessageAttachments? = parseMessageAttachments(attachmentsJson)
+
+    /** Every send-ready image on this message: screenshot + uploaded images. */
+    fun allImages(): List<String> = buildList {
+        imageBase64?.let(::add)
+        attachments()?.images?.let { addAll(it) }
+    }
 }
+
+/** v1.2.0: user-uploaded content carried on a [ChatMessage]. */
+@Serializable
+data class MessageAttachments(
+    /** Send-ready base64 JPEG images (already downscaled/normalized). */
+    val images: List<String> = emptyList(),
+    /** Metadata + (optionally) inline text for document/code uploads. */
+    val files: List<AttachmentFile> = emptyList(),
+    /** Human/model-readable processing notes ("PDF page images", "video frames"). */
+    val notes: List<String> = emptyList()
+) {
+    val hasImages: Boolean get() = images.isNotEmpty()
+    val isEmpty: Boolean get() = images.isEmpty() && files.isEmpty() && notes.isEmpty()
+}
+
+@Serializable
+data class AttachmentFile(
+    val name: String,
+    val mime: String,
+    val size: Long = 0,
+    /** Extracted text content (capped) for text-like files; null otherwise. */
+    val inlineText: String? = null
+)
+
+private val attachmentsJsonFormat = kotlinx.serialization.json.Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
+
+fun parseMessageAttachments(json: String?): MessageAttachments? {
+    if (json.isNullOrBlank()) return null
+    return runCatching { attachmentsJsonFormat.decodeFromString<MessageAttachments>(json) }.getOrNull()
+}
+
+fun serializeMessageAttachments(attachments: MessageAttachments): String =
+    attachmentsJsonFormat.encodeToString(MessageAttachments.serializer(), attachments)

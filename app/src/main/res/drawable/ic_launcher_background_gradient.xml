@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v1.2.0 launcher background: Aurora-violet diagonal gradient. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="#8B7BFF"
+        android:centerColor="#6D5DF6"
+        android:endColor="#5B45E0" />
+</shape>

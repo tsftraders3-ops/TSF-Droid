@@ -1,6 +1,7 @@
 package com.tsfdroid.ai.ui.viewmodel
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tsfdroid.ai.core.agent.AgentLoop
@@ -8,10 +9,13 @@ import com.tsfdroid.ai.core.agent.AgentState
 import com.tsfdroid.ai.core.agent.ChatErrorPrimaryAction
 import com.tsfdroid.ai.core.agent.ChatErrorUiState
 import com.tsfdroid.ai.core.agent.primaryAction
+import com.tsfdroid.ai.core.attachments.AttachmentProcessor
 import com.tsfdroid.ai.data.models.AutoMode
 import com.tsfdroid.ai.data.models.ChatMessage
+import com.tsfdroid.ai.data.models.ChatMode
 import com.tsfdroid.ai.data.models.LLMConfig
 import com.tsfdroid.ai.data.models.resolvedAutoMode
+import com.tsfdroid.ai.data.models.serializeMessageAttachments
 import com.tsfdroid.ai.data.repository.ChatSession
 import com.tsfdroid.ai.data.repository.ConversationRepository
 import com.tsfdroid.ai.data.repository.SettingsRepository
@@ -28,7 +32,8 @@ import javax.inject.Inject
 class ChatViewModel @Inject constructor(
     private val agentLoop: AgentLoop,
     private val conversationRepository: ConversationRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val attachmentProcessor: AttachmentProcessor
 ) : ViewModel() {
 
     val llmConfig: StateFlow<LLMConfig> = settingsRepository.llmConfig
@@ -166,9 +171,102 @@ class ChatViewModel @Inject constructor(
     }
 
     fun sendMessage(query: String, context: Context) {
-        if (query.isBlank()) return
+        if (query.isBlank() && pendingAttachments.value.isEmpty()) return
         val sessionId = pinTaskSessionSnapshot()
-        agentLoop.processQuery(query, context, sessionId)
+        val pending = pendingAttachments.value.toList()
+        val text = query.trim()
+        viewModelScope.launch {
+            // v1.2.0: process uploads BEFORE the turn starts so the user
+            // message is persisted once, complete with its attachments.
+            val attachmentsJson = if (pending.isEmpty()) {
+                null
+            } else {
+                runCatching {
+                    serializeMessageAttachments(attachmentProcessor.process(pending))
+                }.getOrNull()
+            }
+            pendingAttachments.value = emptyList()
+            val body = if (text.isBlank() && attachmentsJson != null) {
+                // Image-only / file-only sends still need a turn instruction.
+                "Please read and analyze the attached content."
+            } else {
+                text
+            }
+            agentLoop.processQuery(body, context, sessionId, attachmentsJson)
+        }
+    }
+
+    // ── v1.2.0 Chat/Agent mode + effort + attachments ────────────────────
+
+    /** Files/images picked but not sent yet, shown above the chat field. */
+    val pendingAttachments = MutableStateFlow<List<AttachmentProcessor.Pending>>(emptyList())
+
+    fun addPendingAttachments(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val resolved = uris.mapNotNull { uri ->
+            runCatching { attachmentProcessor.describe(uri, "file") }.getOrNull()
+        }
+        // Cap the batch: token budget and per-turn processing time stay sane.
+        pendingAttachments.value = (pendingAttachments.value + resolved).take(MAX_PENDING_ATTACHMENTS)
+    }
+
+    fun removePendingAttachment(index: Int) {
+        pendingAttachments.value = pendingAttachments.value.filterIndexed { i, _ -> i != index }
+    }
+
+    fun clearPendingAttachments() {
+        pendingAttachments.value = emptyList()
+    }
+
+    /** Chip tap: CHAT <-> AGENT. Persisted; null-tolerant (default AGENT). */
+    fun cycleChatMode() {
+        viewModelScope.launch {
+            settingsRepository.updateConfig { current ->
+                current.copy(
+                    chatMode = when (ChatMode.fromNullable(current.chatMode)) {
+                        ChatMode.CHAT -> ChatMode.AGENT
+                        ChatMode.AGENT -> ChatMode.CHAT
+                    }
+                )
+            }
+        }
+    }
+
+    /**
+     * The effort levels the ACTIVE model actually supports (OpenCode reads
+     * the same models.dev variants). Empty when the model has no reasoning
+     * levels — the UI then renders the selector as disabled instead of
+     * offering a fake choice.
+     */
+    val availableEffortLevels: StateFlow<List<String>> = mapConfig { config ->
+        val modelId = config.activeModel
+        val cached = config.modelCache[config.activeProvider].orEmpty()
+            .firstOrNull { it.id == modelId }?.reasoningLevels.orEmpty()
+        cached.filter { it.isNotBlank() }.map { it.lowercase() }.distinct()
+    }
+
+    private fun <T> mapConfig(
+        transform: (LLMConfig) -> T
+    ): StateFlow<T> = kotlinx.coroutines.flow.flow {
+        settingsRepository.llmConfig.collect { emit(transform(it)) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), transform(LLMConfig()))
+
+    /** Cycles effort: default -> levels… -> default. No-op when unsupported. */
+    fun cycleEffortLevel() {
+        val levels = availableEffortLevels.value
+        if (levels.isEmpty()) return
+        viewModelScope.launch {
+            settingsRepository.updateConfig { current ->
+                val next = when (val currentLevel = current.reasoningEffort?.lowercase()) {
+                    null -> levels.first()
+                    else -> {
+                        val index = levels.indexOf(currentLevel)
+                        if (index == levels.lastIndex) null else levels[index + 1]
+                    }
+                }
+                current.copy(reasoningEffort = next)
+            }
+        }
     }
 
     /**
@@ -283,6 +381,11 @@ class ChatViewModel @Inject constructor(
     // the time a user can tap switch/delete on a session row, its value is current.
     private fun isCurrentSession(sessionId: String): Boolean =
         sessions.value.any { it.id == sessionId && it.isCurrent }
+
+    companion object {
+        /** Max files in one pending batch — keeps token budget + processing sane. */
+        private const val MAX_PENDING_ATTACHMENTS = 6
+    }
 
     /**
      * Cancels whatever the agent is currently doing without touching the

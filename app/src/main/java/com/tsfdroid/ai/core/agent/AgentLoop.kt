@@ -9,10 +9,12 @@ import com.tsfdroid.ai.core.llm.LLMRequest
 import com.tsfdroid.ai.core.llm.LLMResponse
 import com.tsfdroid.ai.core.llm.LatencyBudgetStatus
 import com.tsfdroid.ai.core.llm.ResponseFormat
+import com.tsfdroid.ai.core.llm.prompts.HarnessPrompts
 import com.tsfdroid.ai.core.llm.prompts.PlanningPrompts
 import com.tsfdroid.ai.core.memory.MemoryManager
 import com.tsfdroid.ai.core.memory.ExecutionHistoryPrivacy
 import com.tsfdroid.ai.data.models.AutoMode
+import com.tsfdroid.ai.data.models.ChatMode
 import com.tsfdroid.ai.data.models.ChatMessage
 import com.tsfdroid.ai.data.models.Plan
 import com.tsfdroid.ai.data.models.PlanStatus
@@ -45,7 +47,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import com.tsfdroid.ai.core.llm.LLMStreamEvent
 import com.tsfdroid.ai.core.llm.Tool
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.tsfdroid.ai.core.util.NetworkErrorFormatter
 import com.tsfdroid.ai.core.llm.error.LLMError
 import com.tsfdroid.ai.core.llm.error.LLMException
@@ -58,11 +64,18 @@ private const val MAX_INCOMPLETE_MESSAGE_IDS = 100
 /** Tail length of the live thinking trace published during planning. */
 private const val LIVE_THINKING_TAIL = 1500
 /**
- * v1.0.6: bounded rounds for the chat-path tool loop (model tool calls →
- * native execution → grounded re-ask). Four rounds is generous for the
- * read/shell patterns reasoning models emit and can never run away.
+ * v1.2.0: bounded rounds for the chat-path tool loop now live in
+ * [HarnessLoop] (OpenCode-style: tool rounds + continuation + doom guard).
+ * The plan-path budget is unchanged.
  */
-private const val MAX_CHAT_TOOL_ROUNDS = 4
+
+/**
+ * v1.2.0: chat-path context window. The harness shares the conversation with
+ * every call (OpenCode re-sends full history each step); 30 messages is the
+ * practical window for on-device requests before the provider's context clamp
+ * takes over.
+ */
+private const val CHAT_HISTORY_WINDOW = 30
 
 /**
  * Output budget for plan generation. Plans for content-creation tasks
@@ -106,7 +119,8 @@ class AgentLoop @Inject constructor(
     private val memoryManager: MemoryManager,
     private val conversationRepository: ConversationRepository,
     private val settingsRepository: com.tsfdroid.ai.data.repository.SettingsRepository,
-    private val reEvalEngine: dagger.Lazy<ReEvaluationEngine>
+    private val reEvalEngine: dagger.Lazy<ReEvaluationEngine>,
+    private val harnessLoop: HarnessLoop
 ) {
     private val scope = CoroutineScope(Dispatchers.Default)
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
@@ -249,7 +263,13 @@ class AgentLoop @Inject constructor(
      * pre-multi-session behavior: a null session is always assumed to answer whatever
      * prompt is currently pending, and otherwise falls back to resolving "current".
      */
-    fun processQuery(query: String, context: Context, explicitSessionId: String? = null) {
+    fun processQuery(
+        query: String,
+        context: Context,
+        explicitSessionId: String? = null,
+        /** v1.2.0: JSON [MessageAttachments] the user uploaded with this message. */
+        attachmentsJson: String? = null
+    ) {
         // v1.0.6: capture the application context for artifact-card emission
         // and the chat tool loop (Context is not threaded everywhere).
         appContext = context.applicationContext
@@ -319,7 +339,8 @@ class AgentLoop @Inject constructor(
                     text = query,
                     sender = ChatMessage.Sender.USER,
                     modelBadge = null,
-                    imageBase64 = screenshotBase64
+                    imageBase64 = screenshotBase64,
+                    attachmentsJson = attachmentsJson
                 )
                 memoryManager.storeMessage(userMsg, sessionId)
                 conversationRepository.insertMessage(sessionId, userMsg)
@@ -396,6 +417,20 @@ class AgentLoop @Inject constructor(
                 // earlier request must not outlive the request it described.
                 _chatError.value = null
                 _agentState.value = AgentState.Thinking
+
+                // v1.2.0 CHAT MODE: the read-only conversational mode skips the
+                // whole action-routing cascade (complexity → alias shortcuts →
+                // LLM intent router) — chat mode has no device actions to route,
+                // and skipping the LLM router removes a full round trip per
+                // message (the latency complaint). Everything goes straight to
+                // the harness chat path with read-only tools.
+                val chatMode = ChatMode.fromNullable(
+                    runCatching { settingsRepository.llmConfig.first().chatMode }.getOrNull()
+                )
+                if (chatMode == ChatMode.CHAT) {
+                    executeSimpleQuery(userMsg, sessionId)
+                    return
+                }
 
                 // 0. Check if this is a complex, multi-step query
                 //    If so, skip ALL shortcuts and let the LLM planner handle it properly
@@ -531,63 +566,52 @@ class AgentLoop @Inject constructor(
         try {
             val provider = llmProviderFactory.getActiveProvider()
             val relevantContext = memoryManager.getRelevantContext(userMsg.text)
-            val autoModeLabel = settingsRepository.llmConfig.first().approvalSettings().mode.name
+            val config = settingsRepository.llmConfig.first()
+            val mode = ChatMode.fromNullable(config.chatMode)
+            val autoModeLabel = config.approvalSettings().mode.name
+            val appCtx = contextOrNull() ?: run {
+                _agentState.value = AgentState.Idle
+                return
+            }
 
-            val systemPrompt = """
-                You are TSF Droid, a capable Android AI assistant with real device and web tools.
-                Talk like a real person — warm, natural, never robotic.
+            // v1.2.0: the harness system prompt — mode-aware, carrying the tool
+            // contract, the continuation protocol, and the artifact quality bar.
+            val systemPrompt = HarnessPrompts.harnessSystemPrompt(
+                mode = mode,
+                autoModeLabel = autoModeLabel,
+                relevantContext = relevantContext,
+                dateTimeLine = currentDateTimeLine()
+            )
 
-                ANSWER LENGTH — match the question:
-                - Casual small talk ("hi", "tell me a fun fact"): 2-4 sentences.
-                - Explanations, opinions, how-tos: a thorough, well-structured answer
-                  (short paragraphs or bullet points, key facts first). Never stop
-                  mid-sentence; finish the full answer.
-                - Questions about current events, prices, dates, scores, weather: ALWAYS
-                  call web_search first, then answer from the results with sources.
-                  Never answer current-info questions from memory, and never say
-                  "let me search" without actually calling the tool.
-
-                REAL TOOL ACCESS: your tool calls are EXECUTED by the app and their
-                results are returned to you — act like OpenCode/Claude Code, not a chatbot:
-                - write_file {path, content} — write a real file (HTML pages, CSV, anything);
-                  put the COMPLETE content in content, never a placeholder.
-                - create_pdf {path, title, content} — generate a real PDF document.
-                - web_search {query} — live in-app web search; returns titles/snippets/URLs.
-                - fetch_url {url} — fetches a page's real text in-app (current data, prices).
-                - read {path} — read a workspace file. shell — supports cat, ls, mkdir -p,
-                  curl, and heredoc writes (cat > path << 'EOF' ... EOF).
-                When the user asks you to create or fetch something, CALL THE TOOL and use the
-                result in your answer. Never say you cannot — never only PROMISE to do it.
-
-                QUALITY BAR for produced artifacts (HTML/PDF/files):
-                - HTML: a complete, valid document (doctype, meta viewport, styled with
-                  modern CSS, responsive, readable typography, real content — never lorem
-                  ipsum, never TODO placeholders).
-                - PDF/reports: a real structure — title, intro, sections with headings,
-                  specifics from research, and a sources list with URLs.
-                - Cite sources for researched facts with their URLs.
-
-                Never dump raw error messages or technical details. If something goes wrong, say it simply and suggest what to do next.
-
-                Plan auto-approval mode is currently: $autoModeLabel (OFF = every plan needs manual approval, AUTO = allowlisted plans run automatically, YOLO = plans run automatically except destructive actions, which still need confirmation). You cannot change this mode; the user changes it in Settings or via the chat mode chip.
-                
-                Context about user and device state:
-                $relevantContext
-            """.trimIndent()
-
-            val lastMsgs = conversationRepository.getLastMessages(sessionId, 10).map { msg ->
-                val withImage = if (msg.id == userMsg.id) {
-                    msg.copy(imageBase64 = userMsg.imageBase64)
+            // v1.2.0: shared context — 30 messages ride along on every call
+            // (the OpenCode pattern re-sends history each step; the old window
+            // was 10, which is why the assistant "forgot" everything before it).
+            var lastMsgs = conversationRepository.getLastMessages(sessionId, CHAT_HISTORY_WINDOW).map { msg ->
+                val withUploads = if (msg.id == userMsg.id) {
+                    msg.copy(
+                        imageBase64 = userMsg.imageBase64,
+                        attachmentsJson = userMsg.attachmentsJson
+                    )
                 } else {
                     msg
                 }
-                if (incompleteMessageIds.contains(withImage.id) &&
-                    withImage.sender == ChatMessage.Sender.AGENT
+                if (incompleteMessageIds.contains(withUploads.id) &&
+                    withUploads.sender == ChatMessage.Sender.AGENT
                 ) {
-                    withImage.copy(text = "[incomplete assistant reply]\n${withImage.text}")
+                    withUploads.copy(text = "[incomplete assistant reply]\n${withUploads.text}")
                 } else {
-                    withImage
+                    withUploads
                 }
+            }
+
+            // v1.2.0 vision routing: when the turn (or recent history) carries
+            // images, requests must reach a vision-capable model. When the
+            // registry offers NONE, degrade the images into an honest text
+            // note instead of letting a text model silently answer about
+            // nothing.
+            val turnHasImages = lastMsgs.any { it.allImages().isNotEmpty() }
+            if (turnHasImages && !harnessLoop.hasVisionSupport()) {
+                lastMsgs = lastMsgs.map(::degradeImagesToNote)
             }
 
             val replyId = UUID.randomUUID().toString()
@@ -595,6 +619,7 @@ class AgentLoop @Inject constructor(
             var currentThinkingText = ""
             var inserted = false
             var lastDbWriteAt = 0L
+            var lastFinishReason: String? = null
             val replyMsg = ChatMessage(
                 id = replyId,
                 text = currentReplyText,
@@ -620,37 +645,56 @@ class AgentLoop @Inject constructor(
                 inserted = true
             }
 
+            // v1.2.0: one shared harness config for every call this turn makes.
+            // maxTokens = the model's REAL output capability (OpenCode's 32k
+            // ceiling), registry-clamped per model by the provider — never an
+            // artificial 4k/8k app-side cut again.
+            val turnConfig = HarnessLoop.TurnConfig(
+                systemPrompt = systemPrompt,
+                history = lastMsgs,
+                tools = chatToolsFor(mode),
+                context = appCtx,
+                readOnly = mode == ChatMode.CHAT,
+                temperature = 0.4f,
+                maxTokens = HarnessLoop.OUTPUT_TOKEN_MAX,
+                reasoningEffort = config.reasoningEffort,
+                onArtifact = { action, params, result ->
+                    emitArtifactCardIfNeeded(action, params, result, sessionId)
+                }
+            )
+
             try {
                 provider.streamCompleteDetailed(
                     LLMRequest(
                         systemPrompt = systemPrompt,
                         messages = lastMsgs,
-                        temperature = 0.5f,
-                        // v1.1.1: 500 truncated real answers mid-sentence (the
-                        // field complaint "unnecessarily small outputs"; live
-                        // probe: a 1500-char answer clipped at 500 tokens).
-                        // 4096 gives full answers; the provider still clamps
-                        // to the model's registry context window.
-                        maxTokens = 4096,
+                        temperature = 0.4f,
+                        // v1.2.0: the model's REAL output capability — no more
+                        // artificial app-side truncation. The provider clamps
+                        // to each model's registry max_output/context window.
+                        maxTokens = HarnessLoop.OUTPUT_TOKEN_MAX,
                         responseFormat = ResponseFormat.TEXT,
                         // v1.0.6: chat turns may answer with tool calls — when
-                        // they do, the streamed reply stays blank and the tool
-                        // loop below executes the calls natively.
+                        // they do, the streamed reply stays blank and the
+                        // harness below executes the calls natively.
                         allowToolCalls = true,
-                        tools = chatTools()
+                        tools = chatToolsFor(mode),
+                        reasoningEffort = config.reasoningEffort
                     )
                 ).collect { event ->
                     when (event) {
-                        is com.tsfdroid.ai.core.llm.LLMStreamEvent.Content -> {
+                        is LLMStreamEvent.Content -> {
                             if (event.text.isEmpty()) return@collect
                             currentReplyText += event.text
                             persistReply(force = true)
                         }
-                        is com.tsfdroid.ai.core.llm.LLMStreamEvent.Reasoning -> {
+                        is LLMStreamEvent.Reasoning -> {
                             currentThinkingText += event.text
                             _liveThinking.value = currentThinkingText.takeLast(LIVE_THINKING_TAIL)
                             persistReply(force = false)
                         }
+                        // v1.2.0: the finish signal the continuation loop keys on.
+                        is LLMStreamEvent.Finished -> lastFinishReason = event.reason
                     }
                 }
             } catch (streamError: CancellationException) {
@@ -676,23 +720,23 @@ class AgentLoop @Inject constructor(
                 // v1.1.1: a MALFORMED_RESPONSE with nothing on screen yet (no
                 // partial text) must not greet a casual chat turn with the
                 // scary red error card — the screenshot field failure. The
-                // tool loop below already knows how to recover tool-call
+                // harness below already knows how to recover tool-call
                 // answers; give the turn one more shot there, and only fall
                 // back to a plain conversational snag message when even that
                 // cannot produce an answer. Partial text + other errors keep
                 // the actionable error card (Retry/Dismiss).
                 if (streamError.error == LLMError.MalformedResponse && currentReplyText.isBlank()) {
-                    val toolLoopAnswer = runChatToolLoop(provider, systemPrompt, lastMsgs, sessionId)
-                    if (!toolLoopAnswer.isNullOrBlank()) {
+                    val harnessAnswer = harnessFallbackTurn(provider, turnConfig, lastMsgs)
+                    if (!harnessAnswer.isNullOrBlank()) {
                         val loopMsg = replyMsg.copy(
-                            text = toolLoopAnswer,
+                            text = harnessAnswer,
                             thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
                         )
                         conversationRepository.insertMessage(sessionId, loopMsg)
                         memoryManager.storeMessage(loopMsg, sessionId)
                         _chatError.value = null
-                        _agentState.value = AgentState.Speaking(toolLoopAnswer)
-                        onSpeakCallback?.invoke(toolLoopAnswer)
+                        _agentState.value = AgentState.Speaking(harnessAnswer)
+                        onSpeakCallback?.invoke(harnessAnswer)
                         return
                     }
                     val snagMsg = replyMsg.copy(
@@ -727,24 +771,22 @@ class AgentLoop @Inject constructor(
             _liveThinking.value = null
 
             if (!inserted || currentReplyText.isBlank()) {
-                // v1.0.6: a blank streamed reply is usually the model
-                // answering the harness contract with read/shell tool calls
-                // (the PDF field failure: 91 shell calls, zero prose, then a
-                // MALFORMED_RESPONSE card). Execute the mappable tool calls
-                // through the app's real action pipeline and finish the turn
-                // with the model's grounded final answer before ever
-                // surfacing an error.
-                val toolLoopAnswer = runChatToolLoop(provider, systemPrompt, lastMsgs, sessionId)
-                if (!toolLoopAnswer.isNullOrBlank()) {
+                // v1.0.6→v1.2.0: a blank streamed reply is usually the model
+                // answering the harness contract with read/shell tool calls.
+                // The harness executes the mappable tool calls through the
+                // app's real action pipeline (with continuation support) and
+                // finishes the turn with the model's grounded final answer.
+                val harnessAnswer = harnessFallbackTurn(provider, turnConfig, lastMsgs)
+                if (!harnessAnswer.isNullOrBlank()) {
                     val loopMsg = replyMsg.copy(
-                        text = toolLoopAnswer,
+                        text = harnessAnswer,
                         thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
                     )
                     conversationRepository.insertMessage(sessionId, loopMsg)
                     memoryManager.storeMessage(loopMsg, sessionId)
                     _chatError.value = null
-                    _agentState.value = AgentState.Speaking(toolLoopAnswer)
-                    onSpeakCallback?.invoke(toolLoopAnswer)
+                    _agentState.value = AgentState.Speaking(harnessAnswer)
+                    onSpeakCallback?.invoke(harnessAnswer)
                     return
                 }
                 // v1.0.6 (loop-16): a snagged tool loop must NOT surface the
@@ -760,6 +802,34 @@ class AgentLoop @Inject constructor(
                 _chatError.value = null
                 _agentState.value = AgentState.Idle
                 return
+            }
+
+            // v1.2.0 CONTINUATION — the "no artificial output limit" guarantee.
+            // The streamed answer hit the model's output budget mid-answer
+            // (finish_reason "length"): immediately call the API again with a
+            // CONTINUE instruction and append the segments until the answer is
+            // genuinely complete. The user sees ONE full reply, never a
+            // silently truncated one.
+            if (lastFinishReason == HarnessLoop.FINISH_LENGTH) {
+                _liveThinking.value = "[harness] output limit reached — continuing the answer…"
+                val result = harnessLoop.continueAnswer(
+                    provider = provider,
+                    config = turnConfig.copy(history = lastMsgs),
+                    historySoFar = lastMsgs,
+                    firstSegment = currentReplyText
+                ) { status -> _liveThinking.value = status }
+                _liveThinking.value = null
+                if (result.content.isNotBlank() && result.content != currentReplyText) {
+                    currentReplyText = result.content
+                    persistReply(force = true)
+                }
+                if (result.stillTruncated) {
+                    // Honest boundary after the continuation budget: tell the
+                    // user instead of pretending the essay finished.
+                    currentReplyText += "\n\n[Answer continued across ${result.continuationSegments + 1} " +
+                        "output segments and is still not complete — say \"continue\" and I'll keep going.]"
+                    persistReply(force = true)
+                }
             }
 
             val finalReplyMsg = replyMsg.copy(
@@ -1050,6 +1120,9 @@ class AgentLoop @Inject constructor(
                         thinking += event.text
                         _liveThinking.value = thinking.takeLast(LIVE_THINKING_TAIL)
                     }
+                    // v1.2.0: finish signal not needed here — planner-style
+                    // aggregation ignores it.
+                    is com.tsfdroid.ai.core.llm.LLMStreamEvent.Finished -> Unit
                 }
             }
         } finally {
@@ -1073,146 +1146,106 @@ class AgentLoop @Inject constructor(
      * model, and the turn finishes with the grounded final answer. Bounded
      * rounds; null when the loop cannot produce an answer.
      */
-    private suspend fun runChatToolLoop(
+    /**
+     * v1.2.0: runs one full harness turn (tool rounds + continuations) as the
+     * chat fallback path. Replaces the old fixed-4-round runChatToolLoop.
+     */
+    private suspend fun harnessFallbackTurn(
         provider: LLMProvider,
-        systemPrompt: String,
-        history: List<ChatMessage>,
-        sessionId: String
+        turnConfig: HarnessLoop.TurnConfig,
+        history: List<ChatMessage>
     ): String? {
-        val context = contextOrNull() ?: return null
-        var messages = history
-        var round = 0
-        var synthesisAttempted = false
-        while (round < MAX_CHAT_TOOL_ROUNDS) {
-            round++
-            _liveThinking.value = "[tool] running the model's tool calls (round $round)…"
-            val response = try {
-                provider.complete(
-                    LLMRequest(
-                        systemPrompt = systemPrompt,
-                        messages = messages,
-                        temperature = 0.4f,
-                        // Full artifact budget: a write_file call carries the
-                        // entire file content (the 500-token chat budget
-                        // truncates a website heredoc mid-JSON).
-                        maxTokens = 8192,
-                        responseFormat = ResponseFormat.TEXT,
-                        allowToolCalls = true,
-                        tools = chatTools()
-                    )
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                android.util.Log.w("AgentLoop", "Tool loop LLM call failed: ${e.localizedMessage}")
-                _liveThinking.value = null
-                return null
-            }
+        val result = try {
+            harnessLoop.runTurn(
+                provider,
+                turnConfig.copy(history = history)
+            ) { status -> _liveThinking.value = status }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("AgentLoop", "Harness fallback failed: ${e.localizedMessage}")
+            null
+        } finally {
             _liveThinking.value = null
-            if (response.content.isNotBlank()) {
-                // v1.1.1 blind-critic fix: after a web_search round the model
-                // often just ECHOES the raw result listing back as its
-                // "answer" (the cap8 field evidence: ten numbered listings
-                // with bing tracking URLs delivered to the user instead of a
-                // synthesized reply). Detect the echo and force one synthesis
-                // round; if the synthesis still comes back listing-shaped,
-                // deliver what we have rather than looping.
-                val echoedListing =
-                    response.content.startsWith("Top web results", ignoreCase = true) ||
-                        response.content.startsWith("Web results for", ignoreCase = true)
-                if (echoedListing && !synthesisAttempted && round < MAX_CHAT_TOOL_ROUNDS) {
-                    synthesisAttempted = true
-                    messages = messages + ChatMessage(
-                        id = UUID.randomUUID().toString(),
-                        text = "Do not repeat the raw result listing. Synthesize the search results " +
-                            "you received into a direct, complete answer to the user's question — " +
-                            "key facts and dates first, cite source URLs inline.",
-                        sender = ChatMessage.Sender.USER
-                    )
-                    continue
-                }
-                return response.content
-            }
-            if (response.toolCalls.isEmpty()) return null
-
-            messages = messages + ChatMessage(
-                id = UUID.randomUUID().toString(),
-                text = "[tool calls issued]",
-                sender = ChatMessage.Sender.AGENT
-            )
-            for (call in response.toolCalls) {
-                val mapping = ToolCallBridge.map(call)
-                val mapped = mapping.mapped
-                val result: ActionResult = if (mapped != null) {
-                    try {
-                        actionDispatcher.execute(mapped.action, mapped.params, context)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        ActionResult.Failure(e.localizedMessage ?: "Tool execution failed")
-                    }
-                } else {
-                    ActionResult.Failure(mapping.unsupportedReason ?: "Tool not available")
-                }
-                android.util.Log.i(
-                    "AgentLoop",
-                    "Tool loop ${call.name} -> ${mapped?.action ?: "unsupported"}: success=${result.success}"
-                )
-                if (result.success && mapped != null &&
-                    (mapped.action == "WRITE_FILE" || mapped.action == "CREATE_PDF")
-                ) {
-                    emitArtifactCardIfNeeded(mapped.action, mapped.params, result, sessionId)
-                }
-                messages = messages + ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    text = ToolCallBridge.renderToolResult(call, result.success, result.data ?: result.error ?: ""),
-                    sender = ChatMessage.Sender.USER
-                )
-            }
-            // v1.1.1 wrap-up nudge: live probes showed mimo happily issuing
-            // fresh web_search calls forever (the CLI-shaped bar harness hit
-            // the hop limit twice). On the second-to-last round, tell the
-            // model its research budget is done so the final call answers
-            // instead of the loop expiring into a null → snag message.
-            if (round == MAX_CHAT_TOOL_ROUNDS - 1) {
-                messages = messages + ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    text = "You have enough research. Answer the user's request now in full — " +
-                        "no more tool calls.",
-                    sender = ChatMessage.Sender.USER
-                )
-            }
         }
-        return null
+        return result?.content?.takeIf { it.isNotBlank() }
     }
 
     /**
-     * v1.0.6: the tool set advertised on chat requests (rides along after the
-     * mandatory harness pair — the endpoint accepts extra tools). The bridge
-     * maps them onto the same actions plans dispatch through.
+     * v1.2.0: the tool set advertised on chat requests, per mode (rides along
+     * after the mandatory harness pair — the endpoint accepts extra tools).
+     * CHAT mode advertises read-only tools only; the harness gate refuses
+     * anything else even if the model calls it anyway.
      */
-    private fun chatTools(): List<Tool> = listOf(
-        Tool(
-            name = "write_file",
-            description = "Write a real file on the device (HTML page, CSV, text). Provide the COMPLETE content.",
-            parameters = """{"type":"object","properties":{"path":{"type":"string","description":"relative path e.g. Documents/website/index.html"},"content":{"type":"string","description":"the complete file content"}},"required":["path","content"]}"""
-        ),
-        Tool(
-            name = "create_pdf",
-            description = "Generate a real PDF document from text content.",
-            parameters = """{"type":"object","properties":{"path":{"type":"string"},"title":{"type":"string"},"content":{"type":"string"}},"required":["content"]}"""
-        ),
-        Tool(
-            name = "web_search",
-            description = "Live in-app web search WITHOUT a browser: returns top result titles, snippets and URLs.",
-            parameters = """{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}"""
-        ),
-        Tool(
-            name = "fetch_url",
-            description = "Fetch a URL's page text in-app (current data, prices, articles).",
-            parameters = """{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}"""
+    private fun chatToolsFor(mode: ChatMode): List<Tool> = buildList {
+        add(
+            Tool(
+                name = "web_search",
+                description = "Live in-app web search WITHOUT a browser: returns top result titles, snippets and URLs.",
+                parameters = """{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}"""
+            )
         )
-    )
+        add(
+            Tool(
+                name = "fetch_url",
+                description = "Fetch a URL's page text in-app (current data, prices, articles).",
+                parameters = """{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}"""
+            )
+        )
+        add(
+            Tool(
+                name = "read_file",
+                description = "Read a workspace file's content (text, code, CSV, JSON).",
+                parameters = """{"type":"object","properties":{"path":{"type":"string","description":"relative path e.g. Documents/notes.txt"}},"required":["path"]}"""
+            )
+        )
+        add(
+            Tool(
+                name = "list_files",
+                description = "List the files in a workspace directory.",
+                parameters = """{"type":"object","properties":{"path":{"type":"string","description":"optional directory path"}},"required":[]}"""
+            )
+        )
+        if (mode == ChatMode.AGENT) {
+            add(
+                Tool(
+                    name = "write_file",
+                    description = "Write a real file on the device (HTML page, CSV, text). Provide the COMPLETE content.",
+                    parameters = """{"type":"object","properties":{"path":{"type":"string","description":"relative path e.g. Documents/website/index.html"},"content":{"type":"string","description":"the complete file content"}},"required":["path","content"]}"""
+                )
+            )
+            add(
+                Tool(
+                    name = "create_pdf",
+                    description = "Generate a real PDF document from text content.",
+                    parameters = """{"type":"object","properties":{"path":{"type":"string"},"title":{"type":"string"},"content":{"type":"string"}},"required":["content"]}"""
+                )
+            )
+        }
+    }
+
+    /** Localized date/time line for the harness system prompt. */
+    private fun currentDateTimeLine(): String =
+        SimpleDateFormat("EEEE, d MMMM yyyy, h:mm a", Locale.US).format(Date())
+
+    /**
+     * v1.2.0 vision degradation: when no vision-capable model is reachable,
+     * strip the images a message carries and append an honest note — the
+     * model must tell the user it cannot see them, never answer about
+     * nothing.
+     */
+    private fun degradeImagesToNote(msg: ChatMessage): ChatMessage {
+        val images = msg.allImages()
+        if (images.isEmpty()) return msg
+        val note = "\n\n[The user attached ${images.size} image(s) in this message, but no " +
+            "vision-capable model is currently available to view them. If the request depends " +
+            "on those images, say so honestly and ask the user to describe them or switch models.]"
+        return msg.copy(
+            imageBase64 = null,
+            attachmentsJson = null,
+            text = msg.text + note
+        )
+    }
 
     private suspend fun generatePlan(userMsg: ChatMessage, context: Context, sessionId: String) {
         try {

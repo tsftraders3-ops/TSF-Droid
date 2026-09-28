@@ -195,7 +195,11 @@ class OpenCodeZenProvider @Inject constructor(
         streamChain(
             request,
             onContent = { delta -> send(LLMStreamEvent.Content(delta)) },
-            onReasoning = { piece -> send(LLMStreamEvent.Reasoning(piece)) }
+            onReasoning = { piece -> send(LLMStreamEvent.Reasoning(piece)) },
+            // v1.2.0: the harness continuation loop keys on the final
+            // finish_reason — surface it exactly once, after the winner
+            // model's stream completes cleanly.
+            onFinished = { reason -> send(LLMStreamEvent.Finished(reason)) }
         )
     }
 
@@ -208,7 +212,8 @@ class OpenCodeZenProvider @Inject constructor(
     private suspend fun streamChain(
         request: LLMRequest,
         onContent: (suspend (String) -> Unit)?,
-        onReasoning: (suspend (String) -> Unit)?
+        onReasoning: (suspend (String) -> Unit)?,
+        onFinished: (suspend (String?) -> Unit)? = null
     ) {
         val startTime = System.currentTimeMillis()
         refreshApiKeySnapshot()
@@ -219,7 +224,7 @@ class OpenCodeZenProvider @Inject constructor(
 
         for ((index, model) in chain.withIndex()) {
             try {
-                executeStreamingCompletion(
+                val response = executeStreamingCompletion(
                     request,
                     model,
                     startTime,
@@ -231,6 +236,7 @@ class OpenCodeZenProvider @Inject constructor(
                     },
                     onReasoning = onReasoning
                 )
+                onFinished?.invoke(response.finishReason)
                 return
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
                 throw cancellation
@@ -298,7 +304,8 @@ class OpenCodeZenProvider @Inject constructor(
                     model = selectedModel,
                     provider = name,
                     latencyMs = System.currentTimeMillis() - startTime,
-                    toolCalls = first.toolCalls
+                    toolCalls = first.toolCalls,
+                    finishReason = first.finishReason
                 )
             }
             pump = runStreamAttempt(request, selectedModel, onDelta, onReasoning, sendToolChoice = true, appendNoToolGuard = true)
@@ -324,7 +331,8 @@ class OpenCodeZenProvider @Inject constructor(
                         model = selectedModel,
                         provider = name,
                         latencyMs = System.currentTimeMillis() - startTime,
-                        toolCalls = pump.toolCalls
+                        toolCalls = pump.toolCalls,
+                        finishReason = pump.finishReason
                     )
                 }
                 throw LLMErrorMapper.malformed(name, selectedModel)
@@ -337,7 +345,8 @@ class OpenCodeZenProvider @Inject constructor(
             model = selectedModel,
             provider = name,
             latencyMs = System.currentTimeMillis() - startTime,
-            toolCalls = pump.toolCalls
+            toolCalls = pump.toolCalls,
+            finishReason = pump.finishReason
         )
     }
 
@@ -348,7 +357,13 @@ class OpenCodeZenProvider @Inject constructor(
         val sawToolCall: Boolean,
         val bodyRejected: Boolean,
         val reasoning: String = "",
-        val toolCalls: List<com.tsfdroid.ai.core.llm.LLMToolCall> = emptyList()
+        val toolCalls: List<com.tsfdroid.ai.core.llm.LLMToolCall> = emptyList(),
+        /**
+         * v1.2.0: last non-null `finish_reason` on the stream ("stop",
+         * "length", "tool_calls", ...). The continuation loop keys on
+         * "length" — the truncation signal the app must act on.
+         */
+        val finishReason: String? = null
     ) {
         /** Tool-call answer with zero prose: the corrective-retry trigger. */
         val answeredWithToolCalls: Boolean
@@ -439,6 +454,16 @@ class OpenCodeZenProvider @Inject constructor(
             // round and a grounded prose answer on the next.
             requestBodyMap["tool_choice"] = if (request.allowToolCalls) "auto" else "none"
         }
+        // v1.2.0 reasoning-effort (the OpenCode variant mechanism): sent ONLY
+        // when the model's registry entry actually lists the requested level —
+        // a selector that fires unsupported levels at the endpoint would just
+        // burn attempts. Real effort control, never a cosmetic flag.
+        val requestedEffort = request.reasoningEffort?.trim()?.takeIf { it.isNotEmpty() }
+        if (requestedEffort != null &&
+            spec?.reasoningLevels?.any { it.equals(requestedEffort, ignoreCase = true) } == true
+        ) {
+            requestBodyMap["reasoning_effort"] = requestedEffort.lowercase()
+        }
         // Note: response_format is deliberately NOT sent — the official
         // client never does, and free-tier models reject the field.
 
@@ -516,6 +541,7 @@ class OpenCodeZenProvider @Inject constructor(
             val reasoning = StringBuilder()
             var tokensUsed = 0
             var sawToolCall = false
+            var lastFinishReason: String? = null
             val toolCallFragments = mutableListOf<MutableList<Pair<Int, String>>>()
 
             BufferedReader(InputStreamReader(source.inputStream(), StandardCharsets.UTF_8)).useLines { lines ->
@@ -541,7 +567,22 @@ class OpenCodeZenProvider @Inject constructor(
                     val first = choices[0]
                     if (!first.isJsonObject) continue
                     val delta = first.asJsonObject.get("delta")?.takeIf { it.isJsonObject }?.asJsonObject
-                        ?: continue
+                    // v1.2.0: finish_reason rides on choices[0] (null until the
+                    // final chunk, where delta is often empty/null). Parse it
+                    // BEFORE the null-delta skip: "length" here means the
+                    // model hit its output budget mid-answer — the harness
+                    // MUST continue the reply instead of delivering it cut off.
+                    if (delta == null) {
+                        first.asJsonObject.get("finish_reason")
+                            ?.takeIf { it.isJsonPrimitive }?.asString
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { lastFinishReason = it }
+                        continue
+                    }
+                    first.asJsonObject.get("finish_reason")
+                        ?.takeIf { it.isJsonPrimitive }?.asString
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { lastFinishReason = it }
                     // Reasoning deltas (`reasoning` / `reasoning_content`) are
                     // model thinking, not answer content: v1.0.5 forwards them
                     // to [onReasoning] for the THINKING UI, but they are never
@@ -606,7 +647,8 @@ class OpenCodeZenProvider @Inject constructor(
                 sawToolCall = sawToolCall,
                 bodyRejected = false,
                 reasoning = reasoning.toString(),
-                toolCalls = assembleToolCalls(toolCallFragments)
+                toolCalls = assembleToolCalls(toolCallFragments),
+                finishReason = lastFinishReason
             )
         }
     }
@@ -741,6 +783,37 @@ class OpenCodeZenProvider @Inject constructor(
     private suspend fun resolveModelChain(request: LLMRequest): List<String> {
         val pinned = request.model?.takeIf { it.isNotBlank() && it != "custom-model" }
         val hierarchy = resolveHierarchy()
+        // v1.2.0 vision routing: when the turn carries images the model must
+        // actually SEE, walk a vision-capable chain (registry modalities.input
+        // contains "image"). A text model would silently ignore the images
+        // and answer about nothing — worse than an honest reroute.
+        if (request.requireVision) {
+            val specs = runCatching { registry.specs() }.getOrDefault(emptyMap())
+            val visionCapable = { id: String ->
+                specs[id]?.inputModalities?.contains("image") == true
+            }
+            val visionChain = hierarchy.filter(visionCapable)
+            if (visionChain.isNotEmpty()) {
+                if (pinned != null && visionCapable(pinned)) {
+                    // A vision-capable pin still leads its own chain.
+                    return if (hasUserKey()) {
+                        listOf(pinned)
+                    } else {
+                        listOf(pinned) + visionChain.filter { it != pinned }
+                    }
+                }
+                if (hasUserKey() && pinned != null) {
+                    // Paid-tier users explicitly own their pin, even when it
+                    // cannot see images (the harness degrades in-message).
+                    return listOf(pinned)
+                }
+                // Keyless + non-vision pin (or no pin): the vision chain
+                // answers THIS turn; the pin resumes on the next text turn.
+                return visionChain
+            }
+            // No registry-known vision model: fall through to the normal
+            // chain — graceful in-message degradation instead of failing.
+        }
         if (pinned == null) return hierarchy
         // A pinned model LEADS the chain; it does not die alone. A persisted
         // selection can go stale between releases (the v1.0.1 failure: the

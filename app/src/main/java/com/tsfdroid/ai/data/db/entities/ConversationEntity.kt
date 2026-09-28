@@ -21,6 +21,9 @@ data class ConversationEntity(
     // v1.0.6: file attachment card JSON {"name","path","mime","size"} for
     // artifacts the agent created (WRITE_FILE / CREATE_PDF). Null otherwise.
     val attachmentJson: String? = null,
+    // v1.2.0: user uploads (images / documents / processed PDF & video frames)
+    // as JSON [MessageAttachments]. Null for messages without uploads.
+    val attachmentsJson: String? = null,
     // Which chat history this message belongs to. See ChatSessionEntity.
     val sessionId: String
 )

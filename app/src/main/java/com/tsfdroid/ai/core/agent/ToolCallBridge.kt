@@ -39,9 +39,19 @@ object ToolCallBridge {
      */
     fun map(call: LLMToolCall): Mapping {
         return when (call.name.lowercase().trim()) {
-            "read" -> mapRead(parseArgs(call.arguments))
+            "read", "read_file" -> mapRead(parseArgs(call.arguments))
             "shell" -> mapShell(parseArgs(call.arguments))
-            "write" -> {
+            "list_files", "ls_dir" -> {
+                val args = parseArgs(call.arguments)
+                val dir = args["path"] ?: args["dir"] ?: args["directory"] ?: ""
+                Mapping(
+                    MappedToolCall("LIST_FILES", if (dir.isBlank()) emptyMap() else mapOf("path" to dir))
+                )
+            }
+            // v1.2.0 fix: the advertised name is literally "write_file" —
+            // only the bare "write" alias was mapped before, so every native
+            // write_file tool call landed in the "not available" branch.
+            "write_file", "write" -> {
                 val args = parseArgs(call.arguments)
                 Mapping(MappedToolCall("WRITE_FILE", mapOf("filePath" to args.path(), "content" to args.content())))
             }

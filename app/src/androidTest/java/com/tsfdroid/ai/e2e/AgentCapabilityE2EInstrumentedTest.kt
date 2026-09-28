@@ -1015,6 +1015,171 @@ class AgentCapabilityE2EInstrumentedTest {
         )
     }
 
+    // ---------- v1.2.0: the OpenCode-grade harness features ----------
+
+    /**
+     * Taps the top-bar CHAT/AGENT mode chip until [target] is showing.
+     * The chip label IS the state (v1.2.0), so verification is trivial.
+     */
+    private fun ensureMode(target: String): Boolean {
+        repeat(4) {
+            device.runWatchers()
+            val current = device.findObjects(By.text(Pattern.compile(".+")))
+                .firstOrNull {
+                    runCatching { it.applicationPackage }.getOrNull() == appPackage &&
+                        (it.text.trim() == "CHAT" || it.text.trim() == "AGENT")
+                }?.text?.trim()
+            if (current == target) return true
+            val chip = device.findObjects(By.text(Pattern.compile(".+")))
+                .firstOrNull {
+                    runCatching { it.applicationPackage }.getOrNull() == appPackage &&
+                        (it.text.trim() == "CHAT" || it.text.trim() == "AGENT")
+                }
+                ?: return false
+            val bounds = runCatching { chip.visibleBounds }.getOrNull()
+            if (bounds != null && !bounds.isEmpty) {
+                device.click(bounds.centerX(), bounds.centerY())
+            } else {
+                runCatching { chip.click() }
+            }
+            device.waitForIdle(1_500)
+        }
+        return false
+    }
+
+    /** A fresh chat session via the app's own "+" button (cap3 pattern). */
+    private fun freshChatSession() {
+        runCatching {
+            device.findObject(By.desc("New chat"))?.click()
+            device.waitForIdle(2_500)
+        }
+    }
+
+    /**
+     * THE read-only guarantee, end to end on the live model: in CHAT mode a
+     * write ask must produce a refusal-style reply and NEVER a workspace
+     * file. This is the execution-gate proof — even if the model disobeys
+     * its prompt and calls write_file anyway, the harness refuses it.
+     */
+    @Test(timeout = 900_000)
+    fun chatMode_isReadOnly_writeAskProducesNoFile() {
+        reachDashboard()
+        freshChatSession()
+        assertTrue("mode chip not found in the top bar", ensureMode("CHAT"))
+        shoot("cap10_chat_mode_set")
+
+        val baseline = sendTask(
+            "Write a file at Documents/chatmode_proof.txt containing the text " +
+                "chat-mode-write. Use write_file now.",
+            "cap10_chatmode_write",
+            planningWindowMs = 420_000
+        )
+        assertNoBrowserFallback(baseline, "cap10_chatmode_write")
+
+        // The reply bar: SOMETHING must come back (the model explains the
+        // read-only boundary or answers around it) — never silence.
+        val reply = waitNewText(
+            baseline, 420_000,
+            predicate = { t ->
+                t.contains("Unreadable response", ignoreCase = true) ||
+                    t.contains("MALFORMED", ignoreCase = true) ||
+                    t.length > 40 // a real conversational refusal/explanation
+            }
+        )
+        shoot("cap10_chat_mode_reply")
+        assertNotNull(
+            "chat-mode write ask produced no reply within 420s",
+            reply
+        )
+        assertTrue(
+            "the MALFORMED/unreadable-response card appeared in chat mode",
+            !(reply!!.contains("Unreadable response", true) || reply.contains("MALFORMED", true))
+        )
+
+        // THE artifact bar: no proof file may exist anywhere in the workspace.
+        val deadline = System.currentTimeMillis() + 60_000
+        var leaked: File? = null
+        while (System.currentTimeMillis() < deadline && leaked == null) {
+            leaked = newWorkspaceFiles("txt").firstOrNull {
+                runCatching { it.readText().contains("chat-mode-write") }.getOrDefault(false)
+            }
+            if (leaked == null) Thread.sleep(3_000)
+        }
+        assertNull(
+            "CHAT MODE WROTE A FILE — the read-only execution gate failed " +
+                "(found ${leaked?.absolutePath})",
+            leaked
+        )
+        // Leave the app in AGENT mode: the chat mode persists in settings and
+        // every other capability test depends on the full agent pipeline.
+        assertTrue("could not restore AGENT mode", ensureMode("AGENT"))
+        shoot("cap10_agent_mode_restored")
+        println("TSF-E2E chat-mode read-only: reply=${reply?.take(160)}")
+    }
+
+    /**
+     * Back to AGENT mode, the same class of ask MUST write the file —
+     * proving the mode chip actually changes capability in both directions.
+     */
+    @Test(timeout = 900_000)
+    fun agentMode_stillWritesFiles() {
+        reachDashboard()
+        freshChatSession()
+        assertTrue("mode chip not found in the top bar", ensureMode("AGENT"))
+        shoot("cap11_agent_mode_set")
+        sendTask(
+            "Write a file at Documents/agentmode_proof.txt containing the text " +
+                "agent-mode-write. Use write_file now.",
+            "cap11_agentmode_write",
+            planningWindowMs = 420_000
+        )
+        val file = awaitFile("txt", 300_000, contentMarker = "agent-mode-write")
+        shoot("cap11_agent_mode_done")
+        assertNotNull(
+            "AGENT mode failed to write the proof file within 300s — the mode " +
+                "chip must not take capability away from the agent",
+            file
+        )
+        println("TSF-E2E agent-mode write: ${file!!.absolutePath}")
+    }
+
+    /**
+     * v1.2.0 UI presence: the attach button opens the source sheet (Photos /
+     * Files), the mode chip is present, and the effort chip appears when the
+     * active model advertises reasoning levels. Fast, model-independent.
+     */
+    @Test(timeout = 240_000)
+    fun uploadAndHarnessControls_arePresentAndResponsive() {
+        reachDashboard()
+        // Mode chip: AGENT by default on a fresh install.
+        assertTrue(
+            "the CHAT/AGENT mode chip is missing from the chat top bar",
+            device.wait(
+                Until.hasObject(By.text("AGENT")),
+                20_000
+            ) == true || device.hasObject(By.text("CHAT"))
+        )
+        // Attach button opens the sheet with both sources.
+        assertTrue("attach button not found", clickDesc("Attach file", 15_000))
+        assertTrue(
+            "the Photos option never appeared in the attach sheet",
+            device.wait(Until.hasObject(By.text("Photos")), 15_000) == true
+        )
+        assertTrue(
+            "the Files option never appeared in the attach sheet",
+            device.hasObject(By.text("Files"))
+        )
+        shoot("cap12_attach_sheet")
+        device.pressBack()
+        device.waitForIdle(1_500)
+        // The sheet must actually close.
+        assertTrue(
+            "attach sheet did not close on back",
+            device.wait(Until.gone(By.text("Photos")), 8_000) == true
+        )
+        shoot("cap12_controls_done")
+    }
+
     /** Latin-1 is byte-safe for scanning PDF markers without a charset lib. */
     private val LatinIsSafe = Charsets.ISO_8859_1
 }

@@ -54,6 +54,18 @@ data class LLMConfig(
     val multiAgentModeEnabled: Boolean = false,
     val showFloatingButton: Boolean = true,
     val isDarkMode: Boolean = false, // Aurora default = light (prototype data-theme="light")
+    /**
+     * v1.2.0 Chat/Agent mode. Null = never set (legacy install); resolves to
+     * AGENT so existing behavior (device control, writes, plans) is preserved.
+     * CHAT is the read-only conversational mode.
+     */
+    val chatMode: ChatMode? = null,
+    /**
+     * v1.2.0 reasoning-effort selection (OpenCode's variant mechanism): the
+     * level sent as `reasoning_effort` when the active model's registry entry
+     * lists it. Null = model default. Cycled from the chat top-bar chip.
+     */
+    val reasoningEffort: String? = null,
     val lastModelFetch: Map<String, Long> = emptyMap(), // Provider -> last fetch timestamp
     val modelCache: Map<String, List<AIModel>> = emptyMap() // Provider -> cached AIModels list
 )

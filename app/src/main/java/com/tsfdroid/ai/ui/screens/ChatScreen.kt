@@ -2,15 +2,19 @@ package com.tsfdroid.ai.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,13 +26,17 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Attachment
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,7 +47,9 @@ import androidx.compose.ui.draw.scale
 import android.content.Intent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,8 +67,10 @@ import com.tsfdroid.ai.core.agent.primaryAction
 import com.tsfdroid.ai.core.agent.title
 import com.tsfdroid.ai.core.voice.SpeechRecognitionEngine
 import com.tsfdroid.ai.data.models.AutoMode
+import com.tsfdroid.ai.data.models.ChatMode
 import com.tsfdroid.ai.data.models.ChatMessage
 import com.tsfdroid.ai.data.models.effectiveGrantedActions
+import com.tsfdroid.ai.data.models.parseMessageAttachments
 import com.tsfdroid.ai.data.models.resolvedAutoMode
 import com.tsfdroid.ai.data.repository.ChatSession
 import com.tsfdroid.ai.ui.components.ContactPickerCard
@@ -109,6 +121,18 @@ fun ChatScreen(
     var editingMessageId by remember { mutableStateOf<String?>(null) }
     var textBeforeEdit by remember { mutableStateOf("") }
 
+    // v1.2.0: uploads, Chat/Agent mode, effort selector
+    val pendingAttachments by viewModel.pendingAttachments.collectAsState()
+    val availableEffortLevels by viewModel.availableEffortLevels.collectAsState()
+    val chatMode = ChatMode.fromNullable(llmConfig.chatMode)
+    var showAttachSheet by remember { mutableStateOf(false) }
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 6)
+    ) { uris -> if (uris.isNotEmpty()) viewModel.addPendingAttachments(uris) }
+    val filesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> -> if (uris.isNotEmpty()) viewModel.addPendingAttachments(uris) }
+
     // Merges a piece of dictated text into whatever the user already typed, so review/edit
     // never clobbers text entered before dictation started.
     fun mergeDictatedText(newText: String) {
@@ -142,7 +166,9 @@ fun ChatScreen(
     // keyboard "Send" action and the send button below.
     fun submitInput() {
         val text = inputQuery
-        if (text.isBlank()) return
+        // v1.2.0: attachments-only sends are valid — the viewmodel injects the
+        // analysis instruction when the text is blank.
+        if (text.isBlank() && pendingAttachments.isEmpty()) return
         val editing = editingMessageId
         if (editing != null) {
             viewModel.editAndResend(editing, text, context)
@@ -223,29 +249,81 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    val autoMode = llmConfig.resolvedAutoMode()
-                    val chipColor = when (autoMode) {
-                        AutoMode.OFF -> TextSecondary
-                        AutoMode.AUTO -> TextPrimary
-                        AutoMode.YOLO -> AccentRed
-                    }
+                    // v1.2.0: CHAT/AGENT mode chip — read-only conversation vs
+                    // the full OpenCode-style agent. The label IS the state.
                     OutlinedButton(
-                        onClick = { viewModel.cycleAutoMode() },
-                        border = BorderStroke(1.dp, chipColor.copy(alpha = 0.6f)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = chipColor),
+                        onClick = { viewModel.cycleChatMode() },
+                        border = BorderStroke(
+                            1.dp,
+                            (if (chatMode == ChatMode.CHAT) AccentCyan else AuroraPrimary).copy(alpha = 0.7f)
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (chatMode == ChatMode.CHAT) AccentCyan else AuroraPrimary
+                        ),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         modifier = Modifier.height(28.dp)
                     ) {
                         Text(
-                            text = when (autoMode) {
-                                AutoMode.OFF -> "MANUAL"
-                                AutoMode.AUTO -> "AUTO"
-                                AutoMode.YOLO -> "YOLO"
-                            },
+                            text = chatMode.name,
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                    // v1.2.0: reasoning-effort selector — OpenCode's variant
+                    // cycling. Shown ONLY when the active model actually lists
+                    // reasoning levels; the tap writes a real reasoning_effort
+                    // value onto every request. Not a cosmetic toggle.
+                    if (availableEffortLevels.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = { viewModel.cycleEffortLevel() },
+                            border = BorderStroke(1.dp, TextSecondary.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Speed,
+                                contentDescription = "Effort level",
+                                modifier = Modifier.size(12.dp),
+                                tint = AccentCyan
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = llmConfig.reasoningEffort?.uppercase() ?: "AUTO",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    // Plan approval applies to the agent pipeline only; in CHAT
+                    // mode there are no plans, so the chip would be a lie.
+                    if (chatMode == ChatMode.AGENT) {
+                        val autoMode = llmConfig.resolvedAutoMode()
+                        val chipColor = when (autoMode) {
+                            AutoMode.OFF -> TextSecondary
+                            AutoMode.AUTO -> TextPrimary
+                            AutoMode.YOLO -> AccentRed
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.cycleAutoMode() },
+                            border = BorderStroke(1.dp, chipColor.copy(alpha = 0.6f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = chipColor),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text(
+                                text = when (autoMode) {
+                                    AutoMode.OFF -> "MANUAL"
+                                    AutoMode.AUTO -> "AUTO"
+                                    AutoMode.YOLO -> "YOLO"
+                                },
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                     IconButton(onClick = { viewModel.newChat() }) {
                         Icon(
@@ -495,6 +573,55 @@ fun ChatScreen(
                     .padding(16.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    // v1.2.0: pending upload strip — removable chips for
+                    // everything that will be sent with the next message.
+                    if (pendingAttachments.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 4.dp, bottom = 8.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            pendingAttachments.forEachIndexed { index, pending ->
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(AuroraSurfaceHigh)
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (pending.mime.startsWith("image/")) {
+                                            Icons.Filled.Image
+                                        } else {
+                                            Icons.Filled.Description
+                                        },
+                                        contentDescription = null,
+                                        tint = AccentCyan,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = pending.name.take(24),
+                                        fontSize = 11.sp,
+                                        color = TextPrimary,
+                                        maxLines = 1
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove attachment ${index + 1}",
+                                        tint = TextSecondary,
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clickable { viewModel.removePendingAttachment(index) }
+                                    )
+                                }
+                            }
+                        }
+                    }
                     if (editingMessageId != null) {
                         Row(
                             modifier = Modifier
@@ -582,7 +709,21 @@ fun ChatScreen(
                             }
                         )
 
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        // v1.2.0: attach — images, documents, PDFs, video.
+                        IconButton(
+                            onClick = { showAttachSheet = true },
+                            modifier = Modifier.size(42.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Attachment,
+                                contentDescription = "Attach file",
+                                tint = TextSecondary
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         // Text Input Field / Voice Waveform Area — Aurora chatfield:
                         // r-hero 30px, tonal surface-high fill, no border
@@ -626,7 +767,7 @@ fun ChatScreen(
                         }
 
                         AnimatedVisibility(
-                            visible = !isListening && inputQuery.isNotBlank(),
+                            visible = !isListening && (inputQuery.isNotBlank() || pendingAttachments.isNotEmpty()),
                             enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.8f),
                             exit = fadeOut(animationSpec = tween(150)) + scaleOut(targetScale = 0.8f)
                         ) {
@@ -649,6 +790,68 @@ fun ChatScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // v1.2.0: attach source picker — gallery images or any document (text,
+    // code, PDF, video). The processor turns each into model-ready content.
+    if (showAttachSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAttachSheet = false },
+            containerColor = DarkSurface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Attach for the model to see",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Images and video frames are routed to a vision-capable model automatically. Text files are read inline; PDFs become page images.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                ListItem(
+                    headlineContent = { Text("Photos", color = TextPrimary) },
+                    supportingContent = { Text("Up to 6 images", color = TextSecondary, fontSize = 12.sp) },
+                    leadingContent = {
+                        Icon(Icons.Filled.Image, contentDescription = null, tint = AccentCyan)
+                    },
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            showAttachSheet = false
+                            galleryLauncher.launch(
+                                androidx.activity.result.PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.ImageOnly
+                                )
+                            )
+                        }
+                )
+                ListItem(
+                    headlineContent = { Text("Files", color = TextPrimary) },
+                    supportingContent = {
+                        Text("Text, code, PDF, video", color = TextSecondary, fontSize = 12.sp)
+                    },
+                    leadingContent = {
+                        Icon(Icons.Filled.Description, contentDescription = null, tint = AccentCyan)
+                    },
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            showAttachSheet = false
+                            filesLauncher.launch(arrayOf("*/*"))
+                        }
+                )
+                Spacer(modifier = Modifier.height(20.dp))
             }
         }
     }
@@ -841,6 +1044,71 @@ fun ChatBubble(
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
+                }
+
+                // v1.2.0: user uploads render INSIDE the bubble — uploaded
+                // images as thumbnails, text files as chips — so the user can
+                // see exactly what the model was given (Claude/ChatGPT-style).
+                if (!isAgent) {
+                    val uploads = message.attachments()
+                    val uploadedImages = message.allImages()
+                    if (uploadedImages.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(bottom = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            uploadedImages.forEach { base64 ->
+                                val decoded = remember(base64.hashCode()) {
+                                    runCatching {
+                                        android.util.Base64.decode(
+                                            base64, android.util.Base64.DEFAULT
+                                        )
+                                    }.getOrNull()
+                                }
+                                if (decoded != null) {
+                                    val bitmap = remember(decoded) {
+                                        BitmapFactory.decodeByteArray(decoded, 0, decoded.size)
+                                    }
+                                    if (bitmap != null) {
+                                        Image(
+                                            bitmap = bitmap.asImageBitmap(),
+                                            contentDescription = "Uploaded image",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(96.dp)
+                                                .clip(RoundedCornerShape(14.dp))
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (uploads?.files?.isNotEmpty() == true) {
+                        Column(modifier = Modifier.padding(bottom = 6.dp)) {
+                            uploads.files.forEach { file ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Description,
+                                        contentDescription = null,
+                                        tint = bubbleTextColor,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = file.name,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = bubbleTextColor,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // v1.0.5: reasoning-model thinking trace — collapsible section

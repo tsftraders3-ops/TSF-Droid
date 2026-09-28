@@ -1,0 +1,547 @@
+package com.tsfdroid.ai.core.agent
+
+import com.tsfdroid.ai.actions.base.ActionResult
+import com.tsfdroid.ai.core.llm.LLMProvider
+import com.tsfdroid.ai.core.llm.LLMRequest
+import com.tsfdroid.ai.core.llm.LLMStreamEvent
+import com.tsfdroid.ai.core.llm.ResponseFormat
+import com.tsfdroid.ai.core.llm.Tool
+import com.tsfdroid.ai.core.llm.providers.ModelsDevRegistry
+import com.tsfdroid.ai.data.models.ChatMessage
+import kotlinx.coroutines.CancellationException
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * v1.2.0: the OpenCode-style agentic harness.
+ *
+ * The model is called REPEATEDLY until the turn is genuinely done — exactly the
+ * mechanism OpenCode/Hermes use and the old single-call chat path lacked:
+ *
+ *  - TOOL ROUNDS: every round, tool calls the model issues are executed for
+ *    real and their results are fed back as messages, then the model is called
+ *    again with the full accumulated context. This is how research and
+ *    multi-step answers actually get done instead of half-answered.
+ *  - CONTINUATION: when a response comes back with finish_reason "length"
+ *    (the model hit its output budget mid-answer), the app immediately calls
+ *    the API again with a CONTINUE instruction and appends the segments —
+ *    the user sees ONE complete answer, never a truncated one. This is the
+ *    "no artificial output limit" guarantee: each call runs at the model's
+ *    real output capability (registry-clamped, capped at 32k tokens like
+ *    OpenCode itself), and long answers flow across calls.
+ *  - GUARDS: rounds are capped (efficiency, not infinity), identical
+ *    consecutive tool calls trip a doom-loop guard (OpenCode's), and the last
+ *    rounds get a wrap-up nudge so the loop lands an answer instead of
+ *    expiring into an error.
+ *
+ * READ-ONLY mode (Chat mode): [TurnConfig.readOnly] gates EXECUTION — a mapped
+ * action outside [CHAT_MODE_ALLOWED_ACTIONS] is refused with a clear result the
+ * model reads. The prompt already forbids it; this gate makes it impossible.
+ */
+/**
+ * Test seam for tool execution: production binds [ActionDispatcher.execute]
+ * through Hilt; unit tests substitute a fake. Every executed call passes the
+ * same pipeline (internet pre-check, schema validation) as planned steps.
+ */
+fun interface HarnessToolExecutor {
+    suspend fun execute(actionName: String, params: Map<String, String>, context: android.content.Context): ActionResult
+}
+
+@Singleton
+class HarnessLoop @Inject constructor(
+    private val toolExecutor: HarnessToolExecutor,
+    private val registry: ModelsDevRegistry
+) {
+
+    data class TurnConfig(
+        val systemPrompt: String,
+        /** Conversation history + any accumulated tool messages from the caller. */
+        val history: List<ChatMessage>,
+        val tools: List<Tool>,
+        /** Application context for action execution. */
+        val context: android.content.Context,
+        /** Chat mode: refuse every non-read-only action at the execution gate. */
+        val readOnly: Boolean = false,
+        val temperature: Float = 0.4f,
+        /** Per-call output budget — registry-clamped by the provider. */
+        val maxTokens: Int = OUTPUT_TOKEN_MAX,
+        val reasoningEffort: String? = null,
+        val maxRounds: Int = MAX_HARNESS_ROUNDS,
+        val maxContinuations: Int = MAX_CONTINUATIONS,
+        /** Agent-loop artifact callback (WRITE_FILE/CREATE_PDF cards). */
+        val onArtifact: (suspend (action: String, params: Map<String, String>, result: ActionResult) -> Unit)? = null
+    )
+
+    data class TurnResult(
+        val content: String,
+        val rounds: Int,
+        val toolCallsExecuted: Int,
+        val continuationSegments: Int,
+        /** finish_reason of the last model call (null when unsurfaced). */
+        val finishReason: String?,
+        /** True when even after all continuations the answer stayed length-cut. */
+        val stillTruncated: Boolean
+    )
+
+    /**
+     * Runs the full tool/continuation loop from [config.history] until a
+     * content answer is complete, the guards trip, or the model fails.
+     * Returns null when no usable answer was produced (caller decides the
+     * fallback — the snag message path).
+     */
+    suspend fun runTurn(
+        provider: LLMProvider,
+        config: TurnConfig,
+        onStatus: (suspend (String) -> Unit)? = null
+    ): TurnResult? {
+        var messages = config.history
+        var round = 0
+        var synthesisAttempted = false
+        var toolCallsExecuted = 0
+        var continuationSegments = 0
+        var lastFinishReason: String? = null
+        val recentSignatures = ArrayDeque<String>()
+        var doomWarned = false
+
+        while (round < config.maxRounds) {
+            round++
+            onStatus?.invoke("[harness] thinking round $round of ${config.maxRounds}…")
+
+            val response = try {
+                provider.complete(
+                    LLMRequest(
+                        systemPrompt = config.systemPrompt,
+                        messages = messages,
+                        temperature = config.temperature,
+                        maxTokens = config.maxTokens,
+                        responseFormat = ResponseFormat.TEXT,
+                        allowToolCalls = true,
+                        tools = config.tools,
+                        reasoningEffort = config.reasoningEffort
+                    )
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("HarnessLoop", "LLM call failed: ${e.localizedMessage}")
+                return null
+            }
+            lastFinishReason = response.finishReason ?: lastFinishReason
+
+            if (response.content.isNotBlank()) {
+                // v1.1.1 blind-critic fix, kept: a model that just echoes the
+                // raw web_search listing gets ONE synthesis round before its
+                // text is delivered as-is.
+                val echoedListing =
+                    response.content.startsWith("Top web results", ignoreCase = true) ||
+                        response.content.startsWith("Web results for", ignoreCase = true)
+                if (echoedListing && !synthesisAttempted && round < config.maxRounds - 1) {
+                    synthesisAttempted = true
+                    messages = messages + userMessage(
+                        "Do not repeat the raw result listing. Synthesize the search results " +
+                            "you received into a direct, complete answer to the user's question — " +
+                            "key facts and dates first, cite source URLs inline."
+                    )
+                    continue
+                }
+
+                // CONTINUATION: the model hit its output budget mid-answer.
+                // Never deliver a truncated reply — call again and append.
+                if (response.finishReason == FINISH_LENGTH &&
+                    continuationSegments < config.maxContinuations &&
+                    round < config.maxRounds - 1
+                ) {
+                    onStatus?.invoke(
+                        "[harness] output limit reached — continuing the answer (part ${continuationSegments + 2})…"
+                    )
+                    messages = messages +
+                        assistantMessage(response.content) +
+                        userMessage(CONTINUATION_INSTRUCTION)
+                    return appendContinuations(
+                        provider, config, messages, response.content,
+                        roundsUsed = round, executed = toolCallsExecuted,
+                        segments = 0, onStatus = onStatus
+                    )
+                }
+
+                return TurnResult(
+                    content = response.content,
+                    rounds = round,
+                    toolCallsExecuted = toolCallsExecuted,
+                    continuationSegments = continuationSegments,
+                    finishReason = lastFinishReason,
+                    stillTruncated = response.finishReason == FINISH_LENGTH
+                )
+            }
+
+            if (response.toolCalls.isEmpty()) return null
+
+            // ---- Tool execution round ----
+            val signature = response.toolCalls.joinToString("|") { call ->
+                call.name + ":" + call.arguments.hashCode()
+            }
+            recentSignatures.addLast(signature)
+            while (recentSignatures.size > DOOM_LOOP_THRESHOLD) recentSignatures.removeFirst()
+            if (recentSignatures.size == DOOM_LOOP_THRESHOLD &&
+                recentSignatures.distinct().size == 1
+            ) {
+                if (!doomWarned) {
+                    // OpenCode's doom-loop guard: same call three times in a
+                    // row. Warn once with a way out; a FOURTH identical round
+                    // ends the loop — efficiency over stubbornness.
+                    doomWarned = true
+                    messages = messages + userMessage(DOOM_WARNING)
+                    continue
+                }
+                android.util.Log.w("HarnessLoop", "Doom loop: identical tool round x$DOOM_LOOP_THRESHOLD twice — stopping")
+                return null
+            }
+
+            messages = messages + ChatMessage(
+                id = UUID.randomUUID().toString(),
+                text = "[tool calls issued]",
+                sender = ChatMessage.Sender.AGENT
+            )
+            for (call in response.toolCalls) {
+                val mapping = ToolCallBridge.map(call)
+                val mapped = mapping.mapped
+                val result: ActionResult = when {
+                    mapped == null -> ActionResult.Failure(
+                        mapping.unsupportedReason ?: "Tool not available"
+                    )
+                    config.readOnly && mapped.action !in CHAT_MODE_ALLOWED_ACTIONS ->
+                        // THE read-only gate: execution-level, not prompt-level.
+                        ActionResult.Failure(
+                            "REFUSED: Chat mode is read-only. '$mapped.action' " +
+                                "modifies the device or files, which is not permitted in " +
+                                "Chat mode. Answer the user in text; if the task truly " +
+                                "needs that action, tell them to switch to Agent mode."
+                        )
+                    else -> try {
+                        toolExecutor.execute(mapped.action, mapped.params, config.context)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        ActionResult.Failure(e.localizedMessage ?: "Tool execution failed")
+                    }
+                }
+                if (result.success && mapped != null && !config.readOnly &&
+                    (mapped.action == "WRITE_FILE" || mapped.action == "CREATE_PDF")
+                ) {
+                    config.onArtifact?.invoke(mapped.action, mapped.params, result)
+                }
+                toolCallsExecuted++
+                android.util.Log.i(
+                    "HarnessLoop",
+                    "round $round ${call.name} -> ${mapped?.action ?: "unsupported"}: success=${result.success}"
+                )
+                messages = messages + ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    text = ToolCallBridge.renderToolResult(
+                        call, result.success, result.data ?: result.error ?: ""
+                    ),
+                    sender = ChatMessage.Sender.USER
+                )
+            }
+
+            // Wrap-up nudge: make the second-to-last round land the answer.
+            if (round == config.maxRounds - 1) {
+                messages = messages + userMessage(WRAP_UP_NUDGE)
+            }
+        }
+        return null
+    }
+
+    /**
+     * Streams the FIRST round of a turn (real streaming to the chat UI) and
+     * reports the outcome so the caller can decide: tool hand-off, continuation
+     * hand-off, or done. Used by [AgentLoop.executeSimpleQuery] where the first
+     * call should render live.
+     */
+    suspend fun streamFirstRound(
+        provider: LLMProvider,
+        config: TurnConfig,
+        onContent: (suspend (String) -> Unit)?,
+        onReasoning: (suspend (String) -> Unit)?
+    ): FirstRoundResult {
+        var replyText = ""
+        var thinkingText = ""
+        var finishReason: String? = null
+        try {
+            provider.streamCompleteDetailed(
+                LLMRequest(
+                    systemPrompt = config.systemPrompt,
+                    messages = config.history,
+                    temperature = config.temperature,
+                    maxTokens = config.maxTokens,
+                    responseFormat = ResponseFormat.TEXT,
+                    allowToolCalls = true,
+                    tools = config.tools,
+                    reasoningEffort = config.reasoningEffort
+                )
+            ).collect { event ->
+                when (event) {
+                    is LLMStreamEvent.Content -> {
+                        if (event.text.isEmpty()) return@collect
+                        replyText += event.text
+                        onContent?.invoke(event.text)
+                    }
+                    is LLMStreamEvent.Reasoning -> {
+                        thinkingText += event.text
+                        onReasoning?.invoke(event.text)
+                    }
+                    is LLMStreamEvent.Finished -> finishReason = event.reason
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return FirstRoundResult(
+                status = FirstRoundStatus.FAILED,
+                content = replyText,
+                thinkingText = thinkingText,
+                finishReason = null
+            )
+        }
+        val status = when {
+            replyText.isBlank() -> FirstRoundStatus.TOOL_HANDOFF
+            // Streamed answer hit the output budget mid-answer: continuation.
+            finishReason == FINISH_LENGTH -> FirstRoundStatus.CONTINUE_HANDOFF
+            else -> FirstRoundStatus.COMPLETE
+        }
+        return FirstRoundResult(
+            status = status,
+            content = replyText,
+            thinkingText = thinkingText,
+            finishReason = finishReason
+        )
+    }
+
+    enum class FirstRoundStatus { COMPLETE, TOOL_HANDOFF, CONTINUE_HANDOFF, FAILED }
+
+    data class FirstRoundResult(
+        val status: FirstRoundStatus,
+        val content: String,
+        val thinkingText: String,
+        val finishReason: String?
+    )
+
+    /**
+     * Continues a length-truncated answer: repeatedly calls the API with the
+     * accumulated partial + a CONTINUE instruction, appending segments until
+     * the model finishes or the continuation budget is spent. Returns the
+     * FULL joined answer.
+     */
+    suspend fun continueAnswer(
+        provider: LLMProvider,
+        config: TurnConfig,
+        historySoFar: List<ChatMessage>,
+        firstSegment: String,
+        roundsUsed: Int = 1,
+        onStatus: (suspend (String) -> Unit)? = null
+    ): TurnResult {
+        val result = appendContinuations(
+            provider, config, historySoFar, firstSegment,
+            roundsUsed = roundsUsed, executed = 0, segments = 0,
+            onStatus = onStatus
+        )
+        return result
+    }
+
+    private suspend fun appendContinuations(
+        provider: LLMProvider,
+        config: TurnConfig,
+        messages: List<ChatMessage>,
+        firstSegment: String,
+        roundsUsed: Int,
+        executed: Int,
+        segments: Int,
+        onStatus: (suspend (String) -> Unit)?
+    ): TurnResult {
+        var current = messages
+        var joined = firstSegment
+        var totalSegments = segments
+        var lastFinish: String? = null
+        var round = roundsUsed
+        var toolCallsExecuted = executed
+
+        while (totalSegments < config.maxContinuations && round < config.maxRounds) {
+            val response = try {
+                provider.complete(
+                    LLMRequest(
+                        systemPrompt = config.systemPrompt,
+                        messages = current,
+                        temperature = config.temperature,
+                        maxTokens = config.maxTokens,
+                        responseFormat = ResponseFormat.TEXT,
+                        allowToolCalls = true,
+                        tools = config.tools,
+                        reasoningEffort = config.reasoningEffort
+                    )
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("HarnessLoop", "Continuation call failed: ${e.localizedMessage}")
+                break
+            }
+            round++
+            lastFinish = response.finishReason ?: lastFinish
+            if (response.toolCalls.isNotEmpty() && response.content.isBlank()) {
+                // The model answered the continuation with tool calls — run
+                // them and keep continuing afterwards.
+                current = current + ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    text = "[tool calls issued]",
+                    sender = ChatMessage.Sender.AGENT
+                )
+                for (call in response.toolCalls) {
+                    val mapping = ToolCallBridge.map(call)
+                    val mapped = mapping.mapped
+                    val result: ActionResult = when {
+                        mapped == null -> ActionResult.Failure(
+                            mapping.unsupportedReason ?: "Tool not available"
+                        )
+                        config.readOnly && mapped.action !in CHAT_MODE_ALLOWED_ACTIONS ->
+                            ActionResult.Failure(
+                                "REFUSED: Chat mode is read-only. '${mapped.action}' is not permitted here."
+                            )
+                        else -> try {
+                            toolExecutor.execute(mapped.action, mapped.params, config.context)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            ActionResult.Failure(e.localizedMessage ?: "Tool execution failed")
+                        }
+                    }
+                    toolCallsExecuted++
+                    if (result.success && mapped != null && !config.readOnly &&
+                        (mapped.action == "WRITE_FILE" || mapped.action == "CREATE_PDF")
+                    ) {
+                        config.onArtifact?.invoke(mapped.action, mapped.params, result)
+                    }
+                    current = current + ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        text = ToolCallBridge.renderToolResult(
+                            call, result.success, result.data ?: result.error ?: ""
+                        ),
+                        sender = ChatMessage.Sender.USER
+                    )
+                }
+                continue
+            }
+            if (response.content.isBlank()) break
+            joined = joinSegments(joined, response.content)
+            totalSegments++
+            if (response.finishReason != FINISH_LENGTH) break
+            if (totalSegments >= config.maxContinuations || round >= config.maxRounds - 1) break
+            onStatus?.invoke(
+                "[harness] output limit reached — continuing the answer (part ${totalSegments + 1})…"
+            )
+            current = current +
+                assistantMessage(response.content) +
+                userMessage(CONTINUATION_INSTRUCTION)
+        }
+        return TurnResult(
+            content = joined,
+            rounds = round,
+            toolCallsExecuted = toolCallsExecuted,
+            continuationSegments = totalSegments,
+            finishReason = lastFinish,
+            stillTruncated = lastFinish == FINISH_LENGTH
+        )
+    }
+
+    /** True when at least one model in the reachable set can actually see images. */
+    suspend fun hasVisionSupport(): Boolean {
+        val specs = runCatching { registry.specs() }.getOrDefault(emptyMap())
+        return specs.values.any {
+            it.inputModalities.contains("image") && it.free && it.chatCompletions && !it.deprecated
+        }
+    }
+
+    private fun userMessage(text: String) = ChatMessage(
+        id = UUID.randomUUID().toString(),
+        text = text,
+        sender = ChatMessage.Sender.USER
+    )
+
+    private fun assistantMessage(text: String) = ChatMessage(
+        id = UUID.randomUUID().toString(),
+        text = text,
+        sender = ChatMessage.Sender.AGENT
+    )
+
+    companion object {
+        /**
+         * v1.2.0 output budget per call: OpenCode's own OUTPUT_TOKEN_MAX. The
+         * provider still clamps to each model's registry max_output, so free
+         * models with smaller ceilings are honored — but the app never imposes
+         * an artificial 4k/8k cut of its own again.
+         */
+        const val OUTPUT_TOKEN_MAX = 32_000
+
+        /** Efficiency guard: the harness never calls the model forever. */
+        const val MAX_HARNESS_ROUNDS = 10
+
+        /** Continuation segments beyond the first streamed call. */
+        const val MAX_CONTINUATIONS = 3
+
+        /** OpenCode's identical-consecutive-tool-call doom threshold. */
+        const val DOOM_LOOP_THRESHOLD = 3
+
+        const val FINISH_LENGTH = "length"
+
+        val CONTINUATION_INSTRUCTION =
+            "CONTINUE: your reply was cut off by the output limit. Resume EXACTLY where it " +
+                "stopped — no preamble, no apology, no repetition of earlier text. If you " +
+                "were mid-sentence, continue mid-sentence with the exact next characters. " +
+                "Complete the full answer."
+
+        val WRAP_UP_NUDGE =
+            "You have enough information. Answer the user's request now in full — " +
+                "no more tool calls."
+
+        val DOOM_WARNING =
+            "You have issued the identical tool call ${DOOM_LOOP_THRESHOLD} times in a row " +
+                "with the same arguments. Do NOT repeat it again. Use the result you already " +
+                "have and answer the user's request now."
+
+        /**
+         * The Chat-mode execution allowlist: actions that cannot mutate the
+         * device, files, or the outside world. EVERYTHING else is refused by
+         * the harness gate in Chat mode — reads, searches, lookups, and
+         * screen understanding only.
+         */
+        val CHAT_MODE_ALLOWED_ACTIONS = setOf(
+            "READ_FILE", "LIST_FILES", "WEB_SEARCH", "FETCH_URL", "SUMMARIZE_URL",
+            "GET_WEATHER", "GET_NEWS", "CALCULATE", "TRANSLATE", "DEFINE_WORD",
+            "CONVERT_UNITS", "CURRENCY_CONVERT", "CHECK_STOCK", "FACT_CHECK",
+            "GET_SYSTEM_INFO", "READ_NOTES", "RECALL_MEMORY", "QUERY_KNOWLEDGE_GRAPH",
+            "ANALYZE_SCREENSHOT"
+        )
+
+        /**
+         * Glues continuation segments into one answer. Mid-sentence cuts must
+         * rejoin seamlessly (the model is told to resume with the exact next
+         * characters); clean stops get a newline.
+         */
+        fun joinSegments(a: String, b: String): String {
+            if (a.isEmpty()) return b
+            if (b.isEmpty()) return a
+            val next = b.trimStart()
+            val lastChar = a.last()
+            val endsMidSentence = lastChar.isLetterOrDigit() || lastChar == ',' ||
+                lastChar == ';' || lastChar == '-' || lastChar == '/' || lastChar == '('
+            val startsLowercase = next.firstOrNull()?.isLowerCase() == true
+            return if (endsMidSentence && (startsLowercase || next.firstOrNull() == ',')) {
+                a + next
+            } else if (a.endsWith("\n")) {
+                a + next
+            } else {
+                a + "\n" + next
+            }
+        }
+    }
+}

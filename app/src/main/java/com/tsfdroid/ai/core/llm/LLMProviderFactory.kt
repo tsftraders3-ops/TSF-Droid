@@ -255,6 +255,10 @@ class WrappedLLMProvider(
                                 emit(event)
                             }
                             is LLMStreamEvent.Reasoning -> emit(event)
+                            // v1.2.0: the finish-reason signal must survive the
+                            // retry envelope — the harness continuation loop
+                            // keys on it. Never pins the retry walk.
+                            is LLMStreamEvent.Finished -> emit(event)
                         }
                     }
                     if (!emitted) {
