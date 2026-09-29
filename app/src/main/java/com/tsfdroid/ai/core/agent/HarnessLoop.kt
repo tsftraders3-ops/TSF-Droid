@@ -48,6 +48,35 @@ fun interface HarnessToolExecutor {
     suspend fun execute(actionName: String, params: Map<String, String>, context: android.content.Context): ActionResult
 }
 
+/**
+ * v1.2.1 E2E round-6 field evidence (cap15, both CI passes): mimo streamed a
+ * complete-looking Bitcoin answer from memory, then — asked AGAIN by the
+ * research-guarantee harness loop — answered from memory once more with ZERO
+ * tool calls. The turn delivered unverified figures with no ACTIVITY trace.
+ * Detection: short, announcement-shaped text ("need to…", "let me…", "I'll…")
+ * that never becomes an answer. Used in two places: the harness re-asks for
+ * the final answer instead of delivering monologue, and the chat stream
+ * treats it as a tool-handoff signal (the model announcing work it has not
+ * done yet).
+ */
+private val MONOLOGUE_SHAPED = Regex(
+    "(?i)\\A(need to|let me|i'll|i will|i am going to|i'm going to|searching|" +
+        "looking up|to answer|first,? i|okay,? i)"
+)
+
+internal fun isMonologueShaped(text: String): Boolean {
+    val t = text.trim()
+    if (t.isEmpty() || t.length > 500) return false
+    if (!MONOLOGUE_SHAPED.containsMatchIn(t)) return false
+    // A question back to the user is a real conversational move, not monologue.
+    if (t.endsWith("?")) return false
+    // A colon introduces the actual content ("Let me give you the key facts:
+    // gold is at $4,156/oz.") — that is an answer with a preamble, never
+    // pure monologue. The field leaks ("Need to search… Let me search.")
+    // carry no colon.
+    return !t.contains(':')
+}
+
 @Singleton
 class HarnessLoop @Inject constructor(
     private val toolExecutor: HarnessToolExecutor,
@@ -172,6 +201,20 @@ class HarnessLoop @Inject constructor(
                         roundsUsed = round, executed = toolCallsExecuted,
                         segments = 0, onStatus = onStatus
                     )
+                }
+
+                // v1.2.1 round-6 field fix (cap8 CBSE reply): after REAL tool
+                // results are in context, the model sometimes answers with
+                // pure internal monologue ("Need to search… Let me search.")
+                // instead of the user-facing answer. Never deliver that — one
+                // corrective re-ask for the final answer, then deliver.
+                if (toolCallsExecuted > 0 && !synthesisAttempted &&
+                    round < config.maxRounds - 1 &&
+                    isMonologueShaped(response.content)
+                ) {
+                    synthesisAttempted = true
+                    messages = messages + userMessage(FINAL_ANSWER_NUDGE)
+                    continue
                 }
 
                 return TurnResult(
@@ -543,6 +586,63 @@ class HarnessLoop @Inject constructor(
         }
     }
 
+    /**
+     * v1.2.1 round-6 fix (cap15, failed BOTH CI passes): the
+     * research-guarantee path re-asked the model and trusted it to call
+     * web_search — it answered from memory again, zero tool events, and an
+     * unverified answer shipped with no ACTIVITY trace. This turn is the
+     * deterministic version: the HARNESS executes WEB_SEARCH itself (no model
+     * permission involved), feeds the real results into the context, and the
+     * model only writes the grounded user-facing answer on top. The visible
+     * trace is guaranteed whenever the network cooperates; the honesty
+     * boundary stays for genuine network failures only.
+     *
+     * Returns null only when the direct search itself failed — the caller
+     * then appends the "live search could not be reached" note.
+     */
+    suspend fun forcedSearchTurn(
+        provider: LLMProvider,
+        config: TurnConfig,
+        history: List<ChatMessage>,
+        userQuery: String,
+        onStatus: (suspend (String) -> Unit)? = null
+    ): TurnResult? {
+        val query = userQuery.trim().take(240).ifBlank { return null }
+        onStatus?.invoke("[harness] running the search directly…")
+        val result = try {
+            toolExecutor.execute("WEB_SEARCH", mapOf("query" to query), config.context)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ActionResult.Failure(e.localizedMessage ?: "Search execution failed")
+        }
+        config.onToolEvent?.invoke(
+            "WEB_SEARCH",
+            result.success,
+            (result.data ?: result.error ?: "").toString()
+        )
+        if (!result.success) {
+            android.util.Log.w("HarnessLoop", "forced search failed: ${result.error}")
+            return null
+        }
+        // Seed the REAL results into the context and let the normal loop
+        // machinery finish the turn (echo guard, monologue guard, wrap-up,
+        // continuation, doom guard all reused). Two rounds is enough: answer
+        // from the results already in context.
+        val seeded = history + userMessage(
+            "TOOL RESULT web_search (status: OK):\n${result.data}\n\n" +
+                "Answer the user's question (\"$userQuery\") using these REAL search " +
+                "results. Key facts and figures first, cite source URLs inline. " +
+                "Deliver the final user-facing answer only — no internal monologue, " +
+                "no announcements of what you are about to do."
+        )
+        return runTurn(
+            provider,
+            config.copy(history = seeded, maxRounds = 2),
+            onStatus
+        )
+    }
+
     private fun userMessage(text: String) = ChatMessage(
         id = UUID.randomUUID().toString(),
         text = text,
@@ -589,6 +689,16 @@ class HarnessLoop @Inject constructor(
             "You have issued the identical tool call ${DOOM_LOOP_THRESHOLD} times in a row " +
                 "with the same arguments. Do NOT repeat it again. Use the result you already " +
                 "have and answer the user's request now."
+
+        /**
+         * v1.2.1 round-6: the corrective re-ask when a post-tool answer comes
+         * back as internal monologue instead of the user-facing reply.
+         */
+        val FINAL_ANSWER_NUDGE =
+            "Deliver the final user-facing answer NOW using the tool results above. " +
+                "No internal monologue, no \"let me search\", no announcements — just the " +
+                "complete, direct answer to the user's question, key facts first, " +
+                "citing the source URLs from the results."
 
         /**
          * The Chat-mode execution allowlist: actions that cannot mutate the

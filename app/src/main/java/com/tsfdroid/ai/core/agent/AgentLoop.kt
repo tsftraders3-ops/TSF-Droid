@@ -895,7 +895,15 @@ class AgentLoop @Inject constructor(
             }
             _liveThinking.value = null
 
-            if (!inserted || currentReplyText.isBlank()) {
+            if (!inserted || currentReplyText.isBlank() ||
+                // v1.2.1 round-6: a streamed reply that is pure internal
+                // monologue ("Need to search… Let me search.") is the model
+                // ANNOUNCING work instead of doing it — route the turn into
+                // the harness tool loop; the final harness answer replaces
+                // this bubble (same message id, Room REPLACE).
+                (!lastFinishReason.isNullOrBlank() && lastFinishReason != HarnessLoop.FINISH_LENGTH &&
+                    isMonologueShaped(currentReplyText))
+            ) {
                 // v1.0.6→v1.2.0: a blank streamed reply is usually the model
                 // answering the harness contract with read/shell tool calls.
                 // The harness executes the mappable tool calls through the
@@ -945,14 +953,35 @@ class AgentLoop @Inject constructor(
                 requiresFreshData(userMsg.text)
             ) {
                 val grounded = harnessFallbackTurn(provider, turnConfig, lastMsgs)
-                if (!grounded.isNullOrBlank()) {
-                    currentReplyText = grounded
+                // v1.2.1 round-6 fix (cap15 failed both CI passes): the model
+                // can DODGE the re-ask and answer from memory again (zero tool
+                // events — exactly the field evidence). When it does — or when
+                // the loop produced nothing — the harness runs the search
+                // ITSELF (forcedSearchTurn): the tool executes for real, the
+                // ACTIVITY trace is guaranteed, and the model only writes the
+                // grounded answer on top of the real results.
+                val groundedFinal = if (grounded.isNullOrBlank() ||
+                    currentStepsSnapshot().none { it.kind == ActivityStep.KIND_TOOL }
+                ) {
+                    val forced = harnessLoop.forcedSearchTurn(
+                        provider = provider,
+                        config = turnConfig.copy(history = lastMsgs),
+                        history = lastMsgs,
+                        userQuery = userMsg.text
+                    ) { status -> _liveThinking.value = status }
+                    forced?.content?.takeIf { it.isNotBlank() } ?: grounded
+                } else {
+                    grounded
+                }
+                if (!groundedFinal.isNullOrBlank()) {
+                    currentReplyText = groundedFinal
                     persistReply(force = true)
                 } else if (currentStepsSnapshot().none { it.kind == ActivityStep.KIND_TOOL }) {
                     // v1.2.1 honesty boundary: the model answered a fresh-data
-                    // ask from memory AND live grounding could not be reached
-                    // (rate limits, endpoint failure). The user must know the
-                    // figures above are unverified, never silent fabrication.
+                    // ask from memory AND even the harness's own direct search
+                    // could not be reached (rate limits, network failure). The
+                    // user must know the figures above are unverified, never
+                    // silent fabrication.
                     currentReplyText += "\n\n(Note: live search could not be reached for " +
                         "this one right now — treat the figures above as unverified, " +
                         "from general knowledge. Ask again in a moment for verified data.)"

@@ -367,4 +367,122 @@ class HarnessLoopTest {
         assertTrue(!asksForLongForm("What is my cat's name? Answer with just the name."))
         assertTrue(!asksForLongForm("Write a file at Documents/chatmode_proof.txt containing the text chat-mode-write."))
     }
+
+    // ---------- v1.2.1 round-7: monologue guard + forced search ----------
+
+    @Test
+    fun `monologue detection catches announcement shapes and not real answers`() {
+        // The exact cap8 field leak:
+        assertTrue(isMonologueShaped("Need to search for CBSE class 10 board exam dates 2026. Let me search."))
+        assertTrue(isMonologueShaped("Let me search for this."))
+        assertTrue(isMonologueShaped("I'll look that up right away..."))
+        assertTrue(isMonologueShaped("Searching for the current BTC price now"))
+        // Real answers stay:
+        assertTrue(!isMonologueShaped("Bitcoin is trading at $84,000 as of today."))
+        assertTrue(!isMonologueShaped("Let me give you the key facts: gold is at $4,156/oz."))
+        // A question back is conversation, not monologue:
+        assertTrue(!isMonologueShaped("Let me check — do you want prices in USD or EUR?"))
+        // Long-form answers are never monologue:
+        assertTrue(!isMonologueShaped("Let me explain. " + "Detail. ".repeat(120)))
+    }
+
+    @Test
+    fun `runTurn re-asks when a post-tool answer is pure monologue`() = runBlocking {
+        val provider = FakeProvider(
+            answer("", toolCalls = listOf(LLMToolCall("web_search", """{"query":"gold price"}"""))),
+            // The field defect: after REAL results, the model answers with monologue.
+            answer("Need to search for the current gold price. Let me search."),
+            answer("Gold is at $4,156.40 per troy ounce, as of September 29, 2026.")
+        )
+
+        val result = harness.runTurn(
+            provider,
+            config(tool = Tool("web_search", "search", """{"type":"object","properties":{"query":{"type":"string"}}}"""))
+        )
+
+        assertEquals("Gold is at $4,156.40 per troy ounce, as of September 29, 2026.", result!!.content)
+        assertEquals(3, provider.requests.size)
+        // The corrective re-ask carries the FINAL_ANSWER_NUDGE instruction.
+        assertTrue(
+            provider.requests[2].messages.any { it.text.startsWith("Deliver the final user-facing answer NOW") }
+        )
+    }
+
+    @Test
+    fun `forcedSearchTurn executes the search itself and grounds the answer`() = runBlocking {
+        val executor = FakeExecutor()
+        val localHarness = HarnessLoop(executor, registry)
+        val toolEvents = mutableListOf<Pair<String, Boolean>>()
+        val provider = FakeProvider(
+            answer("Bitcoin is trading at $84,114.36 (CoinDesk), as of Sep 29, 2026.")
+        )
+
+        val result = localHarness.forcedSearchTurn(
+            provider,
+            config(tool = Tool("web_search", "search", """{"type":"object","properties":{"query":{"type":"string"}}}""")),
+            history = listOf(ChatMessage("1", "What is the current price of Bitcoin in USD right now?", ChatMessage.Sender.USER)),
+            userQuery = "What is the current price of Bitcoin in USD right now?",
+            onStatus = null
+        )
+
+        // THE BAR: the search executed for real — no model permission involved.
+        assertEquals(1, executor.calls.size)
+        assertEquals("WEB_SEARCH", executor.calls[0].first)
+        assertEquals(
+            "What is the current price of Bitcoin in USD right now?",
+            executor.calls[0].second["query"]
+        )
+        // The real results were seeded into the answering call's context.
+        assertEquals(1, provider.requests.size)
+        val seeded = provider.requests[0].messages
+        assertTrue(seeded.any { it.text.contains("TOOL RESULT web_search") && it.text.contains("status: OK") })
+        assertTrue(seeded.any { it.text.contains("What is the current price of Bitcoin in USD right now?") })
+        assertEquals("Bitcoin is trading at $84,114.36 (CoinDesk), as of Sep 29, 2026.", result!!.content)
+    }
+
+    @Test
+    fun `forcedSearchTurn returns null when the direct search fails`() = runBlocking {
+        val failing = HarnessLoop(
+            HarnessToolExecutor { _, _, _ -> ActionResult.Failure("network unreachable") },
+            registry
+        )
+        val provider = FakeProvider()
+
+        val result = failing.forcedSearchTurn(
+            provider,
+            config(),
+            history = listOf(ChatMessage("1", "ask", ChatMessage.Sender.USER)),
+            userQuery = "What is the current price of gold?"
+        )
+
+        assertNull(result)
+        // No model call was burned on a search that never happened.
+        assertEquals(0, provider.requests.size)
+    }
+
+    @Test
+    fun `forcedSearchTurn surfaces the tool event for the visible trace`() = runBlocking {
+        val events = mutableListOf<Triple<String, Boolean, String>>()
+        val localHarness = HarnessLoop(FakeExecutor(), registry)
+        val cfg = HarnessLoop.TurnConfig(
+            systemPrompt = "test prompt",
+            history = emptyList(),
+            tools = emptyList(),
+            context = context,
+            onToolEvent = { action, success, detail ->
+                events.add(Triple(action, success, detail))
+            }
+        )
+        val provider = FakeProvider(answer("Grounded answer."))
+
+        localHarness.forcedSearchTurn(
+            provider, cfg,
+            history = emptyList(),
+            userQuery = "latest bitcoin price"
+        )
+
+        assertEquals(1, events.size)
+        assertEquals("WEB_SEARCH", events[0].first)
+        assertTrue(events[0].second)
+    }
 }
