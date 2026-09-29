@@ -53,6 +53,17 @@ class AgentCapabilityE2EInstrumentedTest {
         "Reject", "Approve & Run"
     )
 
+    /**
+     * v1.2.1 loop 4: the model-badge label inside a freshly inserted agent
+     * bubble ("OPENCODE ZEN") is a NEW text node that matches any
+     * length-based reply predicate — the memory recall test raced it and
+     * treated the badge as the reply. Badge-shaped nodes are never replies.
+     */
+    private val modelBadgeTexts = setOf(
+        "OPENCODE ZEN", "OPENCODE", "GEMINI", "CLAUDE", "OPENAI", "OLLAMA",
+        "COPILOT", "CUSTOM OPENAI", "STOPPED", "ON-DEVICE (AI CORE)"
+    )
+
     private val agentStatusPrefixes = listOf(
         "Analyzing", "Speaking", "Executing", "Planning", "Thinking", "Running",
         "Done", "Latest news", "Top web results", "Content of", "Page content"
@@ -206,6 +217,7 @@ class AgentCapabilityE2EInstrumentedTest {
                 if (runCatching { obj.applicationPackage }.getOrNull() != appPackage) continue
                 val t = obj.text.trim()
                 if (t.isEmpty() || t in baseline || t in nonReplyTexts || t in extraExcluded) continue
+                if (t.uppercase() in modelBadgeTexts) continue // model-badge node, never a reply
                 if (t.startsWith(chatPlaceholder)) continue
                 if (t.startsWith("AUTONOMOUS PLAN")) continue
                 if (t.startsWith("Goal:")) continue
@@ -1238,7 +1250,10 @@ class AgentCapabilityE2EInstrumentedTest {
         val recallReply = waitNewText(
             recallBaseline, 480_000,
             extraExcluded = setOf(recallQuestion),
-            predicate = { t -> t.contains("Luna", ignoreCase = true) || t.length > 8 }
+            // Defense in depth beyond the badge exclusion: a genuine reply
+            // node is either the recall itself or a >20-char explanation; the
+            // old >8 bound could catch short status-shaped leftovers.
+            predicate = { t -> t.contains("Luna", ignoreCase = true) || t.length > 20 }
         )
         shoot("cap11_memory_recall")
         assertNotNull("the recall turn never completed", recallReply)
@@ -1322,9 +1337,20 @@ class AgentCapabilityE2EInstrumentedTest {
             extraExcluded = setOf(question),
             predicate = { t -> t.length > 8 }
         )
-        val hasActivity = waitTextStarting("ACTIVITY", 20_000) ||
-            waitTextStarting("WEB_SEARCH", 5_000) ||
-            waitTextStarting("web_search", 5_000)
+        // ONE combined poll for ANY activity marker over a generous window:
+        // the research guarantee runs the tool loop AFTER the streamed reply
+        // is already visible, so the live "WEB_SEARCH" row and the persisted
+        // "ACTIVITY (N)" header can land well past 25s of extra latency.
+        val activityDeadline = System.currentTimeMillis() + 90_000
+        var hasActivity = false
+        while (System.currentTimeMillis() < activityDeadline && !hasActivity) {
+            device.runWatchers()
+            hasActivity = visibleTexts().any {
+                it.startsWith("ACTIVITY") || it.startsWith("WEB_SEARCH") ||
+                    it.startsWith("web_search")
+            }
+            if (!hasActivity) runCatching { Thread.sleep(2_500) }
+        }
         shoot("cap15_activity_trace")
         assertTrue("could not restore AGENT mode", ensureMode("AGENT"))
         assertNotNull("research task produced no reply within 900s", reply)

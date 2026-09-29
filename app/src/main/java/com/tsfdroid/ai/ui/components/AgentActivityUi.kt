@@ -142,6 +142,7 @@ private fun kindLabel(kind: String): String = when (kind) {
     ActivityStep.KIND_COMPACTION -> "compact"
     ActivityStep.KIND_PLAN_STEP -> "step"
     ActivityStep.KIND_VISION -> "vision"
+    ActivityStep.KIND_EXPANSION -> "expand"
     else -> kind
 }
 

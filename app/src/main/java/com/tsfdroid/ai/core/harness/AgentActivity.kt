@@ -38,6 +38,8 @@ data class ActivityStep(
         const val KIND_COMPACTION = "compaction"
         const val KIND_PLAN_STEP = "plan_step"
         const val KIND_VISION = "vision"
+        /** The model answered a long-form ask too briefly; one bounded expansion pass. */
+        const val KIND_EXPANSION = "expansion"
 
         const val STATUS_RUNNING = "running"
         const val STATUS_DONE = "done"

@@ -90,6 +90,46 @@ private const val CHAT_HISTORY_WINDOW = 30
  * "I am creating the file" chat reply with nothing actually written.
  */
 private const val PLANNING_MAX_TOKENS = 4096
+
+/**
+ * v1.2.1: minimum delivered length for an explicit long-form ask before the
+ * harness's one-pass expansion kicks in. A 600-word essay is ~3500 chars;
+ * 1200 chars means the model did not even try — everything at or above the
+ * threshold is treated as the model exercising legitimate length judgment.
+ */
+private const val LONG_FORM_MIN_CHARS = 1200
+
+/**
+ * v1.2.1: queries that REQUIRE fresh, real-world data. When the chat model
+ * answers one of these without a single tool call, the harness grounds the
+ * answer through the tool loop (the research guarantee) — the model's prompt
+ * mandate alone was proven insufficient on the live endpoint.
+ */
+private val FRESH_DATA_QUERY =
+    Regex(
+        "(?i)(current|right now|as of|latest|today('s)?|tonight|this week|this month|" +
+            "price|worth|stock|share price|exchange rate|weather|forecast|temperature|" +
+            "news|headline|score|standings|who won|release date|schedule)"
+    )
+
+/**
+ * v1.2.1: queries that explicitly ask for LONG-FORM output (essays, stories,
+ * reports, detailed explanations). Combined with [LONG_FORM_MIN_CHARS] this
+ * drives the bounded expansion pass — lazy one-paragraph answers to a
+ * "600 words" ask are re-delivered at the requested length.
+ */
+private val LONG_FORM_QUERY =
+    Regex(
+        "(?i)(essay|article|story|letter|poem|report|blog post|chapter|" +
+            "in detail|detailed|thorough|comprehensive|in-depth|deep dive|" +
+            "at least \\d+ words|\\d+\\+? words|full paragraphs|explain (everything|fully|the complete))"
+    )
+
+internal fun requiresFreshData(query: String): Boolean = FRESH_DATA_QUERY.containsMatchIn(query)
+
+internal fun asksForLongForm(query: String): Boolean =
+    query.length > 40 && LONG_FORM_QUERY.containsMatchIn(query)
+
 private val CONTACT_NUMBER_PROMPT_ACTIONS = setOf("MAKE_CALL", "SEND_SMS", "SEND_WHATSAPP", "SEND_TELEGRAM")
 
 internal fun paramKeyForNeedsInput(needsInput: ActionResult.NeedsInput, actionName: String): String {
@@ -890,6 +930,64 @@ class AgentLoop @Inject constructor(
                 _chatError.value = null
                 _agentState.value = AgentState.Idle
                 return
+            }
+
+            // v1.2.1 RESEARCH GUARANTEE — the tool contract, enforced. The chat
+            // prompt mandates web_search for current-info asks, but prompt
+            // compliance is never the only line of defense (v1.0.5 lesson):
+            // when the model answered a fresh-data ask straight from memory
+            // (zero tool events this turn), the harness runs the tool loop NOW
+            // so the search actually executes, the answer is grounded in real
+            // results, and the visible ACTIVITY trace exists — Claude/OpenCode
+            // behavior, deterministic rather than model-dependent.
+            if (lastFinishReason != HarnessLoop.FINISH_LENGTH &&
+                currentStepsSnapshot().none { it.kind == ActivityStep.KIND_TOOL } &&
+                requiresFreshData(userMsg.text)
+            ) {
+                val grounded = harnessFallbackTurn(provider, turnConfig, lastMsgs)
+                if (!grounded.isNullOrBlank()) {
+                    currentReplyText = grounded
+                    persistReply(force = true)
+                }
+            }
+
+            // v1.2.1 LENGTH CONTRACT — one bounded expansion pass. A model
+            // that answers an explicit long-form ask ("essay of at least 600
+            // words") with a few lazy sentences and finish_reason=stop never
+            // triggers continuation (no output limit was hit), so the user
+            // would get a thin answer. The harness re-asks for the FULL
+            // requested length once; continuation segments still flow if the
+            // expansion itself hits the budget.
+            if (lastFinishReason != HarnessLoop.FINISH_LENGTH &&
+                asksForLongForm(userMsg.text) &&
+                currentReplyText.length < LONG_FORM_MIN_CHARS
+            ) {
+                _liveThinking.value = "[harness] expanding the answer to the requested length…"
+                val expanded = try {
+                    harnessLoop.expandShortAnswer(
+                        provider = provider,
+                        config = turnConfig.copy(history = lastMsgs),
+                        history = lastMsgs,
+                        userQuery = userMsg.text,
+                        currentReply = currentReplyText
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+                _liveThinking.value = null
+                if (expanded != null && expanded.content.length > currentReplyText.length) {
+                    publishStep(
+                        ActivityStep(
+                            kind = ActivityStep.KIND_EXPANSION,
+                            label = "Expanded to full length",
+                            detail = "first pass ${currentReplyText.length} chars -> ${expanded.content.length} chars"
+                        )
+                    )
+                    currentReplyText = expanded.content
+                    persistReply(force = true)
+                }
             }
 
             // v1.2.0 CONTINUATION — the "no artificial output limit" guarantee.

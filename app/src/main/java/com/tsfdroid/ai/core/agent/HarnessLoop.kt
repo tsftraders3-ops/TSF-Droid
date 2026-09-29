@@ -342,6 +342,68 @@ class HarnessLoop @Inject constructor(
     )
 
     /**
+     * v1.2.1 LENGTH CONTRACT: reasoning models sometimes answer an explicit
+     * long-form ask ("an essay of at least 600 words") with a few lazy
+     * sentences and finish_reason=stop — no output-limit was hit, so plain
+     * continuation never fires and the user gets a thin answer. One bounded
+     * expansion pass re-asks for the FULL requested length (continuation
+     * segments still flow if the expansion itself hits the budget). This is
+     * the harness honoring the user's ask, not the model's whim.
+     */
+    suspend fun expandShortAnswer(
+        provider: LLMProvider,
+        config: TurnConfig,
+        history: List<ChatMessage>,
+        userQuery: String,
+        currentReply: String
+    ): TurnResult? {
+        val expansionMessages = history +
+            assistantMessage(currentReply) +
+            userMessage(
+                "Your reply above is far shorter than what was asked for. The user asked: " +
+                    "\"$userQuery\". Deliver the COMPLETE answer at the requested length and " +
+                    "depth — do not summarize, do not abbreviate, do not add meta commentary " +
+                    "about the request. If you already covered part of it, keep that content " +
+                    "and continue/expand from there so the final answer stands alone. " +
+                    "Output the full answer now."
+            )
+        val response = try {
+            provider.complete(
+                LLMRequest(
+                    systemPrompt = config.systemPrompt,
+                    messages = expansionMessages,
+                    temperature = config.temperature,
+                    maxTokens = config.maxTokens,
+                    responseFormat = ResponseFormat.TEXT,
+                    allowToolCalls = false,
+                    reasoningEffort = config.reasoningEffort
+                )
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("HarnessLoop", "Expansion call failed: ${e.localizedMessage}")
+            return null
+        }
+        if (response.content.isBlank()) return null
+        return if (response.finishReason == FINISH_LENGTH) {
+            appendContinuations(
+                provider, config, expansionMessages, response.content,
+                roundsUsed = 1, executed = 0, segments = 0, onStatus = null
+            )
+        } else {
+            TurnResult(
+                content = response.content,
+                rounds = 1,
+                toolCallsExecuted = 0,
+                continuationSegments = 0,
+                finishReason = response.finishReason,
+                stillTruncated = false
+            )
+        }
+    }
+
+    /**
      * Continues a length-truncated answer: repeatedly calls the API with the
      * accumulated partial + a CONTINUE instruction, appending segments until
      * the model finishes or the continuation budget is spent. Returns the

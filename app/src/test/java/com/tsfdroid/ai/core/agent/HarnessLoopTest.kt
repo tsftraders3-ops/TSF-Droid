@@ -288,4 +288,81 @@ class HarnessLoopTest {
         assertEquals(HarnessLoop.FirstRoundStatus.CONTINUE_HANDOFF, continueHandoff.status)
         assertEquals("length", continueHandoff.finishReason)
     }
+
+    // ---------- v1.2.1 length contract: the bounded expansion pass ----------
+
+    @Test
+    fun `expandShortAnswer re-asks for the full requested length`() = runBlocking {
+        val provider = FakeProvider(
+            answer("Two lazy sentences only.", finishReason = "stop"),
+            answer("A full multi-paragraph essay that actually covers every requested topic in the depth asked for.", finishReason = "stop")
+        )
+
+        val result = harness.expandShortAnswer(
+            provider,
+            config(),
+            history = listOf(ChatMessage("1", "user ask", ChatMessage.Sender.USER)),
+            userQuery = "Write a thorough essay of at least 600 words on packet switching.",
+            currentReply = "Two lazy sentences only."
+        )
+
+        assertTrue(result!!.content.startsWith("A full multi-paragraph essay"))
+        assertEquals(2, provider.requests.size)
+        // The expansion request carries the previous reply as an assistant
+        // turn plus the expansion instruction; tools are off for the pass.
+        val expansionRequest = provider.requests[1]
+        assertTrue(!expansionRequest.allowToolCalls)
+        assertTrue(
+            expansionRequest.messages.any {
+                it.sender == ChatMessage.Sender.AGENT && it.text == "Two lazy sentences only."
+            }
+        )
+        assertTrue(
+            expansionRequest.messages.any {
+                it.text.contains("Deliver the COMPLETE answer") && it.text.contains("600 words")
+            }
+        )
+    }
+
+    @Test
+    fun `expandShortAnswer flows continuations when the expansion itself hits the budget`() = runBlocking {
+        val provider = FakeProvider(
+            answer("The expanded first half", finishReason = "length"),
+            answer("and the flowing second half.", finishReason = "stop")
+        )
+
+        val result = harness.expandShortAnswer(
+            provider,
+            config(),
+            history = listOf(ChatMessage("1", "user ask", ChatMessage.Sender.USER)),
+            userQuery = "Write a detailed report with full paragraphs.",
+            currentReply = "too short"
+        )
+
+        assertEquals(
+            "The expanded first half\nand the flowing second half.",
+            result!!.content
+        )
+    }
+
+    // ---------- v1.2.1 chat-path guarantees: fresh data + long-form asks ----------
+
+    @Test
+    fun `fresh-data detection matches current-info asks and not casual chat`() {
+        assertTrue(requiresFreshData("What is the current price of Bitcoin in USD right now?"))
+        assertTrue(requiresFreshData("ok search for latest iphone price"))
+        assertTrue(requiresFreshData("what's the weather today"))
+        assertTrue(!requiresFreshData("hi there"))
+        assertTrue(!requiresFreshData("explain how the internet works"))
+        assertTrue(!requiresFreshData("What is my cat's name? Answer with just the name."))
+    }
+
+    @Test
+    fun `long-form detection matches explicit length asks and not short asks`() {
+        assertTrue(asksForLongForm("Write a thorough essay of at least 600 words explaining how the internet works."))
+        assertTrue(asksForLongForm("Explain in detail how DNS resolution works end to end"))
+        assertTrue(!asksForLongForm("hi"))
+        assertTrue(!asksForLongForm("What is my cat's name? Answer with just the name."))
+        assertTrue(!asksForLongForm("Write a file at Documents/chatmode_proof.txt containing the text chat-mode-write."))
+    }
 }
