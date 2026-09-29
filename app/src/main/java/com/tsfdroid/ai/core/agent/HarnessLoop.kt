@@ -276,11 +276,7 @@ class HarnessLoop @Inject constructor(
                 // The narration is context for the next round, not the answer.
                 messages = messages + assistantMessage(response.content)
             } else {
-                messages = messages + ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    text = "[tool calls issued]",
-                    sender = ChatMessage.Sender.AGENT
-                )
+                messages = messages + toolRoundStub(response.toolCalls)
             }
             for (call in response.toolCalls) {
                 val mapping = ToolCallBridge.map(call)
@@ -537,11 +533,7 @@ class HarnessLoop @Inject constructor(
             if (response.toolCalls.isNotEmpty() && response.content.isBlank()) {
                 // The model answered the continuation with tool calls — run
                 // them and keep continuing afterwards.
-                current = current + ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    text = "[tool calls issued]",
-                    sender = ChatMessage.Sender.AGENT
-                )
+                current = current + toolRoundStub(response.toolCalls)
                 for (call in response.toolCalls) {
                     val mapping = ToolCallBridge.map(call)
                     val mapped = mapping.mapped
@@ -681,6 +673,27 @@ class HarnessLoop @Inject constructor(
         text = text,
         sender = ChatMessage.Sender.AGENT
     )
+
+    /**
+     * v1.2.1 round-9 field fix (cap7 pass-2): the literal "[tool calls
+     * issued]" stub made reasoning models doubt their own transcript — the
+     * model burned rounds re-litigating it ("The transcript says [tool calls
+     * issued] - but that's what I claimed") instead of using the tool
+     * results that follow. The stub now records what the assistant ACTUALLY
+     * did, in first person, so the sequence reads as a coherent story:
+     * action -> real result -> grounded answer.
+     */
+    private fun toolRoundStub(calls: List<com.tsfdroid.ai.core.llm.LLMToolCall>): ChatMessage {
+        val summary = calls.joinToString("; ") { call ->
+            val args = call.arguments.replace("\n", " ").take(90)
+            if (args.isBlank()) call.name else "${call.name}($args)"
+        }
+        return ChatMessage(
+            id = UUID.randomUUID().toString(),
+            text = "I used $summary to work on this.",
+            sender = ChatMessage.Sender.AGENT
+        )
+    }
 
     companion object {
         /**
