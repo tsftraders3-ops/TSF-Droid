@@ -293,8 +293,9 @@ class HarnessLoopTest {
 
     @Test
     fun `expandShortAnswer re-asks for the full requested length`() = runBlocking {
+        // The FIRST response the fake pops IS the expansion response — the
+        // caller already holds the lazy first-pass reply.
         val provider = FakeProvider(
-            answer("Two lazy sentences only.", finishReason = "stop"),
             answer("A full multi-paragraph essay that actually covers every requested topic in the depth asked for.", finishReason = "stop")
         )
 
@@ -307,10 +308,10 @@ class HarnessLoopTest {
         )
 
         assertTrue(result!!.content.startsWith("A full multi-paragraph essay"))
-        assertEquals(2, provider.requests.size)
+        assertEquals(1, provider.requests.size)
         // The expansion request carries the previous reply as an assistant
         // turn plus the expansion instruction; tools are off for the pass.
-        val expansionRequest = provider.requests[1]
+        val expansionRequest = provider.requests[0]
         assertTrue(!expansionRequest.allowToolCalls)
         assertTrue(
             expansionRequest.messages.any {
@@ -327,7 +328,8 @@ class HarnessLoopTest {
     @Test
     fun `expandShortAnswer flows continuations when the expansion itself hits the budget`() = runBlocking {
         val provider = FakeProvider(
-            answer("The expanded first half", finishReason = "length"),
+            // Ends on a period -> joinSegments glues with a newline.
+            answer("The expanded first half.", finishReason = "length"),
             answer("and the flowing second half.", finishReason = "stop")
         )
 
