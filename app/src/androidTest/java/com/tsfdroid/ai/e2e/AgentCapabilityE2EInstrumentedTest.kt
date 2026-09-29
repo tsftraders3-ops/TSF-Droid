@@ -1209,12 +1209,19 @@ class AgentCapabilityE2EInstrumentedTest {
     fun personalMemory_teachesInOneChat_recallsInAnother() {
         reachDashboard()
         assertTrue("could not ensure AGENT mode", ensureMode("AGENT"))
+        val teachQuestion = "Please remember this about me: my cat's name is Luna."
         val teachBaseline = sendTask(
-            "Please remember this about me: my cat's name is Luna.",
+            teachQuestion,
             "cap11_teach",
             planningWindowMs = 480_000
         )
-        val teachReply = waitNewText(teachBaseline, 480_000, predicate = { t -> t.length > 8 })
+        // Exclude the sent question bubble itself from reply detection — it is
+        // a new text node and would match any length predicate instantly.
+        val teachReply = waitNewText(
+            teachBaseline, 480_000,
+            extraExcluded = setOf(teachQuestion),
+            predicate = { t -> t.length > 8 }
+        )
         assertNotNull("the teach turn never completed", teachReply)
         // The learning extractor runs in the background after the reply —
         // give it a bounded window before switching chats.
@@ -1222,13 +1229,15 @@ class AgentCapabilityE2EInstrumentedTest {
         // Start a brand-new chat so the recall CANNOT come from history.
         assertTrue("New chat button not found", clickDesc("New chat", 15_000))
         device.waitForIdle(2_000)
+        val recallQuestion = "What is my cat's name? Answer with just the name."
         val recallBaseline = sendTask(
-            "What is my cat's name? Answer with just the name.",
+            recallQuestion,
             "cap11_recall",
             planningWindowMs = 480_000
         )
         val recallReply = waitNewText(
             recallBaseline, 480_000,
+            extraExcluded = setOf(recallQuestion),
             predicate = { t -> t.contains("Luna", ignoreCase = true) || t.length > 8 }
         )
         shoot("cap11_memory_recall")
@@ -1300,13 +1309,17 @@ class AgentCapabilityE2EInstrumentedTest {
         // and the visible trace exists. (The AGENT planner may legally answer
         // with a pure CHAT step, which runs no tools and records no steps.)
         assertTrue("could not ensure CHAT mode", ensureMode("CHAT"))
+        val question = "What is the current price of Bitcoin in USD right now?"
         val baseline = sendTask(
-            "What is the current price of Bitcoin in USD right now?",
+            question,
             "cap15_activity",
             planningWindowMs = 480_000
         )
+        // Exclude the question bubble — otherwise the "reply" detected is the
+        // user's own message and the trace check races the actual turn.
         val reply = waitNewText(
             baseline, 900_000,
+            extraExcluded = setOf(question),
             predicate = { t -> t.length > 8 }
         )
         val hasActivity = waitTextStarting("ACTIVITY", 20_000) ||
