@@ -948,6 +948,15 @@ class AgentLoop @Inject constructor(
                 if (!grounded.isNullOrBlank()) {
                     currentReplyText = grounded
                     persistReply(force = true)
+                } else if (currentStepsSnapshot().none { it.kind == ActivityStep.KIND_TOOL }) {
+                    // v1.2.1 honesty boundary: the model answered a fresh-data
+                    // ask from memory AND live grounding could not be reached
+                    // (rate limits, endpoint failure). The user must know the
+                    // figures above are unverified, never silent fabrication.
+                    currentReplyText += "\n\n(Note: live search could not be reached for " +
+                        "this one right now — treat the figures above as unverified, " +
+                        "from general knowledge. Ask again in a moment for verified data.)"
+                    persistReply(force = true)
                 }
             }
 

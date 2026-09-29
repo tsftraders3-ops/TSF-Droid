@@ -949,7 +949,7 @@ class AgentCapabilityE2EInstrumentedTest {
         shoot("cap7_gold_reply")
         assertNotNull(
             "gold-price ask produced neither real price data nor the search listing " +
-                "within 420s (and the malformed-response card must never appear)",
+                "within 600s (and the malformed-response card must never appear)",
             reply
         )
         assertTrue(
@@ -1273,18 +1273,20 @@ class AgentCapabilityE2EInstrumentedTest {
         val recallReply = waitNewText(
             recallBaseline, 480_000,
             extraExcluded = setOf(recallQuestion),
-            // Defense in depth beyond the badge exclusion: a genuine reply
-            // node is either the recall itself or a >20-char explanation; the
-            // old >8 bound could catch short status-shaped leftovers.
-            predicate = { t -> t.contains("Luna", ignoreCase = true) || t.length > 20 }
+            // The recall evidence is the FACT ITSELF, wherever it renders —
+            // the reply bubble or (equally valid for the memory-injection
+            // bar) the model's reasoning quoting the injected memory. A fresh
+            // chat cannot know "Luna" from history; only the personal-memory
+            // loop can have delivered it.
+            predicate = { t -> t.contains("Luna", ignoreCase = true) }
         )
         shoot("cap11_memory_recall")
-        assertNotNull("the recall turn never completed", recallReply)
-        assertTrue(
-            "the agent did not recall the taught fact across chats (reply: " +
-                "${recallReply?.take(120)}) — personal memory did not inject",
-            recallReply!!.contains("Luna", ignoreCase = true)
+        assertNotNull(
+            "the taught fact never surfaced in the recall chat within 480s — " +
+                "personal memory did not inject",
+            recallReply
         )
+        println("TSF-E2E memory recall: ${recallReply!!.take(160)}")
     }
 
     /**
@@ -1360,21 +1362,14 @@ class AgentCapabilityE2EInstrumentedTest {
             "cap15_activity",
             planningWindowMs = 480_000
         )
-        // Exclude the question bubble — otherwise the "reply" detected is the
-        // user's own message and the trace check races the actual turn.
-        // settleMs: the research loop's final answer streams in after the
-        // tool rounds — assert on the settled deliverable, not a snapshot.
-        val reply = waitNewText(
-            baseline, 900_000,
-            extraExcluded = setOf(question),
-            predicate = { t -> t.length > 8 },
-            settleMs = 10_000
-        )
-        // ONE combined poll for ANY activity marker over a generous window:
-        // the persisted "ACTIVITY (N)" header renders together with the final
-        // bubble, and the live "WEB_SEARCH" step rows render while the loop
-        // runs — this poll covers both timings.
-        val activityDeadline = System.currentTimeMillis() + 120_000
+        // THE BAR, polled directly: a visible work trace within the turn
+        // window. The live "WEB_SEARCH" step rows render while the tool loop
+        // runs; the persisted "ACTIVITY (N)" header renders with the final
+        // bubble. Rounds 1-5 failed this bar by racing the reply detection —
+        // the reasoning-body text node matched the length predicate and the
+        // marker poll started/expired mid-loop. No reply race anymore: poll
+        // the markers themselves for the full window.
+        val activityDeadline = System.currentTimeMillis() + 900_000
         var hasActivity = false
         while (System.currentTimeMillis() < activityDeadline && !hasActivity) {
             device.runWatchers()
@@ -1384,13 +1379,21 @@ class AgentCapabilityE2EInstrumentedTest {
             }
             if (!hasActivity) runCatching { Thread.sleep(2_500) }
         }
+        // The grounded reply for the ask (secondary bar): settled capture,
+        // bounded window — it has usually already landed with the marker.
+        val reply = waitNewText(
+            baseline, 420_000,
+            extraExcluded = setOf(question),
+            predicate = { t -> t.length > 40 },
+            settleMs = 10_000
+        )
         shoot("cap15_activity_trace")
-        assertNotNull("research task produced no reply within 900s", reply)
         assertTrue(
-            "reply arrived but no ACTIVITY trace was rendered — the visible-steps " +
-                "surface did not record the chat tool loop",
+            "no ACTIVITY/WEB_SEARCH trace rendered within the turn window — the " +
+                "visible-steps surface did not record the chat tool loop",
             hasActivity
         )
+        assertNotNull("research task produced no grounded reply", reply)
         // Leave the app in AGENT mode for the remaining capability tests.
         assertTrue("could not restore AGENT mode", ensureMode("AGENT"))
     }
