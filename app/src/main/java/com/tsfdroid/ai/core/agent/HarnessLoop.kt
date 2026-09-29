@@ -60,20 +60,31 @@ fun interface HarnessToolExecutor {
  * done yet).
  */
 private val MONOLOGUE_SHAPED = Regex(
-    "(?i)\\A(need to|let me|i'll|i will|i am going to|i'm going to|searching|" +
-        "looking up|to answer|first,? i|okay,? i)"
+    "(?i)\\A\\s*(need to|gonna|i'm going to|i am going to|searching|looking up|" +
+        "looking for|to answer|first,? i|okay,? i)"
+)
+
+/**
+ * v1.2.1 round-8 field evidence (cap7 gold): "The searches came back empty,
+ * so let me fetch a live gold-rate page directly." — the announcement sits
+ * MID-text after a status sentence. Also covers the opener case with the
+ * action-verb requirement: "Let me search" is monologue, "Let me know" and
+ * "Let me give you the key facts: …" are conversation/answers.
+ */
+private val MONOLOGUE_ACTION_MID = Regex(
+    "(?i)\\b(let me|i'll|i will)\\s+(search|fetch|look|check|find|get|grab|" +
+        "pull|query|run|call)\\b"
 )
 
 internal fun isMonologueShaped(text: String): Boolean {
     val t = text.trim()
     if (t.isEmpty() || t.length > 500) return false
-    if (!MONOLOGUE_SHAPED.containsMatchIn(t)) return false
+    if (!MONOLOGUE_SHAPED.containsMatchIn(t) && !MONOLOGUE_ACTION_MID.containsMatchIn(t)) return false
     // A question back to the user is a real conversational move, not monologue.
     if (t.endsWith("?")) return false
     // A colon introduces the actual content ("Let me give you the key facts:
     // gold is at $4,156/oz.") — that is an answer with a preamble, never
-    // pure monologue. The field leaks ("Need to search… Let me search.")
-    // carry no colon.
+    // pure monologue.
     return !t.contains(':')
 }
 
@@ -166,7 +177,18 @@ class HarnessLoop @Inject constructor(
             }
             lastFinishReason = response.finishReason ?: lastFinishReason
 
-            if (response.content.isNotBlank()) {
+            // v1.2.1 round-8 field fix (cap7 gold): a response carrying BOTH
+            // content and tool calls is MID-WORK narration ("The searches came
+            // back empty, so let me fetch a live gold-rate page directly." —
+            // with a fetch call attached). The old flow returned the narration
+            // and DROPPED the calls, stranding the turn mid-work with no data.
+            // Keep the narration as context, execute the calls, and let the
+            // loop land the real answer after the results arrive.
+            val narrationWithCalls = response.content.isNotBlank() &&
+                response.toolCalls.isNotEmpty() &&
+                round < config.maxRounds - 1
+
+            if (response.content.isNotBlank() && !narrationWithCalls) {
                 // v1.1.1 blind-critic fix, kept: a model that just echoes the
                 // raw web_search listing gets ONE synthesis round before its
                 // text is delivered as-is.
@@ -227,7 +249,7 @@ class HarnessLoop @Inject constructor(
                 )
             }
 
-            if (response.toolCalls.isEmpty()) return null
+            if (response.toolCalls.isEmpty() && !narrationWithCalls) return null
 
             // ---- Tool execution round ----
             val signature = response.toolCalls.joinToString("|") { call ->
@@ -250,11 +272,16 @@ class HarnessLoop @Inject constructor(
                 return null
             }
 
-            messages = messages + ChatMessage(
-                id = UUID.randomUUID().toString(),
-                text = "[tool calls issued]",
-                sender = ChatMessage.Sender.AGENT
-            )
+            if (narrationWithCalls) {
+                // The narration is context for the next round, not the answer.
+                messages = messages + assistantMessage(response.content)
+            } else {
+                messages = messages + ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    text = "[tool calls issued]",
+                    sender = ChatMessage.Sender.AGENT
+                )
+            }
             for (call in response.toolCalls) {
                 val mapping = ToolCallBridge.map(call)
                 val mapped = mapping.mapped

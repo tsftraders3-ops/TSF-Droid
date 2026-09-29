@@ -377,13 +377,58 @@ class HarnessLoopTest {
         assertTrue(isMonologueShaped("Let me search for this."))
         assertTrue(isMonologueShaped("I'll look that up right away..."))
         assertTrue(isMonologueShaped("Searching for the current BTC price now"))
+        // The exact cap7 round-8 field leak: the announcement sits MID-text:
+        assertTrue(
+            isMonologueShaped(
+                "The searches came back empty, so let me fetch a live gold-rate page directly."
+            )
+        )
         // Real answers stay:
         assertTrue(!isMonologueShaped("Bitcoin is trading at $84,000 as of today."))
         assertTrue(!isMonologueShaped("Let me give you the key facts: gold is at $4,156/oz."))
+        assertTrue(!isMonologueShaped("Let me know if you want more detail."))
         // A question back is conversation, not monologue:
         assertTrue(!isMonologueShaped("Let me check — do you want prices in USD or EUR?"))
         // Long-form answers are never monologue:
         assertTrue(!isMonologueShaped("Let me explain. " + "Detail. ".repeat(120)))
+    }
+
+    @Test
+    fun `runTurn executes the tool calls that ride along with narration content`() = runBlocking {
+        // The cap7 round-8 field shape: the model narrates the next step AND
+        // emits the fetch call in the same response. The old flow delivered
+        // the narration and dropped the call — the turn stranded with no data.
+        val executor = FakeExecutor()
+        val localHarness = HarnessLoop(executor, registry)
+        val provider = FakeProvider(
+            answer(
+                "The searches came back empty, so let me fetch a live gold-rate page directly.",
+                toolCalls = listOf(LLMToolCall("fetch_url", """{"url":"https://www.bankbazaar.com/gold-rate.html"}"""))
+            ),
+            answer("Gold is at $4,156.40 per troy ounce (spot bid), as of Sep 29, 2026.")
+        )
+
+        val result = localHarness.runTurn(
+            provider,
+            config(
+                tool = Tool(
+                    "fetch_url", "fetch",
+                    """{"type":"object","properties":{"url":{"type":"string"}}}"""
+                )
+            )
+        )
+
+        // The fetch EXECUTED (executor was called) and the final answer is
+        // the grounded one — not the dropped narration.
+        assertEquals(1, executor.calls.size)
+        assertEquals("FETCH_URL", executor.calls[0].first)
+        assertEquals("Gold is at $4,156.40 per troy ounce (spot bid), as of Sep 29, 2026.", result!!.content)
+        // The narration rode into the next round as assistant context.
+        assertTrue(
+            provider.requests[1].messages.any {
+                it.text.contains("searches came back empty")
+            }
+        )
     }
 
     @Test
