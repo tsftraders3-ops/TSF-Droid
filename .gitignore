@@ -27,3 +27,4 @@ local.properties
 # Local AI assistant guidance — not tracked
 CLAUDE.md
 docs/superpowers/
+.kotlin/
