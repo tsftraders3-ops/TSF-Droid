@@ -45,6 +45,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -68,6 +70,15 @@ private const val MAX_NEEDS_INPUT_PROMPTS = 5
 private const val MAX_INCOMPLETE_MESSAGE_IDS = 100
 /** Tail length of the live thinking trace published during planning. */
 private const val LIVE_THINKING_TAIL = 1500
+
+/**
+ * v1.2.1 round-10: hard wall-clock bound on the STREAMED first call of a
+ * chat turn. Free-tier reasoning models can trickle a stream for 15+
+ * minutes (one token at a time keeps the connection alive — no read
+ * timeout, no runaway fuse). Past this bound the harness finishes the turn
+ * with deterministic complete()-based rounds.
+ */
+private const val FIRST_STREAM_CALL_TIMEOUT_MS = 300_000L
 /**
  * v1.2.0: bounded rounds for the chat-path tool loop now live in
  * [HarnessLoop] (OpenCode-style: tool rounds + continuation + doom guard).
@@ -500,6 +511,16 @@ class AgentLoop @Inject constructor(
                 _chatError.value = null
                 _agentState.value = AgentState.Thinking
 
+                // v1.2.1 round-10: every new task starts a FRESH visible-step
+                // trace. The snapshot previously leaked across turns — stale
+                // steps from an earlier turn (a) rendered on the wrong
+                // message's ACTIVITY section and (b) made the research
+                // guarantee believe THIS turn had already run tools (its
+                // zero-tool-events check read the polluted snapshot), skipping
+                // the forced search and shipping a memory-answer with no trace
+                // (cap15 failed both passes of run 36629953091 this way).
+                _activitySteps.value = emptyList()
+
                 // v1.2.0 CHAT MODE: the read-only conversational mode skips the
                 // whole action-routing cascade (complexity → alias shortcuts →
                 // LLM intent router) — chat mode has no device actions to route,
@@ -788,40 +809,61 @@ class AgentLoop @Inject constructor(
                 }
             )
 
+            // v1.2.1 round-10: a hard wall-clock bound on the STREAMED first
+            // call. Field evidence (cap15, run 36629953091, both passes): a
+            // free-tier reasoning model trickled its stream for ~15 minutes —
+            // the connection stays alive one token at a time, so neither the
+            // read timeout nor the runaway-reasoning fuse fires — and the
+            // turn's grounding (research guarantee → harness rounds) only
+            // started AFTER the user had stared at a half-answer for a
+            // quarter of an hour. 5 minutes is the ceiling of acceptable
+            // first-call waiting; past it the harness takes the turn with
+            // deterministic complete()-based rounds (and the visible ACTIVITY
+            // steps the streamed path cannot produce).
             try {
-                provider.streamCompleteDetailed(
-                    LLMRequest(
-                        systemPrompt = systemPrompt,
-                        messages = lastMsgs,
-                        temperature = 0.4f,
-                        // v1.2.0: the model's REAL output capability — no more
-                        // artificial app-side truncation. The provider clamps
-                        // to each model's registry max_output/context window.
-                        maxTokens = HarnessLoop.OUTPUT_TOKEN_MAX,
-                        responseFormat = ResponseFormat.TEXT,
-                        // v1.0.6: chat turns may answer with tool calls — when
-                        // they do, the streamed reply stays blank and the
-                        // harness below executes the calls natively.
-                        allowToolCalls = true,
-                        tools = chatToolsFor(mode),
-                        reasoningEffort = config.reasoningEffort
-                    )
-                ).collect { event ->
-                    when (event) {
-                        is LLMStreamEvent.Content -> {
-                            if (event.text.isEmpty()) return@collect
-                            currentReplyText += event.text
-                            persistReply(force = true)
+                withTimeout(FIRST_STREAM_CALL_TIMEOUT_MS) {
+                    provider.streamCompleteDetailed(
+                        LLMRequest(
+                            systemPrompt = systemPrompt,
+                            messages = lastMsgs,
+                            temperature = 0.4f,
+                            // v1.2.0: the model's REAL output capability — no more
+                            // artificial app-side truncation. The provider clamps
+                            // to each model's registry max_output/context window.
+                            maxTokens = HarnessLoop.OUTPUT_TOKEN_MAX,
+                            responseFormat = ResponseFormat.TEXT,
+                            // v1.0.6: chat turns may answer with tool calls — when
+                            // they do, the streamed reply stays blank and the
+                            // harness below executes the calls natively.
+                            allowToolCalls = true,
+                            tools = chatToolsFor(mode),
+                            reasoningEffort = config.reasoningEffort
+                        )
+                    ).collect { event ->
+                        when (event) {
+                            is LLMStreamEvent.Content -> {
+                                if (event.text.isEmpty()) return@collect
+                                currentReplyText += event.text
+                                persistReply(force = true)
+                            }
+                            is LLMStreamEvent.Reasoning -> {
+                                currentThinkingText += event.text
+                                _liveThinking.value = currentThinkingText.takeLast(LIVE_THINKING_TAIL)
+                                persistReply(force = false)
+                            }
+                            // v1.2.0: the finish signal the continuation loop keys on.
+                            is LLMStreamEvent.Finished -> lastFinishReason = event.reason
                         }
-                        is LLMStreamEvent.Reasoning -> {
-                            currentThinkingText += event.text
-                            _liveThinking.value = currentThinkingText.takeLast(LIVE_THINKING_TAIL)
-                            persistReply(force = false)
-                        }
-                        // v1.2.0: the finish signal the continuation loop keys on.
-                        is LLMStreamEvent.Finished -> lastFinishReason = event.reason
                     }
                 }
+            } catch (timedOut: TimeoutCancellationException) {
+                // NOT a user cancel: the model's first call simply outlived its
+                // welcome. Whatever streamed stays on screen; the flow below
+                // (research guarantee / harness fallback) finishes the turn.
+                android.util.Log.w(
+                    "AgentLoop",
+                    "streamed first call exceeded ${FIRST_STREAM_CALL_TIMEOUT_MS / 1000}s — handing the turn to the harness"
+                )
             } catch (streamError: CancellationException) {
                 _liveThinking.value = null
                 if (inserted && currentReplyText.isNotBlank()) {
