@@ -342,7 +342,7 @@ class HarnessLoopTest {
         )
 
         assertEquals(
-            "The expanded first half\nand the flowing second half.",
+            "The expanded first half.\nand the flowing second half.",
             result!!.content
         )
     }
