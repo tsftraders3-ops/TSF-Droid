@@ -199,14 +199,24 @@ class AgentCapabilityE2EInstrumentedTest {
      * turns' bubbles. [predicate] restricts what counts as the reply: when
      * null, agent status lines never count; when set, a status-shaped bubble
      * (e.g. a data-output summary "Content of …") still counts if it matches.
+     *
+     * [settleMs] > 0 turns on STREAM SETTLING: the first match may be a
+     * mid-stream snapshot of a still-growing bubble (round-4 evidence: the
+     * long-form essay was captured at 193 chars while it was still streaming
+     * toward thousands). With settling, polling continues and the LONGEST
+     * matching candidate is returned once no longer candidate has appeared
+     * for [settleMs].
      */
     private fun waitNewText(
         baseline: Set<String>,
         timeoutMs: Long,
         extraExcluded: Set<String> = emptySet(),
-        predicate: ((String) -> Boolean)? = null
+        predicate: ((String) -> Boolean)? = null,
+        settleMs: Long = 0
     ): String? {
         val deadline = System.currentTimeMillis() + timeoutMs
+        var longest: String? = null
+        var lastGrowthAt = System.currentTimeMillis()
         while (System.currentTimeMillis() < deadline) {
             device.runWatchers()
             // DOTALL matters: multi-line bubbles (data-output summaries like
@@ -218,6 +228,10 @@ class AgentCapabilityE2EInstrumentedTest {
                 val t = obj.text.trim()
                 if (t.isEmpty() || t in baseline || t in nonReplyTexts || t in extraExcluded) continue
                 if (t.uppercase() in modelBadgeTexts) continue // model-badge node, never a reply
+                // Harness plumbing nodes are never the deliverable reply
+                // (round-4 evidence: "[tool calls issued]" matched a
+                // length-based predicate mid-tool-loop).
+                if (t == "[tool calls issued]" || t.startsWith("[harness]")) continue
                 if (t.startsWith(chatPlaceholder)) continue
                 if (t.startsWith("AUTONOMOUS PLAN")) continue
                 if (t.startsWith("Goal:")) continue
@@ -228,16 +242,23 @@ class AgentCapabilityE2EInstrumentedTest {
                 if (t == "THINKING") continue // collapsible section label
                 if (t.startsWith("Requires Plan")) continue // top-bar status
                 val isStatusLine = agentStatusPrefixes.any { t.startsWith(it) }
-                if (predicate == null) {
-                    if (isStatusLine) continue
-                } else {
-                    if (!predicate(t)) continue
+                val matches = if (predicate == null) !isStatusLine else predicate(t)
+                if (!matches) continue
+                if (settleMs <= 0) return t
+                val current = longest
+                if (current == null || t.length > current.length) {
+                    longest = t
+                    lastGrowthAt = System.currentTimeMillis()
                 }
-                return t
+            }
+            if (settleMs > 0 && longest != null &&
+                System.currentTimeMillis() - lastGrowthAt >= settleMs
+            ) {
+                return longest // stream settled: no longer text for settleMs
             }
             runCatching { Thread.sleep(2_500) }
         }
-        return null
+        return longest
     }
 
     /**
@@ -912,8 +933,10 @@ class AgentCapabilityE2EInstrumentedTest {
         // Data bar: any reply carrying a number ($ or digit with context) OR
         // the structured search listing. The hard assertion is the negative:
         // NO "unreadable response" error card and NO browser fallback.
+        // 600s window: the pass-2 retry ran the full planner+research loop on
+        // a rate-limited free tier and 420s expired before the grounded reply.
         val reply = waitNewText(
-            baseline, 420_000,
+            baseline, 600_000,
             predicate = { t ->
                 t.contains("Unreadable response", ignoreCase = true) ||
                     t.contains("MALFORMED", ignoreCase = true) ||
@@ -1290,12 +1313,16 @@ class AgentCapabilityE2EInstrumentedTest {
             "cap10_longform",
             planningWindowMs = 480_000
         )
+        // settleMs: the essay streams for tens of seconds — a non-settled
+        // capture returned a 193-char mid-stream snapshot in round 4 and the
+        // completeness assert fired on it. Wait until the bubble stops
+        // growing, then assert on the DELIVERED answer.
         val reply = waitNewText(
             baseline, 900_000,
-            predicate = { t -> t.length > 120 }
+            predicate = { t -> t.length > 120 },
+            settleMs = 12_000
         )
         shoot("cap10_longform_reply")
-        assertTrue("could not restore AGENT mode", ensureMode("AGENT"))
         assertNotNull("no long-form reply arrived within 900s", reply)
         // Completeness grammar: the reply must not end mid-word or mid-mark.
         val tail = reply!!.trim().takeLast(1)
@@ -1308,6 +1335,9 @@ class AgentCapabilityE2EInstrumentedTest {
                 "the harness delivered a cut answer",
             complete
         )
+        // Restore AGENT mode only after the bar is decided — a mid-stream tap
+        // on the mode chip is a variable the capture should not carry.
+        assertTrue("could not restore AGENT mode", ensureMode("AGENT"))
         println("TSF-E2E long-form reply length: ${reply.length}")
     }
 
@@ -1332,16 +1362,19 @@ class AgentCapabilityE2EInstrumentedTest {
         )
         // Exclude the question bubble — otherwise the "reply" detected is the
         // user's own message and the trace check races the actual turn.
+        // settleMs: the research loop's final answer streams in after the
+        // tool rounds — assert on the settled deliverable, not a snapshot.
         val reply = waitNewText(
             baseline, 900_000,
             extraExcluded = setOf(question),
-            predicate = { t -> t.length > 8 }
+            predicate = { t -> t.length > 8 },
+            settleMs = 10_000
         )
         // ONE combined poll for ANY activity marker over a generous window:
-        // the research guarantee runs the tool loop AFTER the streamed reply
-        // is already visible, so the live "WEB_SEARCH" row and the persisted
-        // "ACTIVITY (N)" header can land well past 25s of extra latency.
-        val activityDeadline = System.currentTimeMillis() + 90_000
+        // the persisted "ACTIVITY (N)" header renders together with the final
+        // bubble, and the live "WEB_SEARCH" step rows render while the loop
+        // runs — this poll covers both timings.
+        val activityDeadline = System.currentTimeMillis() + 120_000
         var hasActivity = false
         while (System.currentTimeMillis() < activityDeadline && !hasActivity) {
             device.runWatchers()
@@ -1352,13 +1385,14 @@ class AgentCapabilityE2EInstrumentedTest {
             if (!hasActivity) runCatching { Thread.sleep(2_500) }
         }
         shoot("cap15_activity_trace")
-        assertTrue("could not restore AGENT mode", ensureMode("AGENT"))
         assertNotNull("research task produced no reply within 900s", reply)
         assertTrue(
             "reply arrived but no ACTIVITY trace was rendered — the visible-steps " +
                 "surface did not record the chat tool loop",
             hasActivity
         )
+        // Leave the app in AGENT mode for the remaining capability tests.
+        assertTrue("could not restore AGENT mode", ensureMode("AGENT"))
     }
 
     /**
