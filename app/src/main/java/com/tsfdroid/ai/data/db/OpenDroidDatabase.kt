@@ -69,7 +69,7 @@ import androidx.room.TypeConverters
         SocialAutomationRuleEntity::class,
         SocialAuditLogEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -288,6 +288,15 @@ abstract class OpenDroidDatabase : RoomDatabase() {
                 // processor). Purely additive — existing history is untouched,
                 // every pre-existing row simply reads NULL (no uploads).
                 database.execSQL("ALTER TABLE conversations ADD COLUMN attachmentsJson TEXT DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // v1.2.1 Hermes loop: the persisted agent-activity trace per
+                // reply (the visible steps behind each answer). Purely
+                // additive - existing history reads NULL and renders as before.
+                database.execSQL("ALTER TABLE conversations ADD COLUMN stepsJson TEXT DEFAULT NULL")
             }
         }
 

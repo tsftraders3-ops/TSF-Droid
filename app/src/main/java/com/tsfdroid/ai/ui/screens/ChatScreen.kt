@@ -71,6 +71,8 @@ import com.tsfdroid.ai.data.models.ChatMode
 import com.tsfdroid.ai.data.models.ChatMessage
 import com.tsfdroid.ai.data.models.effectiveGrantedActions
 import com.tsfdroid.ai.data.models.parseMessageAttachments
+import com.tsfdroid.ai.ui.components.AgentActivityList
+import com.tsfdroid.ai.ui.components.AgentTodoChecklist
 import com.tsfdroid.ai.data.models.resolvedAutoMode
 import com.tsfdroid.ai.data.repository.ChatSession
 import com.tsfdroid.ai.ui.components.ContactPickerCard
@@ -123,6 +125,9 @@ fun ChatScreen(
 
     // v1.2.0: uploads, Chat/Agent mode, effort selector
     val pendingAttachments by viewModel.pendingAttachments.collectAsState()
+    // v1.2.1: the visible-work trace + the live plan (chat-side todo list).
+    val liveActivity by viewModel.visibleActivitySteps.collectAsState()
+    val livePlan by viewModel.currentPlan.collectAsState()
     val availableEffortLevels by viewModel.availableEffortLevels.collectAsState()
     val chatMode = ChatMode.fromNullable(llmConfig.chatMode)
     var showAttachSheet by remember { mutableStateOf(false) }
@@ -522,7 +527,18 @@ fun ChatScreen(
                     // visibleAgentState.
                     if (visibleAgentState is AgentState.Thinking) {
                         item {
-                            ThinkingBubble(liveThinking = liveThinking)
+                            ThinkingBubble(liveThinking = liveThinking, steps = liveActivity)
+                        }
+                    }
+
+                    // v1.2.1: the agent-mode TODO checklist, live in chat while
+                    // a plan executes (the Plan tab shows the same plan; this
+                    // is the conversation-side mirror, Claude/OpenCode style).
+                    if (visibleAgentState is AgentState.ExecutingPlan) {
+                        item(key = "agent-todo-checklist") {
+                            livePlan?.let { plan ->
+                                AgentTodoChecklist(plan = plan)
+                            }
                         }
                     }
 
@@ -1185,6 +1201,51 @@ fun ChatBubble(
                     }
                 }
 
+                // v1.2.1: the persisted ACTIVITY trace — the visible steps the
+                // agent took for THIS reply (tool calls, continuations,
+                // compactions, plan steps). Same collapsible grammar as
+                // THINKING; auto-expanded while the reply body is still empty.
+                if (isAgent && message.stepsJson != null) {
+                    val steps = remember(message.id) { message.activitySteps() }
+                    if (steps.isNotEmpty()) {
+                        var activityExpanded by remember(message.id) {
+                            mutableStateOf(message.text.isBlank())
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { activityExpanded = !activityExpanded }
+                                .padding(bottom = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (activityExpanded) "Collapse activity" else "Expand activity",
+                                tint = AccentCyan,
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .graphicsLayer {
+                                        rotationZ = if (activityExpanded) 0f else -90f
+                                    }
+                            )
+                            Text(
+                                text = "ACTIVITY (${steps.size})",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentCyan,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                        if (activityExpanded) {
+                            AgentActivityList(
+                                steps = steps,
+                                modifier = Modifier.padding(bottom = 6.dp)
+                            )
+                        }
+                    }
+                }
+
                 // v1.0.6: file attachment card — agent-created artifacts are
                 // REAL files the user can open/share directly from the chat.
                 if (isAgent && message.attachmentJson != null) {
@@ -1415,7 +1476,10 @@ private fun shareArtifact(context: android.content.Context, attachment: org.json
 }
 
 @Composable
-fun ThinkingBubble(liveThinking: String? = null) {
+fun ThinkingBubble(
+    liveThinking: String? = null,
+    steps: List<com.tsfdroid.ai.core.harness.ActivityStep> = emptyList()
+) {
     val transition = rememberInfiniteTransition(label = "thinking")
     val dot1 by transition.animateFloat(
         initialValue = 0.25f,
@@ -1468,6 +1532,14 @@ fun ThinkingBubble(liveThinking: String? = null) {
                     lineHeight = 14.sp,
                     maxLines = 10,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+            // v1.2.1: the live visible-step trace — every tool call, output
+            // continuation, compaction, and plan step as it happens.
+            if (steps.isNotEmpty()) {
+                AgentActivityList(
+                    steps = steps,
                     modifier = Modifier.padding(top = 8.dp)
                 )
             }

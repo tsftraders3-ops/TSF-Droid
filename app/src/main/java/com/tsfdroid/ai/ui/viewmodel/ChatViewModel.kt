@@ -73,7 +73,36 @@ class ChatViewModel @Inject constructor(
      * null when idle. Rendered under the thinking indicator so the user can
      * watch the agent's reasoning in real time.
      */
+    // Session the most recently started task was pinned to. Declared BEFORE the
+    // flows below that read it - property initializers run in declaration order.
+    // Set once, right when a task is kicked off (sendMessage for a genuinely new
+    // query, approvePlan, or editAndResend's resend) - mirroring AgentLoop's own
+    // "resolve the session once, at task start" rule so [agentState], which is a
+    // single field shared by every chat, can be attributed back to the chat it
+    // actually belongs to. See [visibleAgentState].
+    private val _taskSessionId = MutableStateFlow<String?>(null)
+
     val liveThinking: StateFlow<String?> = agentLoop.liveThinking
+
+    /**
+     * v1.2.1: the live visible-step trace of the current turn (tool calls,
+     * continuations, compactions, plan steps) — rendered as the agent-activity
+     * list while the agent works. Session-scoped like [visibleAgentState] so a
+     * background chat's activity never bleeds into the chat on screen.
+     */
+    val visibleActivitySteps: StateFlow<List<com.tsfdroid.ai.core.harness.ActivityStep>> = combine(
+        agentLoop.activitySteps, _taskSessionId, sessions
+    ) { steps, taskSessionId, sessionList ->
+        val current = sessionList.firstOrNull { it.isCurrent }?.id
+        if (taskSessionId == null || taskSessionId == current) steps else emptyList()
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    /** v1.2.1: the live plan (todo list) for the chat-side agent checklist. */
+    val currentPlan: StateFlow<com.tsfdroid.ai.data.models.Plan?> = agentLoop.currentPlan
 
     /**
      * [AgentLoop.chatError], but scoped to whichever chat is on screen - the same rule
@@ -111,12 +140,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    // Session the most recently started task was pinned to. Set once, right when a task
-    // is kicked off (sendMessage for a genuinely new query, approvePlan, or
-    // editAndResend's resend) - mirroring AgentLoop's own "resolve the session once, at
-    // task start" rule so [agentState], which is a single field shared by every chat,
-    // can be attributed back to the chat it actually belongs to. See [visibleAgentState].
-    private val _taskSessionId = MutableStateFlow<String?>(null)
 
     /**
      * [agentState], but forced to [AgentState.Idle] whenever it actually describes a

@@ -4,6 +4,46 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.2.1 — Hermes loop: personal memory, context compaction, visible work & todo list
+
+The "learn and show your work" release on top of the v1.2.0 harness.
+
+### Personal memory — the app learns YOU (Hermes-style)
+
+- After every exchange a tiny extractor call pulls durable facts and
+  preferences ("cat is Luna", "prefers dark mode") into the semantic memory
+  store; every future conversation injects them (recency-ranked, hard-capped
+  at 1.6k chars so the context can never grow unbounded). Re-stating a fact
+  UPDATES it. Browsable/deletable in the Memory tab; toggle in Settings →
+  Personal Memory.
+
+### Context compaction — the 75% rule (OpenCode behavior)
+
+- Before every chat turn the harness measures the assembled prompt against
+  the active model's registry context window; at **75%** it compacts: older
+  history is summarized into a dense context note (recent messages stay
+  verbatim) and the turn proceeds — long projects and long chats never hit
+  the wall. Compactions appear as a visible step.
+
+### Visible work — activity trace + todo list
+
+- Every turn publishes a live **activity trace**: per-tool rows with
+  one-line results, output-limit continuations, compactions, plan steps —
+  rendered live under the thinking bubble AND persisted as a collapsible
+  **ACTIVITY** section on the reply (Claude/OpenCode style, one quiet line
+  per step — never hodgepodge).
+- **Agent-mode TODO checklist, live in chat**: while a plan executes the
+  conversation shows the goal, the stepped-dot track and per-step status
+  boxes — the same plan the Plan tab shows.
+
+### Also
+
+- Harness loop emits structured tool/continuation events (used by the trace).
+- Room v13: per-message activity trace (+stepsJson, purely additive).
+- New emulator E2E bars: cross-chat memory recall, long-form output size,
+  visible activity trace, live TODO checklist; +4 deterministic unit suites.
+- +37 unit tests (705 total green).
+
 ## v1.2.0 — The OpenCode-grade harness: multi-call loop, Chat/Agent modes, no output caps, uploads
 
 The app now calls the model the way OpenCode/Hermes do — repeatedly, until the

@@ -15,6 +15,11 @@ import com.tsfdroid.ai.core.memory.MemoryManager
 import com.tsfdroid.ai.core.memory.ExecutionHistoryPrivacy
 import com.tsfdroid.ai.data.models.AutoMode
 import com.tsfdroid.ai.data.models.ChatMode
+import com.tsfdroid.ai.data.models.selectedModelFor
+import com.tsfdroid.ai.core.harness.ActivityStep
+import com.tsfdroid.ai.core.harness.ContextCompactor
+import com.tsfdroid.ai.core.memory.UserMemoryLearner
+import com.tsfdroid.ai.core.llm.providers.ModelsDevRegistry
 import com.tsfdroid.ai.data.models.ChatMessage
 import com.tsfdroid.ai.data.models.Plan
 import com.tsfdroid.ai.data.models.PlanStatus
@@ -120,7 +125,9 @@ class AgentLoop @Inject constructor(
     private val conversationRepository: ConversationRepository,
     private val settingsRepository: com.tsfdroid.ai.data.repository.SettingsRepository,
     private val reEvalEngine: dagger.Lazy<ReEvaluationEngine>,
-    private val harnessLoop: HarnessLoop
+    private val harnessLoop: HarnessLoop,
+    private val modelsDevRegistry: ModelsDevRegistry,
+    private val memoryLearner: UserMemoryLearner
 ) {
     private val scope = CoroutineScope(Dispatchers.Default)
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
@@ -180,6 +187,41 @@ class AgentLoop @Inject constructor(
      */
     private val _liveThinking = MutableStateFlow<String?>(null)
     val liveThinking: StateFlow<String?> = _liveThinking.asStateFlow()
+
+    /**
+     * v1.2.1: the visible steps of the CURRENT turn (tool calls, output-limit
+     * continuations, context compactions, plan steps) — the Claude / OpenCode
+     * "show your work" trace, published live while the agent works. Cleared at
+     * every new task start; the final snapshot is persisted onto the agent's
+     * message as [ChatMessage.stepsJson] so the ACTIVITY section survives
+     * restarts.
+     */
+    private val _activitySteps = MutableStateFlow<List<ActivityStep>>(emptyList())
+    val activitySteps: StateFlow<List<ActivityStep>> = _activitySteps.asStateFlow()
+
+    /** v1.2.1: the live plan — drives the chat-side agent TODO checklist. */
+    val currentPlan: StateFlow<Plan?> get() = planManager.currentPlan
+
+    private val activityStepsMutex = Mutex()
+
+    private suspend fun publishStep(step: ActivityStep) {
+        activityStepsMutex.withLock {
+            _activitySteps.value = _activitySteps.value + step
+        }
+    }
+
+    private suspend fun completeLastRunningStep(status: String, detail: String) {
+        activityStepsMutex.withLock {
+            val current = _activitySteps.value
+            val idx = current.indexOfLast { it.status == ActivityStep.STATUS_RUNNING }
+            if (idx < 0) return@withLock
+            _activitySteps.value = current.toMutableList().apply {
+                set(idx, get(idx).copy(status = status, detail = detail.take(160)))
+            }
+        }
+    }
+
+    private fun currentStepsSnapshot(): List<ActivityStep> = _activitySteps.value
 
     // Ids of partially streamed agent replies, so re-sent context can label them as
     // incomplete. Bounded: an insertion-ordered set capped at
@@ -583,6 +625,15 @@ class AgentLoop @Inject constructor(
                 dateTimeLine = currentDateTimeLine()
             )
 
+            // v1.2.1 CONTEXT COMPACTION — the OpenCode 75% rule: before the
+            // turn, the assembled prompt is measured against the active model's
+            // registry context window; at 75% the older history is summarized
+            // into a dense context note (recent messages stay verbatim) and a
+            // visible "Compacted conversation history" step is published. Long
+            // projects and long chats never hit the wall or silently forget.
+            val activeModelId = config.selectedModelFor(config.activeProvider)
+            val modelSpec = runCatching { modelsDevRegistry.specs()[activeModelId] }.getOrNull()
+
             // v1.2.0: shared context — 30 messages ride along on every call
             // (the OpenCode pattern re-sends history each step; the old window
             // was 10, which is why the assistant "forgot" everything before it).
@@ -613,6 +664,21 @@ class AgentLoop @Inject constructor(
             if (turnHasImages && !harnessLoop.hasVisionSupport()) {
                 lastMsgs = lastMsgs.map(::degradeImagesToNote)
             }
+
+            // v1.2.1: the 75% compaction pass (uses the vision-routed history).
+            val compaction = ContextCompactor(provider)
+                .compactIfNeeded(systemPrompt, lastMsgs, modelSpec?.contextWindow)
+            if (compaction.compacted) {
+                publishStep(
+                    ActivityStep(
+                        kind = ActivityStep.KIND_COMPACTION,
+                        label = "Compacted conversation history",
+                        detail = "${compaction.tokensBefore} -> ${compaction.tokensAfter} estimated tokens " +
+                            "(75% context rule); older messages summarized, recent kept"
+                    )
+                )
+            }
+            lastMsgs = compaction.messages
 
             val replyId = UUID.randomUUID().toString()
             var currentReplyText = ""
@@ -660,6 +726,25 @@ class AgentLoop @Inject constructor(
                 reasoningEffort = config.reasoningEffort,
                 onArtifact = { action, params, result ->
                     emitArtifactCardIfNeeded(action, params, result, sessionId)
+                },
+                onToolEvent = { action, success, detail ->
+                    publishStep(
+                        ActivityStep(
+                            kind = ActivityStep.KIND_TOOL,
+                            label = action,
+                            detail = detail,
+                            status = if (success) ActivityStep.STATUS_DONE else ActivityStep.STATUS_ERROR
+                        )
+                    )
+                },
+                onContinuation = { part ->
+                    publishStep(
+                        ActivityStep(
+                            kind = ActivityStep.KIND_CONTINUATION,
+                            label = "Answer continued (auto)",
+                            detail = "Output limit reached — the answer flows across calls (part $part)"
+                        )
+                    )
                 }
             )
 
@@ -780,13 +865,16 @@ class AgentLoop @Inject constructor(
                 if (!harnessAnswer.isNullOrBlank()) {
                     val loopMsg = replyMsg.copy(
                         text = harnessAnswer,
-                        thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                        thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
+                        // v1.2.1: persist the visible step trace on the reply.
+                        stepsJson = com.tsfdroid.ai.core.harness.ActivitySteps.encode(currentStepsSnapshot())
                     )
                     conversationRepository.insertMessage(sessionId, loopMsg)
                     memoryManager.storeMessage(loopMsg, sessionId)
                     _chatError.value = null
                     _agentState.value = AgentState.Speaking(harnessAnswer)
                     onSpeakCallback?.invoke(harnessAnswer)
+                    scope.launch { memoryLearner.learnFromExchange(userMsg.text, harnessAnswer) }
                     return
                 }
                 // v1.0.6 (loop-16): a snagged tool loop must NOT surface the
@@ -834,13 +922,21 @@ class AgentLoop @Inject constructor(
 
             val finalReplyMsg = replyMsg.copy(
                 text = currentReplyText,
-                thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
+                // v1.2.1: persist the visible step trace on the reply so the
+                // ACTIVITY section survives app restarts.
+                stepsJson = com.tsfdroid.ai.core.harness.ActivitySteps.encode(currentStepsSnapshot())
             )
             conversationRepository.insertMessage(sessionId, finalReplyMsg)
             memoryManager.storeMessage(finalReplyMsg, sessionId)
             _chatError.value = null
             _agentState.value = AgentState.Speaking(finalReplyMsg.text)
             onSpeakCallback?.invoke(finalReplyMsg.text)
+            // v1.2.1 Hermes-style memory learning over the completed exchange —
+            // background, never blocks, never fails the turn.
+            scope.launch {
+                memoryLearner.learnFromExchange(userMsg.text, finalReplyMsg.text)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: LLMException) {
@@ -1398,6 +1494,8 @@ class AgentLoop @Inject constructor(
     fun approveProposedPlan(context: Context, grantActions: Set<String> = emptySet()) {
         currentJob?.cancel()
         val job = scope.launch {
+            // v1.2.1: a plan approval starts a fresh visible-step trace.
+            _activitySteps.value = emptyList()
             // "Always allow" checkboxes from the approval modal: persist BEFORE
             // executing so a crash mid-plan can't lose an explicit user grant.
             // Filter through isGrantable - neverAutoApprove actions can never
@@ -1670,6 +1768,16 @@ class AgentLoop @Inject constructor(
             // concurrent edit landing in between would otherwise silently outrun.
             val stepToExecute = planManager.getStepSnapshot(nextStep.stepId) ?: nextStep
             _agentState.value = AgentState.ExecutingPlan(stepToExecute.description)
+            // v1.2.1: publish the todo step as a visible activity entry while
+            // it runs (the chat-side checklist + persisted trace read these).
+            publishStep(
+                ActivityStep(
+                    kind = ActivityStep.KIND_PLAN_STEP,
+                    label = stepToExecute.description.ifBlank { stepToExecute.action },
+                    detail = stepToExecute.action,
+                    status = ActivityStep.STATUS_RUNNING
+                )
+            )
 
             // v1.0.5: conversational answers are delivered as agent chat
             // messages. Prose plan replies are classified into CHAT steps
@@ -1696,6 +1804,7 @@ class AgentLoop @Inject constructor(
                     _agentState.value = AgentState.Speaking(response)
                     onSpeakCallback?.invoke(response)
                 }
+                completeLastRunningStep(ActivityStep.STATUS_DONE, "reply delivered")
                 planManager.updateStepStatus(
                     stepToExecute.stepId,
                     StepStatus.COMPLETED,
@@ -1722,6 +1831,17 @@ class AgentLoop @Inject constructor(
                 android.util.Log.e("AgentLoop", "Exception executing action ${stepToExecute.action}: ${e.localizedMessage}", e)
                 ActionResult(false, null, e.localizedMessage ?: "Unknown execution error")
             }
+
+            // v1.2.1: complete the visible step as soon as the outcome exists —
+            // every branch below maps onto done or error for the activity trace.
+            completeLastRunningStep(
+                if (actionResult.success || actionResult is ActionResult.PendingUserAction) {
+                    ActivityStep.STATUS_DONE
+                } else {
+                    ActivityStep.STATUS_ERROR
+                },
+                (actionResult.data ?: actionResult.error ?: "").toString()
+            )
 
             // Redaction must be based on the dispatcher's canonical mapped action,
             // not the raw plan action string — the dispatcher accepts non-canonical
@@ -2292,13 +2412,21 @@ class AgentLoop @Inject constructor(
             id = UUID.randomUUID().toString(),
             text = summaryText,
             sender = ChatMessage.Sender.AGENT,
-            modelBadge = "System"
+            modelBadge = "System",
+            // v1.2.1: the plan's full visible-step trace rides the summary so
+            // the ACTIVITY section in chat shows exactly what the todo list did.
+            stepsJson = com.tsfdroid.ai.core.harness.ActivitySteps.encode(currentStepsSnapshot())
         )
         memoryManager.storeMessage(assistantMsg, sessionId)
         conversationRepository.insertMessage(sessionId, assistantMsg)
 
         _agentState.value = AgentState.Speaking(summaryText)
         onSpeakCallback?.invoke(summaryText)
+        // v1.2.1 Hermes-style memory learning over the agent turn too: goals
+        // often carry durable facts ("my cat Luna...", "for my shop...").
+        scope.launch {
+            memoryLearner.learnFromExchange(plan.goal, summaryText)
+        }
     }
 
     private fun formatStreamedReply(text: String): String {

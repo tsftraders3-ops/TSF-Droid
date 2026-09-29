@@ -1,6 +1,6 @@
 {
   "project": "TSF Droid",
-  "current_phase": "COMPLETE",
+  "current_phase": "PHASE_13_HERMES_LOOP_V1.2.1",
   "completed_steps": [
     "PHASE_1_REPO_AND_CI",
     "PHASE_2.1_SANITIZE_REBRAND",
@@ -24,7 +24,7 @@
     "PHASE_11_AGENTIC_QUALITY_V1.1.1",
     "PHASE_12_OPENCODE_GRADE_HARNESS_V1.2.0"
   ],
-  "active_step": "PHASE_12_OPENCODE_GRADE_HARNESS_V1.2.0_SHIPPED",
+  "active_step": "PHASE_13_IN_PROGRESS",
   "last_ci_run_id": 36331586530,
   "last_ci_status": "SUCCESS",
   "notes": [
@@ -40,7 +40,8 @@
     "PHASE 11 (v1.1.1): user screenshot showed 'tell' -> reasoning loop -> MALFORMED_RESPONSE card. GAUNTLET BAR: the OpenCode CLI experience on the same endpoint+model (named: sst/opencode; fetchable: probe scripts reproduce its wire shape; comparable: app answers/artifacts vs CLI-shaped probe output, fresh-context critic). Sub-bars: (1) wire: allowToolCalls requests carry tool_choice:auto (MockWebServer-asserted); (2) current-events chat question completes with real data and NO error card (cap8); (3) chat answers not truncated (4096 budget); (4) vague deep-research PDF is real + substantial >8KB or multi-page (cap9); (5) unit tests 648/648. Fixes: tool_choice auto by intent, runaway-reasoning fuse + chain walk, readTimeout 300s, chat maxTokens 4096, system-prompt rewrite, chat MALFORMED graceful degradation, research-grounded content engine, planning research pattern.",
     "PHASE 11 CLOSED (v1.1.1): bar = OpenCode CLI experience (probes reproduce its wire shape; fresh-context critic compares blind). All 6 root causes fixed (tool_choice auto by intent, runaway fuse + chain walk, 300s read timeout, 4096 chat budget, research-grounded content engine, chat MALFORMED graceful degradation). Blind critic: research PDF beat the bar; chat echo defect caught -> synthesis round added -> E2E green (36329075598: PDF 77KB/5pp, HTML 23.8KB). 650/650 unit tests. Released v1.1.1 (run 36331586530 SUCCESS).",
     "v1.2.0 (versionCode 10): OpenCode-grade harness per user-approved spec - finish_reason parsing + auto-continuation (32k budget, 3 segments), multi-round tool loop (10 rounds, doom guard x3), CHAT/AGENT modes (read-only execution gate allowlist), HarnessPrompts, reasoning_effort selector (variants-driven), attachments (image downscale, text inline, PDF pages, video frames) + vision chain routing, new Aurora-violet droid icon, MIGRATION_11_12, unit tests 684 green (HarnessLoopTest, OpenCodeZenFinishReasonTest, HarnessPromptsTest, MessageAttachmentsTest), E2E cap10 chat-read-only / cap11 agent-write / cap12 attach+mode UI, write_file ToolCallBridge alias bug fixed",
-    "v1.2.0 gauntlet COMPLETE: E2E run 36471928616 SUCCESS (16/16 incl. cap10 chat-read-only, cap11 agent-write, cap12 attach UI); unit 684 green (CI run 36471928659); two real defects fixed en route (top-bar overflow hid Approve button on 320dp; example.com page revision broke cap3 marker); release tag v1.2.0 pushed"
+    "v1.2.0 gauntlet COMPLETE: E2E run 36471928616 SUCCESS (16/16 incl. cap10 chat-read-only, cap11 agent-write, cap12 attach UI); unit 684 green (CI run 36471928659); two real defects fixed en route (top-bar overflow hid Approve button on 320dp; example.com page revision broke cap3 marker); release tag v1.2.0 pushed",
+    "PHASE 13 (v1.2.1 Hermes loop) on top of the previous window's v1.2.0 harness: BAR-MEMORY = Hermes/ChatGPT personal memory (LLM extractor UserMemoryLearner -> learn_* semantic facts; budgeted recency-ranked injection; E2E teaches a fact in one chat and recalls it in a NEW chat). BAR-COMPACT = OpenCode 75% auto-compaction (ContextCompactor vs registry contextWindow; E2E/unit pinned). BAR-ACTIVITY = visible steps (ActivityStep live trace + persisted ACTIVITY section; tool/continuation events through HarnessLoop hooks). BAR-TODO = agent-mode TODO checklist live in chat during plan execution. Ported ONTO the remote v1.2.0 harness (previous session window had already shipped modes/continuation/effort/uploads/icon); duplicates dropped, unique features integrated. 705 unit tests green; 4 new emulator E2E bars. versionCode 11, v1.2.1."
   ],
   "release": {
     "workflow": ".github/workflows/release.yml",

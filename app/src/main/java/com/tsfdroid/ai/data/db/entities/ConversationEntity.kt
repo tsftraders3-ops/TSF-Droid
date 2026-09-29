@@ -24,6 +24,9 @@ data class ConversationEntity(
     // v1.2.0: user uploads (images / documents / processed PDF & video frames)
     // as JSON [MessageAttachments]. Null for messages without uploads.
     val attachmentsJson: String? = null,
+    // v1.2.1: agent-activity trace (ActivityStep records) for the visible
+    // steps this reply took. Null for replies without recorded steps.
+    val stepsJson: String? = null,
     // Which chat history this message belongs to. See ChatSessionEntity.
     val sessionId: String
 )

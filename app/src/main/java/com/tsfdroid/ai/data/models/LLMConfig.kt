@@ -60,6 +60,8 @@ data class LLMConfig(
      * CHAT is the read-only conversational mode.
      */
     val chatMode: ChatMode? = null,
+    /** v1.2.1 Hermes-style personal memory learning (extract durable user facts). */
+    val memoryLearningEnabled: Boolean = true,
     /**
      * v1.2.0 reasoning-effort selection (OpenCode's variant mechanism): the
      * level sent as `reasoning_effort` when the active model's registry entry

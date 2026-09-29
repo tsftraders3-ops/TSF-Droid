@@ -690,6 +690,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /** v1.2.1: Hermes-style personal memory learning toggle. */
+    fun setMemoryLearningEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.updateConfig { current ->
+                current.copy(memoryLearningEnabled = enabled)
+            }
+        }
+    }
+
     fun updateMultiAgentMode(enabled: Boolean) {
         _llmConfig.value = _llmConfig.value.copy(multiAgentModeEnabled = enabled)
         viewModelScope.launch {

@@ -1181,6 +1181,174 @@ class AgentCapabilityE2EInstrumentedTest {
         shoot("cap12_controls_done")
     }
 
+
+    // ---------- v1.2.1 Hermes loop: memory, compaction/longform, activity, todo ----------
+
+    /** Polls for an app-owned text node starting with [prefix]. */
+    private fun waitTextStarting(prefix: String, timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            device.runWatchers()
+            val hit = device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))
+                .any {
+                    runCatching { it.applicationPackage }.getOrNull() == appPackage &&
+                        runCatching { it.text.trim().startsWith(prefix) }.getOrDefault(false)
+                }
+            if (hit) return true
+            runCatching { Thread.sleep(2_500) }
+        }
+        return false
+    }
+
+    /**
+     * BAR-MEMORY (device side): teach a durable fact in one chat, recall it in
+     * a BRAND-NEW chat — history cannot leak the answer there, so a correct
+     * recall proves the personal-memory loop (extract -> store -> inject).
+     */
+    @Test(timeout = 1_500_000)
+    fun personalMemory_teachesInOneChat_recallsInAnother() {
+        reachDashboard()
+        assertTrue("could not ensure AGENT mode", ensureMode("AGENT"))
+        val teachBaseline = sendTask(
+            "Please remember this about me: my cat's name is Luna.",
+            "cap11_teach",
+            planningWindowMs = 480_000
+        )
+        val teachReply = waitNewText(teachBaseline, 480_000, predicate = { t -> t.length > 8 })
+        assertNotNull("the teach turn never completed", teachReply)
+        // The learning extractor runs in the background after the reply —
+        // give it a bounded window before switching chats.
+        Thread.sleep(25_000)
+        // Start a brand-new chat so the recall CANNOT come from history.
+        assertTrue("New chat button not found", clickDesc("New chat", 15_000))
+        device.waitForIdle(2_000)
+        val recallBaseline = sendTask(
+            "What is my cat's name? Answer with just the name.",
+            "cap11_recall",
+            planningWindowMs = 480_000
+        )
+        val recallReply = waitNewText(
+            recallBaseline, 480_000,
+            predicate = { t -> t.contains("Luna", ignoreCase = true) || t.length > 8 }
+        )
+        shoot("cap11_memory_recall")
+        assertNotNull("the recall turn never completed", recallReply)
+        assertTrue(
+            "the agent did not recall the taught fact across chats (reply: " +
+                "${recallReply?.take(120)}) — personal memory did not inject",
+            recallReply!!.contains("Luna", ignoreCase = true)
+        )
+    }
+
+    /**
+     * BAR-HARNESS output-size bar: a long-form ask must deliver a SUBSTANTIAL
+     * answer — the historical complaint was answers capped at a few thousand
+     * chars. Continuation flows the answer across calls when the budget clips
+     * it; this pins the outcome on the live endpoint.
+     */
+    @Test(timeout = 1_500_000)
+    fun longFormAsk_deliversSubstantialAnswer() {
+        reachDashboard()
+        assertTrue("could not ensure AGENT mode", ensureMode("AGENT"))
+        val baseline = sendTask(
+            "Write a detailed essay explaining how the internet works, covering " +
+                "packet switching, TCP/IP, DNS, routing, undersea cables, CDNs and " +
+                "security. Use full paragraphs and headings. Make it comprehensive.",
+            "cap10_longform",
+            planningWindowMs = 600_000
+        )
+        val reply = waitNewText(
+            baseline, 720_000,
+            predicate = { t -> t.length > 300 }
+        )
+        shoot("cap10_longform_reply")
+        assertNotNull("no long-form reply arrived within 720s", reply)
+        assertTrue(
+            "long-form ask produced a thin reply (${reply!!.length} chars) — the output " +
+                "budget is still clipping real answers",
+            reply.length >= 2_000
+        )
+        println("TSF-E2E long-form reply length: ${reply.length}")
+    }
+
+    /**
+     * BAR-ACTIVITY: a research task must leave a VISIBLE trace of its work —
+     * the persisted ACTIVITY section on the reply (tool steps recorded by the
+     * harness loop), Claude/OpenCode style.
+     */
+    @Test(timeout = 1_200_000)
+    fun researchTask_persistsVisibleActivityTrace() {
+        reachDashboard()
+        assertTrue("could not ensure AGENT mode", ensureMode("AGENT"))
+        val baseline = sendTask(
+            "What is the current price of Bitcoin in USD right now?",
+            "cap15_activity",
+            planningWindowMs = 600_000
+        )
+        val reply = waitNewText(
+            baseline, 600_000,
+            predicate = { t ->
+                Regex("""\$\s?\d""").containsMatchIn(t) ||
+                    t.startsWith("Top web results") ||
+                    t.startsWith("Latest news") ||
+                    t.length > 120
+            }
+        )
+        assertNotNull("research task produced no reply within 600s", reply)
+        val hasActivity = waitTextStarting("ACTIVITY", 20_000) ||
+            waitTextStarting("WEB_SEARCH", 5_000) ||
+            waitTextStarting("web_search", 5_000)
+        shoot("cap15_activity_trace")
+        assertTrue(
+            "reply arrived but no ACTIVITY trace was rendered — the visible-steps " +
+                "surface did not record the harness tool loop",
+            hasActivity
+        )
+    }
+
+    /**
+     * BAR-TODO: while a plan executes, the chat shows the live TODO checklist
+     * (goal + stepped-dot track + per-step checkboxes), not just the Plan tab.
+     */
+    @Test(timeout = 1_500_000)
+    fun planExecution_showsTodoChecklistInChat() {
+        reachDashboard()
+        assertTrue("could not ensure AGENT mode", ensureMode("AGENT"))
+        val baseline = sendTask(
+            "Create a small HTML file named todo_e2e_proof.html with a heading TSF Todo",
+            "cap16_todo",
+            planningWindowMs = 600_000
+        )
+        // Drive the approval gate; during execution the checklist must appear.
+        val deadline = System.currentTimeMillis() + 600_000
+        var sawTodo = false
+        while (System.currentTimeMillis() < deadline) {
+            device.runWatchers()
+            val approveButton = runCatching { device.findObject(By.textContains("Approve & Run")) }.getOrNull()
+            if (approveButton != null) {
+                shoot("cap16_todo_plan_proposed")
+                tapApproveAndRun()
+            }
+            if (waitTextStarting("TODO", 3_000)) {
+                sawTodo = true
+                shoot("cap16_todo_checklist_visible")
+                break
+            }
+            if (!sawTodo && newWorkspaceFiles("html").any { it.lastModified() >= baselineTs() }) {
+                // Plan finished before a poll caught the live card — the
+                // persisted trace on the summary still carries the steps.
+                if (waitTextStarting("ACTIVITY", 5_000)) sawTodo = true
+                break
+            }
+        }
+        assertTrue(
+            "no TODO checklist (or persisted ACTIVITY trace) appeared during plan execution",
+            sawTodo
+        )
+    }
+
+    private fun baselineTs(): Long = startedAtMs.get()
+
     /** Latin-1 is byte-safe for scanning PDF markers without a charset lib. */
     private val LatinIsSafe = Charsets.ISO_8859_1
 }

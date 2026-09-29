@@ -70,9 +70,20 @@ class MemoryManager @Inject constructor(
     suspend fun getRelevantContext(currentGoal: String): String {
         // Collect facts from semantic database — only valid (non-expired, non-poisoned) entries
         val facts = memoryRepository.getValidMemoriesByType(MemoryType.SEMANTIC)
+
+        // v1.2.1: LEARNED memories (the Hermes-style loop) get their own ranked,
+        // budgeted section — most recent first, hard-capped so the context can
+        // never grow unbounded no matter how much the user teaches the app.
+        val learned = facts
+            .filter { it.key.startsWith(UserMemoryLearner.KEY_PREFIX) }
+            .sortedByDescending { it.timestamp }
+            .joinToString("\n") { "- ${it.key.removePrefix(UserMemoryLearner.KEY_PREFIX).replace('_', ' ')}: ${it.value}" }
+            .take(LEARNED_CONTEXT_MAX_CHARS)
+
         val dbFacts = facts
             .filter { memoryExtractor.shouldStoreInSemanticMemory(it.key) && memoryExtractor.shouldStoreInSemanticMemory(it.value) }
             .joinToString("; ") { "${it.key}: ${it.value}" }
+            .take(FACTS_CONTEXT_MAX_CHARS)
 
         // Read user info from the direct-Keystore profile store. An unreadable profile
         // contributes nothing to the prompt rather than falling back to a plaintext copy.
@@ -91,6 +102,14 @@ class MemoryManager @Inject constructor(
             userFactsList.add(dbFacts)
         }
         val factsContext = userFactsList.joinToString("; ")
+
+        val learnedSection = if (learned.isNotBlank()) {
+            """
+
+            [What you have learned about this user]
+            $learned
+            """.trimIndent()
+        } else ""
         
         // Context from working memory
         val activePlanStr = workingMemory.activePlan?.let { "Active Plan Goal: ${it.goal}" } ?: "No active plan."
@@ -147,6 +166,7 @@ class MemoryManager @Inject constructor(
 
             [Facts about User]
             $factsContext
+            $learnedSection
             
             [Working Session State]
             $activePlanStr
@@ -168,6 +188,14 @@ class MemoryManager @Inject constructor(
             )
             // Optional: prune old messages from db if needed to save space
         }
+    }
+
+    companion object {
+        /** v1.2.1: hard budget for the learned-memories prompt section (chars). */
+        const val LEARNED_CONTEXT_MAX_CHARS = 1600
+
+        /** v1.2.1: hard budget for the generic semantic-facts prompt section. */
+        const val FACTS_CONTEXT_MAX_CHARS = 1200
     }
 
     suspend fun exportMemory(): String {

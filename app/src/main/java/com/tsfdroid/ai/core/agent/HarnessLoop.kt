@@ -70,7 +70,15 @@ class HarnessLoop @Inject constructor(
         val maxRounds: Int = MAX_HARNESS_ROUNDS,
         val maxContinuations: Int = MAX_CONTINUATIONS,
         /** Agent-loop artifact callback (WRITE_FILE/CREATE_PDF cards). */
-        val onArtifact: (suspend (action: String, params: Map<String, String>, result: ActionResult) -> Unit)? = null
+        val onArtifact: (suspend (action: String, params: Map<String, String>, result: ActionResult) -> Unit)? = null,
+        /**
+         * v1.2.1: visible-work hooks. [onToolEvent] fires once per executed
+         * tool call (mapped action, success, one-line outcome) and
+         * [onContinuation] fires per output-limit continuation — both feed
+         * the chat-side ACTIVITY trace (Claude/OpenCode step list).
+         */
+        val onToolEvent: (suspend (action: String, success: Boolean, detail: String) -> Unit)? = null,
+        val onContinuation: (suspend (partNumber: Int) -> Unit)? = null
     )
 
     data class TurnResult(
@@ -155,6 +163,7 @@ class HarnessLoop @Inject constructor(
                     onStatus?.invoke(
                         "[harness] output limit reached — continuing the answer (part ${continuationSegments + 2})…"
                     )
+                    config.onContinuation?.invoke(continuationSegments + 2)
                     messages = messages +
                         assistantMessage(response.content) +
                         userMessage(CONTINUATION_INSTRUCTION)
@@ -235,6 +244,11 @@ class HarnessLoop @Inject constructor(
                 android.util.Log.i(
                     "HarnessLoop",
                     "round $round ${call.name} -> ${mapped?.action ?: "unsupported"}: success=${result.success}"
+                )
+                config.onToolEvent?.invoke(
+                    mapped?.action ?: call.name,
+                    result.success,
+                    (result.data ?: result.error ?: "").toString()
                 )
                 messages = messages + ChatMessage(
                     id = UUID.randomUUID().toString(),
@@ -416,6 +430,11 @@ class HarnessLoop @Inject constructor(
                         }
                     }
                     toolCallsExecuted++
+                    config.onToolEvent?.invoke(
+                        mapped?.action ?: call.name,
+                        result.success,
+                        (result.data ?: result.error ?: "").toString()
+                    )
                     if (result.success && mapped != null && !config.readOnly &&
                         (mapped.action == "WRITE_FILE" || mapped.action == "CREATE_PDF")
                     ) {
@@ -439,6 +458,7 @@ class HarnessLoop @Inject constructor(
             onStatus?.invoke(
                 "[harness] output limit reached — continuing the answer (part ${totalSegments + 1})…"
             )
+            config.onContinuation?.invoke(totalSegments + 1)
             current = current +
                 assistantMessage(response.content) +
                 userMessage(CONTINUATION_INSTRUCTION)

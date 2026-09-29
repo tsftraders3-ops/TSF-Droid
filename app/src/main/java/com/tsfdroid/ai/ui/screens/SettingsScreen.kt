@@ -1902,6 +1902,45 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
 
+                        // v1.2.1: PERSONAL MEMORY — the Hermes-style learning
+                        // toggle (extract durable preferences from exchanges).
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Personal Memory",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Learn your preferences as we talk and recall them in every chat. Manage what was learned in the Memory tab.",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = config.memoryLearningEnabled,
+                                onCheckedChange = { viewModel.setMemoryLearningEnabled(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = TextPrimary,
+                                    checkedTrackColor = TextPrimary.copy(alpha = 0.5f)
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(BorderColor)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,

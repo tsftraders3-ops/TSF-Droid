@@ -31,11 +31,23 @@ data class ChatMessage(
      * base64 JPEGs; text files carry their inline text; PDFs/videos arrive as
      * rendered page/frame images plus a note. Null for messages without uploads.
      */
-    val attachmentsJson: String? = null
+    val attachmentsJson: String? = null,
+    /**
+     * v1.2.1 Hermes loop: JSON array of ActivityStep records — the VISIBLE
+     * steps the agent took to produce this reply (tool calls with one-line
+     * results, output-limit continuations, context compactions, plan steps,
+     * vision routing). Rendered as a collapsible ACTIVITY section, Claude /
+     * OpenCode style. Null for replies without recorded steps.
+     */
+    val stepsJson: String? = null
 ) {
     enum class Sender {
         USER, AGENT
     }
+
+    /** Parsed activity trace for this reply; empty when none was recorded. */
+    fun activitySteps(): List<com.tsfdroid.ai.core.harness.ActivityStep> =
+        com.tsfdroid.ai.core.harness.ActivitySteps.decode(stepsJson)
 
     /** Parsed [attachmentsJson]; null when the message carries no uploads. */
     fun attachments(): MessageAttachments? = parseMessageAttachments(attachmentsJson)
