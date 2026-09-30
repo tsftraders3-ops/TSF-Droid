@@ -915,9 +915,37 @@ class AgentLoop @Inject constructor(
                 if (streamError.error == LLMError.MalformedResponse && currentReplyText.isBlank()) {
                     val harnessAnswer = harnessFallbackTurn(provider, turnConfig, lastMsgs)
                     if (!harnessAnswer.isNullOrBlank()) {
+                        // v1.2.1 round-17 (run 36698428126, BOTH passes failed
+                        // cap15 the same way): the streamed first call of a
+                        // research ask comes back as ONLY tool calls + zero
+                        // content — the wrapper's retry envelope maps that to
+                        // MalformedResponse (the 3-pump retry signature in the
+                        // logcat) and this branch runs. The harness then
+                        // executes the searches, publishes the steps
+                        // (publishStep logs prove it: tool/WEB_SEARCH x2), and
+                        // returns the grounded answer — but THIS save, unlike
+                        // the blank-reply handoff and the final save, dropped
+                        // stepsJson. The live in-bubble trace only renders
+                        // while the state is Thinking/Speaking, which ends
+                        // seconds after the answer lands (TTS completion ->
+                        // Idle) — BEFORE the turn's reply detection settles.
+                        // Net effect: neither the live trace nor a persisted
+                        // ACTIVITY section ever existed on the final bubble.
+                        // Same contract as every other reply save: the work
+                        // the user just watched must survive on the answer.
+                        val loopSteps = currentStepsSnapshot()
+                        val loopStepsEncoded =
+                            com.tsfdroid.ai.core.harness.ActivitySteps.encode(loopSteps)
+                        android.util.Log.i(
+                            "AgentLoop",
+                            "malformed-stream harness reply save: steps=${loopSteps.size} " +
+                                "jsonLen=${loopStepsEncoded?.length ?: -1} id=$replyId"
+                        )
                         val loopMsg = replyMsg.copy(
                             text = harnessAnswer,
-                            thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                            thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
+                            // v1.2.1: persist the visible step trace on the reply.
+                            stepsJson = loopStepsEncoded
                         )
                         conversationRepository.insertMessage(sessionId, loopMsg)
                         memoryManager.storeMessage(loopMsg, sessionId)
@@ -926,10 +954,16 @@ class AgentLoop @Inject constructor(
                         onSpeakCallback?.invoke(harnessAnswer)
                         return
                     }
+                    // v1.2.1 round-17: the snag message carries the same trace —
+                    // when tools DID run before the loop gave out, showing the
+                    // failed work is the honest surface, same as a succeeded turn.
                     val snagMsg = replyMsg.copy(
                         text = "I hit a snag completing that one — the model's reply came back " +
                             "in a shape I couldn't use. Please try again in a moment.",
-                        thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                        thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
+                        stepsJson = com.tsfdroid.ai.core.harness.ActivitySteps.encode(
+                            currentStepsSnapshot()
+                        )
                     )
                     conversationRepository.insertMessage(sessionId, snagMsg)
                     memoryManager.storeMessage(snagMsg, sessionId)
