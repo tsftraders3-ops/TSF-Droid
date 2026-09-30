@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -59,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.tsfdroid.ai.core.agent.AgentState
+import com.tsfdroid.ai.core.harness.ActivityStep
 import com.tsfdroid.ai.core.agent.AutoApprovalPolicy
 import com.tsfdroid.ai.core.agent.ChatErrorPrimaryAction
 import com.tsfdroid.ai.core.agent.ChatErrorUiState
@@ -527,12 +529,28 @@ fun ChatScreen(
                             }
                         }
                     }
-                    items(history) { msg ->
+                    itemsIndexed(history) { index, msg ->
+                        // v1.2.1 round-16: the LIVE step trace renders INSIDE the
+                        // streaming reply bubble (above the answer text — the same
+                        // grammar as the persisted ACTIVITY section). The old
+                        // ThinkingBubble-only placement sat BELOW the growing answer
+                        // item in the LazyColumn, so as soon as answer text arrived
+                        // the auto-scroll pushed it below the fold and LazyColumn
+                        // DISPOSED it — the WEB_SEARCH rows left the a11y tree and
+                        // cap15's marker poll never saw them (run 36685166207
+                        // evidence). A partially-visible bubble keeps all its
+                        // children composed, so rows inside the reply bubble stay
+                        // observable for the whole turn.
+                        val isStreamingTail = msg.sender == ChatMessage.Sender.AGENT &&
+                            index == history.lastIndex &&
+                            (visibleAgentState is AgentState.Thinking ||
+                                visibleAgentState is AgentState.Speaking)
                         ChatBubble(
                             message = msg,
                             viewModel = viewModel,
                             context = context,
-                            onEditRequested = { startEditingMessage(it) }
+                            onEditRequested = { startEditingMessage(it) },
+                            liveActivitySteps = if (isStreamingTail) liveActivity else emptyList()
                         )
                     }
                     
@@ -1019,7 +1037,8 @@ fun ChatBubble(
     message: ChatMessage,
     viewModel: ChatViewModel? = null,
     context: android.content.Context? = null,
-    onEditRequested: ((ChatMessage) -> Unit)? = null
+    onEditRequested: ((ChatMessage) -> Unit)? = null,
+    liveActivitySteps: List<ActivityStep> = emptyList()
 ) {
     val isAgent = message.sender == ChatMessage.Sender.AGENT
     val alignment = if (isAgent) Alignment.Start else Alignment.End
@@ -1212,6 +1231,32 @@ fun ChatBubble(
                                 .padding(bottom = 4.dp)
                         )
                     }
+                }
+
+                // v1.2.1 round-16: the LIVE step trace of the turn that is
+                // still producing THIS reply. Same placement/grammar as the
+                // persisted section below — Claude/OpenCode show the work
+                // above the answer — and it is what makes the trace visible
+                // BEFORE the final save lands (the persisted one can only
+                // render once stepsJson is written).
+                if (isAgent && message.stepsJson == null && liveActivitySteps.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)
+                    ) {
+                        Text(
+                            text = "ACTIVITY (${liveActivitySteps.size})",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentCyan,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                    AgentActivityList(
+                        steps = liveActivitySteps,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
                 }
 
                 // v1.2.1: the persisted ACTIVITY trace — the visible steps the

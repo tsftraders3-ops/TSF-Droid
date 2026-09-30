@@ -46,6 +46,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.timeout
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.sync.Mutex
@@ -80,6 +81,15 @@ private const val LIVE_THINKING_TAIL = 1500
  * deltas arrive continuously, no matter how long the full answer runs.
  */
 private const val STREAM_IDLE_TIMEOUT_MS = 120_000L
+
+/**
+ * v1.2.1 round-16: the TURN-level wall-clock bound for every harness fallback
+ * invocation (tool loop / forced search / expansion). Per-call bounds live in
+ * [HarnessLoop]; this one guarantees the whole fallback chain — however many
+ * bounded calls it chains — still completes the turn inside the E2E windows
+ * and, above all, never hangs a user's chat indefinitely again.
+ */
+private const val HARNESS_TURN_TIMEOUT_MS = 900_000L
 /**
  * v1.2.0: bounded rounds for the chat-path tool loop now live in
  * [HarnessLoop] (OpenCode-style: tool rounds + continuation + doom guard).
@@ -463,6 +473,15 @@ class AgentLoop @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // v1.2.1 round-16: this catch used to kill the turn in total
+                // silence — no log line, no card — which is how a turn could
+                // "vanish" after its last model call (cap15's 17-minute
+                // mystery window had this as a live suspect). Speak up.
+                android.util.Log.w(
+                    "AgentLoop",
+                    "processQuery failed: ${e.javaClass.simpleName}: ${e.localizedMessage}",
+                    e
+                )
                 _agentState.value = AgentState.Error(e.localizedMessage ?: "Unknown processing error")
             }
         }
@@ -952,6 +971,10 @@ class AgentLoop @Inject constructor(
                 // The harness executes the mappable tool calls through the
                 // app's real action pipeline (with continuation support) and
                 // finishes the turn with the model's grounded final answer.
+                android.util.Log.i(
+                    "AgentLoop",
+                    "blank/monologue streamed reply (len=${currentReplyText.length}) — handing the turn to the harness"
+                )
                 val harnessAnswer = harnessFallbackTurn(provider, turnConfig, lastMsgs)
                 if (!harnessAnswer.isNullOrBlank()) {
                     val handoffSteps = currentStepsSnapshot()
@@ -1001,6 +1024,7 @@ class AgentLoop @Inject constructor(
                 currentStepsSnapshot().none { it.kind == ActivityStep.KIND_TOOL } &&
                 requiresFreshData(userMsg.text)
             ) {
+                android.util.Log.i("AgentLoop", "research guarantee: fresh-data ask answered with zero tool events — running the harness search")
                 val grounded = harnessFallbackTurn(provider, turnConfig, lastMsgs)
                 // v1.2.1 round-6 fix (cap15 failed both CI passes): the model
                 // can DODGE the re-ask and answer from memory again (zero tool
@@ -1442,11 +1466,25 @@ class AgentLoop @Inject constructor(
         turnConfig: HarnessLoop.TurnConfig,
         history: List<ChatMessage>
     ): String? {
+        android.util.Log.i("AgentLoop", "harnessFallbackTurn begin (history=${history.size} msgs)")
         val result = try {
-            harnessLoop.runTurn(
-                provider,
-                turnConfig.copy(history = history)
-            ) { status -> _liveThinking.value = status }
+            // v1.2.1 round-16: the TURN-level bound. Per-call bounds (8 min)
+            // alone still let a pathological multi-round turn chain far past
+            // every test window; 15 minutes hard-stops the whole fallback and
+            // the caller's fallback (forced search / honesty note / snag)
+            // completes the turn.
+            withTimeout(HARNESS_TURN_TIMEOUT_MS) {
+                harnessLoop.runTurn(
+                    provider,
+                    turnConfig.copy(history = history)
+                ) { status -> _liveThinking.value = status }
+            }
+        } catch (tce: TimeoutCancellationException) {
+            android.util.Log.w(
+                "AgentLoop",
+                "harness fallback exceeded ${HARNESS_TURN_TIMEOUT_MS / 1000}s — completing the turn without it"
+            )
+            null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1455,7 +1493,9 @@ class AgentLoop @Inject constructor(
         } finally {
             _liveThinking.value = null
         }
-        return result?.content?.takeIf { it.isNotBlank() }
+        val answer = result?.content?.takeIf { it.isNotBlank() }
+        android.util.Log.i("AgentLoop", "harnessFallbackTurn returned len=${answer?.length ?: -1}")
+        return answer
     }
 
     /**

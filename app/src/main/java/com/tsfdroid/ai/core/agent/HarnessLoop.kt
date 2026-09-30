@@ -9,6 +9,8 @@ import com.tsfdroid.ai.core.llm.Tool
 import com.tsfdroid.ai.core.llm.providers.ModelsDevRegistry
 import com.tsfdroid.ai.data.models.ChatMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -152,29 +154,60 @@ class HarnessLoop @Inject constructor(
         val recentSignatures = ArrayDeque<String>()
         var doomWarned = false
 
+        // v1.2.1 round-16: layer-by-layer evidence. Rounds 10-15 proved the
+        // hang layer cannot be found from pump-level logs alone — cap15's
+        // turn published 2 tool steps and streamed the final 646-char answer
+        // (finish=stop, run 36685166207 logcat 08:41:34) and then went
+        // SILENT for 17 minutes: no further HTTP call, no save, no error,
+        // no timeout line. Every layer from here to the caller's save must
+        // announce itself so the next failure names its layer in one run.
+        android.util.Log.i(
+            TAG,
+            "runTurn BEGIN history=${config.history.size} msgs maxRounds=${config.maxRounds} readOnly=${config.readOnly}"
+        )
+
         while (round < config.maxRounds) {
             round++
             onStatus?.invoke("[harness] thinking round $round of ${config.maxRounds}…")
 
             val response = try {
-                provider.complete(
-                    LLMRequest(
-                        systemPrompt = config.systemPrompt,
-                        messages = messages,
-                        temperature = config.temperature,
-                        maxTokens = config.maxTokens,
-                        responseFormat = ResponseFormat.TEXT,
-                        allowToolCalls = true,
-                        tools = config.tools,
-                        reasoningEffort = config.reasoningEffort
+                android.util.Log.i(TAG, "round $round model-call start (history=${messages.size} msgs)")
+                withTimeout(PER_MODEL_CALL_TIMEOUT_MS) {
+                    provider.complete(
+                        LLMRequest(
+                            systemPrompt = config.systemPrompt,
+                            messages = messages,
+                            temperature = config.temperature,
+                            maxTokens = config.maxTokens,
+                            responseFormat = ResponseFormat.TEXT,
+                            allowToolCalls = true,
+                            tools = config.tools,
+                            reasoningEffort = config.reasoningEffort
+                        )
                     )
+                }
+            } catch (tce: TimeoutCancellationException) {
+                // NOT a user cancel: the per-call wall-clock bound fired. The
+                // round-11/12/13 notes claimed this bound existed — it did
+                // NOT (lost somewhere before round 15), which is exactly how
+                // a stalled call could hold the turn for 17 unbounded
+                // minutes. Abort the attempt; the caller's fallback chain
+                // (forced search -> honesty note / snag) completes the turn.
+                android.util.Log.w(
+                    TAG,
+                    "round $round model call exceeded ${PER_MODEL_CALL_TIMEOUT_MS / 1000}s wall clock — aborting attempt, fallback takes over"
                 )
+                return null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                android.util.Log.w("HarnessLoop", "LLM call failed: ${e.localizedMessage}")
+                android.util.Log.w(TAG, "LLM call failed: ${e.localizedMessage}")
                 return null
             }
+            android.util.Log.i(
+                TAG,
+                "round $round model-call done content=${response.content.length}c tools=${response.toolCalls.size} finish=${response.finishReason}"
+            )
             lastFinishReason = response.finishReason ?: lastFinishReason
 
             // v1.2.1 round-8 field fix (cap7 gold): a response carrying BOTH
@@ -202,6 +235,7 @@ class HarnessLoop @Inject constructor(
                             "you received into a direct, complete answer to the user's question — " +
                             "key facts and dates first, cite source URLs inline."
                     )
+                    android.util.Log.i(TAG, "round $round echoed a raw listing — one synthesis re-ask")
                     continue
                 }
 
@@ -236,9 +270,14 @@ class HarnessLoop @Inject constructor(
                 ) {
                     synthesisAttempted = true
                     messages = messages + userMessage(FINAL_ANSWER_NUDGE)
+                    android.util.Log.i(TAG, "round $round answer was monologue-shaped — one FINAL_ANSWER_NUDGE re-ask")
                     continue
                 }
 
+                android.util.Log.i(
+                    TAG,
+                    "runTurn EXIT answer rounds=$round tools=$toolCallsExecuted cont=$continuationSegments finish=$lastFinishReason content=${response.content.length}c"
+                )
                 return TurnResult(
                     content = response.content,
                     rounds = round,
@@ -249,7 +288,10 @@ class HarnessLoop @Inject constructor(
                 )
             }
 
-            if (response.toolCalls.isEmpty() && !narrationWithCalls) return null
+            if (response.toolCalls.isEmpty() && !narrationWithCalls) {
+                android.util.Log.w(TAG, "runTurn EXIT null: round $round returned no content and no tool calls (finish=$lastFinishReason)")
+                return null
+            }
 
             // ---- Tool execution round ----
             val signature = response.toolCalls.joinToString("|") { call ->
@@ -266,6 +308,7 @@ class HarnessLoop @Inject constructor(
                     // ends the loop — efficiency over stubbornness.
                     doomWarned = true
                     messages = messages + userMessage(DOOM_WARNING)
+                    android.util.Log.i(TAG, "round $round doom-guard warning (identical calls x$DOOM_LOOP_THRESHOLD)")
                     continue
                 }
                 android.util.Log.w("HarnessLoop", "Doom loop: identical tool round x$DOOM_LOOP_THRESHOLD twice — stopping")
@@ -330,6 +373,7 @@ class HarnessLoop @Inject constructor(
                 messages = messages + userMessage(WRAP_UP_NUDGE)
             }
         }
+        android.util.Log.w(TAG, "runTurn EXIT null: rounds exhausted ($round of ${config.maxRounds}), tools=$toolCallsExecuted")
         return null
     }
 
@@ -434,21 +478,26 @@ class HarnessLoop @Inject constructor(
                     "Output the full answer now."
             )
         val response = try {
-            provider.complete(
-                LLMRequest(
-                    systemPrompt = config.systemPrompt,
-                    messages = expansionMessages,
-                    temperature = config.temperature,
-                    maxTokens = config.maxTokens,
-                    responseFormat = ResponseFormat.TEXT,
-                    allowToolCalls = false,
-                    reasoningEffort = config.reasoningEffort
+            withTimeout(PER_MODEL_CALL_TIMEOUT_MS) {
+                provider.complete(
+                    LLMRequest(
+                        systemPrompt = config.systemPrompt,
+                        messages = expansionMessages,
+                        temperature = config.temperature,
+                        maxTokens = config.maxTokens,
+                        responseFormat = ResponseFormat.TEXT,
+                        allowToolCalls = false,
+                        reasoningEffort = config.reasoningEffort
+                    )
                 )
-            )
+            }
+        } catch (tce: TimeoutCancellationException) {
+            android.util.Log.w(TAG, "expansion call exceeded ${PER_MODEL_CALL_TIMEOUT_MS / 1000}s wall clock — giving up on the expansion")
+            return null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            android.util.Log.w("HarnessLoop", "Expansion call failed: ${e.localizedMessage}")
+            android.util.Log.w(TAG, "Expansion call failed: ${e.localizedMessage}")
             return null
         }
         if (response.content.isBlank()) return null
@@ -510,22 +559,27 @@ class HarnessLoop @Inject constructor(
 
         while (totalSegments < config.maxContinuations && round < config.maxRounds) {
             val response = try {
-                provider.complete(
-                    LLMRequest(
-                        systemPrompt = config.systemPrompt,
-                        messages = current,
-                        temperature = config.temperature,
-                        maxTokens = config.maxTokens,
-                        responseFormat = ResponseFormat.TEXT,
-                        allowToolCalls = true,
-                        tools = config.tools,
-                        reasoningEffort = config.reasoningEffort
+                withTimeout(PER_MODEL_CALL_TIMEOUT_MS) {
+                    provider.complete(
+                        LLMRequest(
+                            systemPrompt = config.systemPrompt,
+                            messages = current,
+                            temperature = config.temperature,
+                            maxTokens = config.maxTokens,
+                            responseFormat = ResponseFormat.TEXT,
+                            allowToolCalls = true,
+                            tools = config.tools,
+                            reasoningEffort = config.reasoningEffort
+                        )
                     )
-                )
+                }
+            } catch (tce: TimeoutCancellationException) {
+                android.util.Log.w(TAG, "continuation call exceeded ${PER_MODEL_CALL_TIMEOUT_MS / 1000}s wall clock — delivering what is already joined")
+                break
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                android.util.Log.w("HarnessLoop", "Continuation call failed: ${e.localizedMessage}")
+                android.util.Log.w(TAG, "Continuation call failed: ${e.localizedMessage}")
                 break
             }
             round++
@@ -696,6 +750,18 @@ class HarnessLoop @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "HarnessLoop"
+
+        /**
+         * v1.2.1 round-16: the per-model-call wall-clock bound the round-11/12/13
+         * notes described but the code never carried. EVERY harness model call
+         * (tool rounds, continuations, expansion) is capped at 8 minutes; the
+         * pump's per-line ensureActive() makes the bound observable even inside
+         * a pure-blocking SSE read, and the caller's fallback chain completes
+         * the turn honestly instead of hanging forever.
+         */
+        const val PER_MODEL_CALL_TIMEOUT_MS = 480_000L
+
         /**
          * v1.2.0 output budget per call: OpenCode's own OUTPUT_TOKEN_MAX. The
          * provider still clamps to each model's registry max_output, so free
