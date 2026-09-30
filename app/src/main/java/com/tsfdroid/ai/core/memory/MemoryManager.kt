@@ -74,9 +74,22 @@ class MemoryManager @Inject constructor(
         // v1.2.1: LEARNED memories (the Hermes-style loop) get their own ranked,
         // budgeted section — most recent first, hard-capped so the context can
         // never grow unbounded no matter how much the user teaches the app.
-        val learned = facts
+        // v1.3.0: assistant-identity facts (learned via the ask/naming pass,
+        // e.g. learn_assistant_name) are rendered in a SEPARATE section with an
+        // explicit who-is-who label — the Farhan-class misattribution ("the
+        // user named the assistant Farhan" filed as the user's own name) must
+        // be impossible to reproduce from the injection side too.
+        val learnedAll = facts
             .filter { it.key.startsWith(UserMemoryLearner.KEY_PREFIX) }
             .sortedByDescending { it.timestamp }
+        val assistantIdentity = learnedAll
+            .filter { it.key.removePrefix(UserMemoryLearner.KEY_PREFIX).startsWith("assistant_") }
+            .joinToString("\n") {
+                "- ${it.key.removePrefix(UserMemoryLearner.KEY_PREFIX).replace('_', ' ')}: ${it.value}"
+            }
+            .take(LEARNED_CONTEXT_MAX_CHARS)
+        val learned = learnedAll
+            .filter { !it.key.removePrefix(UserMemoryLearner.KEY_PREFIX).startsWith("assistant_") }
             .joinToString("\n") { "- ${it.key.removePrefix(UserMemoryLearner.KEY_PREFIX).replace('_', ' ')}: ${it.value}" }
             .take(LEARNED_CONTEXT_MAX_CHARS)
 
@@ -108,6 +121,19 @@ class MemoryManager @Inject constructor(
 
             [What you have learned about this user]
             $learned
+            """.trimIndent()
+        } else ""
+
+        // v1.3.0: the assistant's OWN identity the user gave it — always a
+        // separate block, never mixed into the user's facts.
+        val assistantIdentitySection = if (assistantIdentity.isNotBlank()) {
+            """
+
+            [Your own identity, as set by this user]
+            These facts are about YOU (the assistant) — they are NOT the user's own
+            facts, and you must never confuse the two. If the user gave you a name,
+            that name is yours: introduce yourself with it when asked what your name is.
+            $assistantIdentity
             """.trimIndent()
         } else ""
         
@@ -167,6 +193,7 @@ class MemoryManager @Inject constructor(
             [Facts about User]
             $factsContext
             $learnedSection
+            $assistantIdentitySection
             
             [Working Session State]
             $activePlanStr

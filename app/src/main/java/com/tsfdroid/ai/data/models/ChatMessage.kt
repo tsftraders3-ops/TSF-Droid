@@ -39,11 +39,22 @@ data class ChatMessage(
      * vision routing). Rendered as a collapsible ACTIVITY section, Claude /
      * OpenCode style. Null for replies without recorded steps.
      */
-    val stepsJson: String? = null
+    val stepsJson: String? = null,
+    /**
+     * v1.3.0 ask_user tool: JSON [AskOptions] payload for a question the
+     * agent asked the user mid-turn (options they can tap + the live answer
+     * surface). Deliberately NOT persisted to Room — an ask is a live
+     * interaction; after a restart only the question text (this message's
+     * [text]) remains, which is the honest durable record.
+     */
+    val askOptionsJson: String? = null
 ) {
     enum class Sender {
         USER, AGENT
     }
+
+    /** Parsed [askOptionsJson]; null when this message is not an ask_user question. */
+    fun askOptions(): AskOptions? = parseAskOptions(askOptionsJson)
 
     /** Parsed activity trace for this reply; empty when none was recorded. */
     fun activitySteps(): List<com.tsfdroid.ai.core.harness.ActivityStep> =
@@ -72,6 +83,32 @@ data class MessageAttachments(
     val hasImages: Boolean get() = images.isNotEmpty()
     val isEmpty: Boolean get() = images.isEmpty() && files.isEmpty() && notes.isEmpty()
 }
+
+/**
+ * v1.3.0: payload of an ask_user tool question — the options the user can
+ * tap and the header line for the answer surface. Mirrors opencode's
+ * question tool contract (question + options + free-text always allowed).
+ */
+@Serializable
+data class AskOptions(
+    /** Short header shown on the answer surface (defaults to "Quick answer"). */
+    val header: String = "Quick answer",
+    /** Tappable answer options; may be empty when the answer is free-text. */
+    val options: List<String> = emptyList()
+)
+
+private val askOptionsJsonFormat = kotlinx.serialization.json.Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
+
+fun parseAskOptions(json: String?): AskOptions? {
+    if (json.isNullOrBlank()) return null
+    return runCatching { askOptionsJsonFormat.decodeFromString<AskOptions>(json) }.getOrNull()
+}
+
+fun serializeAskOptions(options: AskOptions): String =
+    askOptionsJsonFormat.encodeToString(AskOptions.serializer(), options)
 
 @Serializable
 data class AttachmentFile(

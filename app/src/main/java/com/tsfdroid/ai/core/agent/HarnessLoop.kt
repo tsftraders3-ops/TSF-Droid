@@ -11,6 +11,9 @@ import com.tsfdroid.ai.data.models.ChatMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -109,10 +112,20 @@ class HarnessLoop @Inject constructor(
         /** Per-call output budget — registry-clamped by the provider. */
         val maxTokens: Int = OUTPUT_TOKEN_MAX,
         val reasoningEffort: String? = null,
+        /** v1.3.0: this turn carries images a blind pinned model must not answer — route to a vision-capable model chain where the provider supports it. */
+        val requireVision: Boolean = false,
         val maxRounds: Int = MAX_HARNESS_ROUNDS,
         val maxContinuations: Int = MAX_CONTINUATIONS,
         /** Agent-loop artifact callback (WRITE_FILE/CREATE_PDF cards). */
         val onArtifact: (suspend (action: String, params: Map<String, String>, result: ActionResult) -> Unit)? = null,
+        /**
+         * v1.3.0 ask_user tool: invoked when the model calls ask_user — the
+         * app posts the question (with tappable options) and parks the turn
+         * until the user answers; the returned string is fed back to the
+         * model as the tool's result. Null disables the tool at execution
+         * time (the model then reads an honest "not available" result).
+         */
+        val onAskUser: (suspend (question: String, options: List<String>) -> String)? = null,
         /**
          * v1.2.1: visible-work hooks. [onToolEvent] fires once per executed
          * tool call (mapped action, success, one-line outcome) and
@@ -182,7 +195,8 @@ class HarnessLoop @Inject constructor(
                             responseFormat = ResponseFormat.TEXT,
                             allowToolCalls = true,
                             tools = config.tools,
-                            reasoningEffort = config.reasoningEffort
+                            reasoningEffort = config.reasoningEffort,
+                            requireVision = config.requireVision
                         )
                     )
                 }
@@ -322,6 +336,43 @@ class HarnessLoop @Inject constructor(
                 messages = messages + toolRoundStub(response.toolCalls)
             }
             for (call in response.toolCalls) {
+                // v1.3.0 ask_user: the one tool that is NOT an action — it
+                // parks the turn on the USER. Intercepted before the bridge
+                // (it maps to no device action) and allowed in read-only
+                // Chat mode too: asking a question mutates nothing. Mirrors
+                // opencode's question tool: the answer returns as this tool's
+                // result and the loop continues with it in context.
+                if (call.name.equals(ASK_USER_TOOL, ignoreCase = true) ||
+                    call.name.equals("question", ignoreCase = true)
+                ) {
+                    val ask = parseAskUserArguments(call.arguments)
+                    if (ask.first.isNotBlank()) {
+                        val answer = if (config.onAskUser != null) {
+                            config.onToolEvent?.invoke(
+                                "ask_user", true, ask.first.take(120)
+                            )
+                            config.onAskUser!!.invoke(ask.first, ask.second)
+                        } else {
+                            "REFUSED: asking the user is not available in this session — " +
+                                "answer from what you already know or say you cannot decide."
+                        }
+                        toolCallsExecuted++
+                        android.util.Log.i(
+                            "HarnessLoop",
+                            "round $round ask_user answered (options=${ask.second.size})"
+                        )
+                        messages = messages + ChatMessage(
+                            id = UUID.randomUUID().toString(),
+                            text = ToolCallBridge.renderToolResult(
+                                call, true,
+                                "The user answered: \"$answer\". " +
+                                    "Continue with this answer in mind."
+                            ),
+                            sender = ChatMessage.Sender.USER
+                        )
+                        continue
+                    }
+                }
                 val mapping = ToolCallBridge.map(call)
                 val mapped = mapping.mapped
                 val result: ActionResult = when {
@@ -569,7 +620,8 @@ class HarnessLoop @Inject constructor(
                             responseFormat = ResponseFormat.TEXT,
                             allowToolCalls = true,
                             tools = config.tools,
-                            reasoningEffort = config.reasoningEffort
+                            reasoningEffort = config.reasoningEffort,
+                            requireVision = config.requireVision
                         )
                     )
                 }
@@ -589,6 +641,32 @@ class HarnessLoop @Inject constructor(
                 // them and keep continuing afterwards.
                 current = current + toolRoundStub(response.toolCalls)
                 for (call in response.toolCalls) {
+                    // v1.3.0 ask_user works mid-continuation too — same
+                    // contract as the main loop's intercept.
+                    if (call.name.equals(ASK_USER_TOOL, ignoreCase = true) ||
+                        call.name.equals("question", ignoreCase = true)
+                    ) {
+                        val ask = parseAskUserArguments(call.arguments)
+                        if (ask.first.isNotBlank()) {
+                            val answer = if (config.onAskUser != null) {
+                                config.onToolEvent?.invoke("ask_user", true, ask.first.take(120))
+                                config.onAskUser!!.invoke(ask.first, ask.second)
+                            } else {
+                                "REFUSED: asking the user is not available in this session."
+                            }
+                            toolCallsExecuted++
+                            current = current + ChatMessage(
+                                id = UUID.randomUUID().toString(),
+                                text = ToolCallBridge.renderToolResult(
+                                    call, true,
+                                    "The user answered: \"$answer\". " +
+                                        "Continue with this answer in mind."
+                                ),
+                                sender = ChatMessage.Sender.USER
+                            )
+                            continue
+                        }
+                    }
                     val mapping = ToolCallBridge.map(call)
                     val mapped = mapping.mapped
                     val result: ActionResult = when {
@@ -751,6 +829,51 @@ class HarnessLoop @Inject constructor(
 
     companion object {
         private const val TAG = "HarnessLoop"
+
+        /** v1.3.0: the ask-the-user tool's advertised name (opencode: "question"). */
+        const val ASK_USER_TOOL = "ask_user"
+
+        /** Max options accepted from the model's ask_user call — keep the chip row tappable. */
+        const val ASK_USER_MAX_OPTIONS = 5
+
+        /**
+         * Parses an ask_user tool call's arguments. The schema is
+         * {question: string, options?: string[]} — tolerant of the model
+         * sending an object array [{label}] (opencode's shape) or a single
+         * question string. Returns (question, options).
+         */
+        fun parseAskUserArguments(arguments: String): Pair<String, List<String>> {
+            val trimmed = arguments.trim()
+            if (trimmed.isEmpty()) return "" to emptyList()
+            return runCatching {
+                val obj = Json.parseToJsonElement(trimmed) as? JsonObject ?: return "" to emptyList()
+                val question = (obj["question"] as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.contentOrNull?.trim().orEmpty()
+                val header = (obj["header"] as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.contentOrNull?.trim().orEmpty()
+                val labeledQuestion = if (header.isNotBlank() && !question.startsWith(header)) {
+                    "$header: $question"
+                } else {
+                    question
+                }
+                val options = when (val raw = obj["options"]) {
+                    is kotlinx.serialization.json.JsonArray -> raw.mapNotNull { el ->
+                        when (el) {
+                            is kotlinx.serialization.json.JsonPrimitive -> el.contentOrNull?.trim()
+                            is JsonObject -> (el["label"] as? kotlinx.serialization.json.JsonPrimitive)
+                                ?.contentOrNull?.trim()
+                            else -> null
+                        }
+                    }
+                    is kotlinx.serialization.json.JsonPrimitive -> listOfNotNull(raw.contentOrNull?.trim())
+                    else -> emptyList()
+                }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .take(ASK_USER_MAX_OPTIONS)
+                labeledQuestion to options
+            }.getOrElse { "" to emptyList() }
+        }
 
         /**
          * v1.2.1 round-16: the per-model-call wall-clock bound the round-11/12/13

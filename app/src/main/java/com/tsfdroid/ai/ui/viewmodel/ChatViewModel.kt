@@ -105,6 +105,24 @@ class ChatViewModel @Inject constructor(
     val currentPlan: StateFlow<com.tsfdroid.ai.data.models.Plan?> = agentLoop.currentPlan
 
     /**
+     * v1.3.0: the live ask_user question the agent is currently waiting on,
+     * scoped to whichever chat is on screen. Non-null turns the input bar
+     * into the dedicated answer surface (accent border, "answer the question"
+     * placeholder, tappable option chips) so it is ALWAYS visible where the
+     * user should type — the ask-question confusion ends here.
+     */
+    val pendingAsk: StateFlow<AgentLoop.PendingAsk?> = combine(
+        agentLoop.pendingAsk, sessions
+    ) { ask, sessionList ->
+        val current = sessionList.firstOrNull { it.isCurrent }?.id
+        ask?.takeIf { it.sessionId == current }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null
+    )
+
+    /**
      * [AgentLoop.chatError], but scoped to whichever chat is on screen - the same rule
      * [visibleAgentState] applies to the shared agent state. An error raised by a task
      * in chat A must never render its recovery card inside chat B; the underlying error

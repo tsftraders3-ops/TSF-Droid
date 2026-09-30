@@ -22,7 +22,8 @@ import javax.inject.Singleton
 @Singleton
 class OpenRouterProvider @Inject constructor(
     private val client: OkHttpClient,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val registry: ModelsDevRegistry
 ) : LLMProvider {
 
     override val name: String = "OpenRouter"
@@ -30,6 +31,14 @@ class OpenRouterProvider @Inject constructor(
 
     private val gson = Gson()
     private val mediaType = "application/json; charset=utf-8".toMediaType()
+
+    /**
+     * v1.3.0 (Phase 14 WAVE C) test seam, same pattern as the Zen provider:
+     * network tests redirect the endpoint to a local MockWebServer. Production
+     * never changes it.
+     */
+    @androidx.annotation.VisibleForTesting
+    internal var endpoint: String = "https://openrouter.ai/api/v1/chat/completions"
 
     override suspend fun complete(request: LLMRequest): LLMResponse {
         val config = settingsRepository.llmConfig.first()
@@ -53,9 +62,17 @@ class OpenRouterProvider @Inject constructor(
             requestBodyMap["response_format"] = mapOf("type" to "json_object")
         }
 
+        // v1.3.0 (Phase 14 WAVE C): the reasoning-effort selection reaches
+        // the wire for this OpenAI-compatible provider too, not just Zen.
+        // Spec-gated exactly like OpenCodeZenProvider — the field is sent only
+        // when the user picked a level AND the model's models.dev registry
+        // entry lists it. With no selection the registry is never consulted,
+        // so the request stays byte-identical to v1.2.x.
+        ReasoningEffort.applyToBody(requestBodyMap, request, selectedModel, registry)
+
         val bodyJson = gson.toJson(requestBodyMap)
         val httpRequest = Request.Builder()
-            .url("https://openrouter.ai/api/v1/chat/completions")
+            .url(endpoint)
             .header("Authorization", "Bearer $apiKey")
             .header("HTTP-Referer", "https://opendroid.ai")
             .header("X-Title", "OpenDroid")

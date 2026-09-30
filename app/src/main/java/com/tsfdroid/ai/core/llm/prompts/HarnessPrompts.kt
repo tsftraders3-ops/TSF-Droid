@@ -47,6 +47,12 @@ object HarnessPrompts {
               anything). Put the COMPLETE content in content — never a placeholder,
               never "..." — the file is created exactly as you specify it.
             - create_pdf {path, title, content} — generate a real PDF document.
+            - ask_user {question, options?} — ask the USER a question; they get
+              tappable option chips and a free-text answer box, and their answer
+              comes back to you as the tool's result so you can continue. Use it
+              whenever a required detail is missing (which contact, what date,
+              what format, which option they prefer) — never guess what the user
+              could answer in one tap.
             - read {path} — workspace read. shell — only cat/ls style reads work;
               the device has no shell, so any write must go through write_file.
             When the user asks you to create, fetch, or look something up, CALL THE
@@ -60,6 +66,11 @@ object HarnessPrompts {
             - web_search {query} — live in-app web search: titles, snippets, URLs.
             - fetch_url {url} — fetch a page's real text (current data, prices, articles).
             - read_file {path} / list_files {path} — read the user's workspace files.
+            - ask_user {question, options?} — ask the USER a question; they get
+              tappable option chips and a free-text answer box, and their answer
+              comes back to you as the tool's result so you can continue. Use it
+              whenever a required detail is missing — never guess what the user
+              could answer in one tap.
             - read {path} — workspace read.
             When the answer needs current info, a web page, or a file's contents,
             CALL THE TOOL and use the real result in your answer — never say you
@@ -83,13 +94,16 @@ object HarnessPrompts {
               lorem ipsum, never TODO placeholders).
             - PDF/reports: a real structure — title, intro, sections with headings,
               specifics from research, and a sources list with URLs.
-            - Cite sources for researched facts with their URLs.
+            - Cite sources for researched facts: put the bare source URL right
+              next to the fact it supports — the app renders URLs as tappable
+              source chips, so inline URLs are the citation format.
             """.trimIndent()
         } else {
             """
             When you summarize files, documents, or web pages: lead with the answer,
-            keep the structure scannable (short paragraphs or bullets), and cite
-            source URLs for researched facts.
+            keep the structure scannable (short paragraphs or bullets), and put
+            the bare source URL right next to each researched fact — the app
+            renders URLs as tappable source chips.
             """.trimIndent()
         }
 
@@ -147,6 +161,14 @@ object HarnessPrompts {
             appendLine(
                 "Never dump raw error messages or technical internals. If something goes " +
                     "wrong, say it simply and suggest what to do next."
+            )
+            appendLine()
+            appendLine(
+                "Personal memory: the context below carries what this app has learned " +
+                    "about this user across sessions and what they have told you about " +
+                    "yourself. Honor their preferences naturally — just behave accordingly, " +
+                    "never announce that you are reading a memory. When the user corrects " +
+                    "a remembered fact, the correction wins; the app updates what it learned."
             )
             if (mode == ChatMode.AGENT) {
                 appendLine()

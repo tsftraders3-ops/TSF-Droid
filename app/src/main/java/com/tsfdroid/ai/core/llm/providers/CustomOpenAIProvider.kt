@@ -23,7 +23,8 @@ import javax.inject.Singleton
 @Singleton
 class CustomOpenAIProvider @Inject constructor(
     private val client: OkHttpClient,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val registry: ModelsDevRegistry
 ) : LLMProvider {
 
     override val name: String = "Custom OpenAI Compatible"
@@ -55,6 +56,14 @@ class CustomOpenAIProvider @Inject constructor(
         if (request.responseFormat == ResponseFormat.JSON) {
             requestBodyMap["response_format"] = mapOf("type" to "json_object")
         }
+
+        // v1.3.0 (Phase 14 WAVE C): the reasoning-effort selection reaches
+        // the wire for this OpenAI-compatible provider too, not just Zen.
+        // Spec-gated exactly like OpenCodeZenProvider — the field is sent only
+        // when the user picked a level AND the model's models.dev registry
+        // entry lists it. With no selection the registry is never consulted,
+        // so the request stays byte-identical to v1.2.x.
+        ReasoningEffort.applyToBody(requestBodyMap, request, selectedModel, registry)
 
         val bodyJson = gson.toJson(requestBodyMap)
         val httpRequest = Request.Builder()

@@ -73,6 +73,74 @@ private const val MAX_INCOMPLETE_MESSAGE_IDS = 100
 /** Tail length of the live thinking trace published during planning. */
 private const val LIVE_THINKING_TAIL = 1500
 
+/** v1.3.0: planner history bounds — recent turns ride along, char-capped. */
+private const val PLANNING_HISTORY_MESSAGES = 10
+private const val PLANNING_HISTORY_MAX_CHARS = 24_000
+/** Rough per-message serialization overhead for char-budget trimming. */
+private const val MESSAGE_OVERHEAD_CHARS = 48
+/**
+ * v1.3.0: approximate char-equivalent of one image's token weight in the
+ * history budget (a vision-model image part costs roughly 1k+ tokens).
+ */
+private const val IMAGE_COST_CHARS = 4_500
+
+/**
+ * v1.3.0: the Claude-style thinking-duration step — "Thought for 12s"
+ * (or "Thought for 1m 40s") as the FIRST entry of the visible step
+ * trace, so the collapsed THINKING section header can render it and the
+ * ACTIVITY list shows the real cost of the reasoning phase. Null when no
+ * reasoning streamed ([durationMs] <= 0).
+ */
+internal fun thinkingDurationStep(durationMs: Long): ActivityStep? {
+    if (durationMs <= 0L) return null
+    val totalSeconds = (durationMs + 500) / 1000
+    val label = if (totalSeconds < 60) {
+        "Thought for ${totalSeconds}s"
+    } else {
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        if (seconds == 0L) "Thought for ${minutes}m" else "Thought for ${minutes}m ${seconds}s"
+    }
+    return ActivityStep(
+        kind = ActivityStep.KIND_THINKING,
+        label = label,
+        detail = "reasoning phase, measured from the first thinking delta to the first answer delta"
+    )
+}
+
+/**
+ * v1.3.0: keeps the NEWEST messages that fit in [maxChars] (each message
+ * counted as text length + a per-message overhead, each carried image at
+ * its approximate token weight), preserving chronological order. Used by
+ * history assembly everywhere the raw message window would otherwise
+ * overflow the caller's budget.
+ */
+internal fun trimHistoryToCharBudget(history: List<ChatMessage>, maxChars: Int): List<ChatMessage> {
+    val kept = mutableListOf<ChatMessage>()
+    var used = 0
+    for (msg in history.asReversed()) {
+        val cost = msg.text.length + MESSAGE_OVERHEAD_CHARS +
+            msg.allImages().size * IMAGE_COST_CHARS
+        if (used + cost > maxChars && kept.isNotEmpty()) break
+        kept.add(msg)
+        used += cost
+    }
+    kept.reverse()
+    return kept
+}
+
+/**
+ * v1.3.0: the char budget for the chat-path history — 45% of the model's
+ * registry context window (chars ≈ tokens x 3.5). Unknown model keeps the
+ * legacy-equivalent 64k chars. Clamped so even a tiny model keeps a
+ * usable window and a giant one cannot blow the request.
+ */
+internal fun historyBudgetFor(modelSpec: com.tsfdroid.ai.core.llm.providers.ZenModelSpec?): Int {
+    val window = modelSpec?.contextWindow?.takeIf { it > 0 }
+    val budget = window?.let { (it * 3.5 * 0.45).toInt() } ?: 64_000
+    return budget.coerceIn(24_000, 300_000)
+}
+
 /**
  * v1.2.1 round-11: IDLE bound on the streamed first call of a chat turn —
  * the maximum silence between two deltas. Free-tier reasoning models can
@@ -98,11 +166,13 @@ private const val HARNESS_TURN_TIMEOUT_MS = 900_000L
 
 /**
  * v1.2.0: chat-path context window. The harness shares the conversation with
- * every call (OpenCode re-sends full history each step); 30 messages is the
- * practical window for on-device requests before the provider's context clamp
- * takes over.
+ * every call (OpenCode re-sends full history each step); the effective window
+ * is now TOKEN-AWARE (v1.3.0): up to [CHAT_HISTORY_WINDOW_MAX] messages ride
+ * along, trimmed to a char budget derived from the model's registry context
+ * window — a 128k model keeps far more turns than a small one, and the 75%
+ * compaction rule still guards the far end.
  */
-private const val CHAT_HISTORY_WINDOW = 30
+private const val CHAT_HISTORY_WINDOW_MAX = 200
 
 /**
  * Output budget for plan generation. Plans for content-creation tasks
@@ -325,6 +395,20 @@ class AgentLoop @Inject constructor(
     // still open - see processQuery.
     @Volatile private var waitingSessionId: String? = null
 
+    // v1.3.0 ask_user: the LIVE question surface — the question the agent is
+    // currently waiting on the user to answer (with tappable options), scoped
+    // to the session whose task is parked inside awaitUserResponse(). Drives
+    // the answer-mode input bar + option chips in the chat UI. Null when no
+    // ask is pending anywhere.
+    data class PendingAsk(
+        val sessionId: String,
+        val question: String,
+        val options: List<String>
+    )
+
+    private val _pendingAsk = MutableStateFlow<PendingAsk?>(null)
+    val pendingAsk: StateFlow<PendingAsk?> = _pendingAsk.asStateFlow()
+
     val isWaitingForUserInput: Boolean
         get() = waitingSessionId != null
 
@@ -356,6 +440,41 @@ class AgentLoop @Inject constructor(
 
     fun setAgentState(state: AgentState) {
         _agentState.value = state
+    }
+
+    /**
+     * v1.3.0 ask_user execution: post the question as a real chat bubble
+     * (with its tappable options), publish it as the live pending ask, then
+     * park THIS task on [awaitUserResponse] until the user answers. The
+     * answer returns to the harness as the tool's result and the turn
+     * continues with it in context — the opencode "question" tool contract.
+     */
+    private suspend fun handleAskUser(
+        question: String,
+        options: List<String>,
+        sessionId: String
+    ): String {
+        val askMsg = ChatMessage(
+            id = UUID.randomUUID().toString(),
+            text = question,
+            sender = ChatMessage.Sender.AGENT,
+            modelBadge = "ask_user",
+            askOptionsJson = if (options.isNotEmpty()) {
+                com.tsfdroid.ai.data.models.serializeAskOptions(
+                    com.tsfdroid.ai.data.models.AskOptions(options = options)
+                )
+            } else {
+                null
+            }
+        )
+        conversationRepository.insertMessage(sessionId, askMsg)
+        memoryManager.storeMessage(askMsg, sessionId)
+        _pendingAsk.value = PendingAsk(sessionId, question, options)
+        try {
+            return awaitUserResponse(sessionId)
+        } finally {
+            _pendingAsk.value = null
+        }
     }
 
     // Speak callback to be implemented by TTS service
@@ -719,35 +838,53 @@ class AgentLoop @Inject constructor(
             val activeModelId = config.selectedModelFor(config.activeProvider)
             val modelSpec = runCatching { modelsDevRegistry.specs()[activeModelId] }.getOrNull()
 
-            // v1.2.0: shared context — 30 messages ride along on every call
-            // (the OpenCode pattern re-sends history each step; the old window
-            // was 10, which is why the assistant "forgot" everything before it).
-            var lastMsgs = conversationRepository.getLastMessages(sessionId, CHAT_HISTORY_WINDOW).map { msg ->
-                val withUploads = if (msg.id == userMsg.id) {
-                    msg.copy(
-                        imageBase64 = userMsg.imageBase64,
-                        attachmentsJson = userMsg.attachmentsJson
-                    )
-                } else {
-                    msg
-                }
-                if (incompleteMessageIds.contains(withUploads.id) &&
-                    withUploads.sender == ChatMessage.Sender.AGENT
-                ) {
-                    withUploads.copy(text = "[incomplete assistant reply]\n${withUploads.text}")
-                } else {
-                    withUploads
-                }
-            }
+            // v1.2.0 shared context, v1.3.0 TOKEN-AWARE: up to 200 messages ride
+            // along, trimmed to the model's real context budget (45% of the
+            // registry window in chars, images counted at their token weight).
+            // The old fixed 30-message cap silently amputated long conversations
+            // on big-context models — the "model forgot the start of our chat"
+            // field report. Compaction still fires at 75% as the far guard.
+            val historyBudgetChars = historyBudgetFor(modelSpec)
+            var lastMsgs = trimHistoryToCharBudget(
+                conversationRepository.getLastMessages(sessionId, CHAT_HISTORY_WINDOW_MAX).map { msg ->
+                    val withUploads = if (msg.id == userMsg.id) {
+                        msg.copy(
+                            imageBase64 = userMsg.imageBase64,
+                            attachmentsJson = userMsg.attachmentsJson
+                        )
+                    } else {
+                        msg
+                    }
+                    if (incompleteMessageIds.contains(withUploads.id) &&
+                        withUploads.sender == ChatMessage.Sender.AGENT
+                    ) {
+                        withUploads.copy(text = "[incomplete assistant reply]\n${withUploads.text}")
+                    } else {
+                        withUploads
+                    }
+                },
+                historyBudgetChars
+            )
 
-            // v1.2.0 vision routing: when the turn (or recent history) carries
-            // images, requests must reach a vision-capable model. When the
-            // registry offers NONE, degrade the images into an honest text
-            // note instead of letting a text model silently answer about
-            // nothing.
+            // v1.2.0 vision routing, v1.3.0 ACTUALLY ROUTED: when the turn (or
+            // recent history) carries images, requests must reach a model that
+            // can see them. Three honest outcomes, checked in order:
+            //   1. the ACTIVE model sees images → send directly (nothing to do);
+            //   2. the active model is blind but the provider can route (the Zen
+            //      vision chain) → set requireVision and let the chain pick a
+            //      vision-capable model — the flag existed since v1.2.0 but NO
+            //      caller ever set it, so blind pins silently received images;
+            //   3. no routing possible → degrade images to an honest text note.
             val turnHasImages = lastMsgs.any { it.allImages().isNotEmpty() }
-            if (turnHasImages && !harnessLoop.hasVisionSupport()) {
-                lastMsgs = lastMsgs.map(::degradeImagesToNote)
+            var visionRoutingRequired = false
+            if (turnHasImages) {
+                val activeSeesImages = modelSpec?.inputModalities?.contains("image") ?: true
+                when {
+                    activeSeesImages -> Unit
+                    provider is com.tsfdroid.ai.core.llm.providers.OpenCodeZenProvider &&
+                        harnessLoop.hasVisionSupport() -> visionRoutingRequired = true
+                    else -> lastMsgs = lastMsgs.map(::degradeImagesToNote)
+                }
             }
 
             // v1.2.1: the 75% compaction pass (uses the vision-routed history).
@@ -771,6 +908,11 @@ class AgentLoop @Inject constructor(
             var inserted = false
             var lastDbWriteAt = 0L
             var lastFinishReason: String? = null
+            // v1.3.0: thinking-duration measurement for the Claude-style
+            // "Thought for X seconds" header — from the first reasoning delta
+            // to the first content delta (the visible thinking phase).
+            var firstReasoningAt = 0L
+            var firstContentAt = 0L
             val replyMsg = ChatMessage(
                 id = replyId,
                 text = currentReplyText,
@@ -809,6 +951,10 @@ class AgentLoop @Inject constructor(
                 temperature = 0.4f,
                 maxTokens = HarnessLoop.OUTPUT_TOKEN_MAX,
                 reasoningEffort = config.reasoningEffort,
+                requireVision = visionRoutingRequired,
+                onAskUser = { question, options ->
+                    handleAskUser(question, options, sessionId)
+                },
                 onArtifact = { action, params, result ->
                     emitArtifactCardIfNeeded(action, params, result, sessionId)
                 },
@@ -857,17 +1003,23 @@ class AgentLoop @Inject constructor(
                             // harness below executes the calls natively.
                             allowToolCalls = true,
                             tools = chatToolsFor(mode),
-                            reasoningEffort = config.reasoningEffort
+                            reasoningEffort = config.reasoningEffort,
+                            // v1.3.0: the routed vision flag — blind pins now
+                            // ride the Zen vision chain instead of ignoring
+                            // the images entirely.
+                            requireVision = visionRoutingRequired
                         )
                     ).timeout(STREAM_IDLE_TIMEOUT_MS.milliseconds)
                     .collect { event ->
                         when (event) {
                             is LLMStreamEvent.Content -> {
                                 if (event.text.isEmpty()) return@collect
+                                if (firstContentAt == 0L) firstContentAt = System.currentTimeMillis()
                                 currentReplyText += event.text
                                 persistReply(force = true)
                             }
                             is LLMStreamEvent.Reasoning -> {
+                                if (firstReasoningAt == 0L) firstReasoningAt = System.currentTimeMillis()
                                 currentThinkingText += event.text
                                 _liveThinking.value = currentThinkingText.takeLast(LIVE_THINKING_TAIL)
                                 persistReply(force = false)
@@ -933,7 +1085,13 @@ class AgentLoop @Inject constructor(
                         // ACTIVITY section ever existed on the final bubble.
                         // Same contract as every other reply save: the work
                         // the user just watched must survive on the answer.
-                        val loopSteps = currentStepsSnapshot()
+                        val loopSteps = currentStepsWithThinking(
+                            if (firstReasoningAt > 0L) {
+                                (if (firstContentAt > 0L) firstContentAt else System.currentTimeMillis()) - firstReasoningAt
+                            } else {
+                                0L
+                            }
+                        )
                         val loopStepsEncoded =
                             com.tsfdroid.ai.core.harness.ActivitySteps.encode(loopSteps)
                         android.util.Log.i(
@@ -991,6 +1149,18 @@ class AgentLoop @Inject constructor(
             }
             _liveThinking.value = null
 
+            // v1.3.0: the measured thinking phase of this turn, rendered as a
+            // leading "Thought for X" step (Claude-style) on every save path.
+            val thinkingDurationMs = if (firstReasoningAt > 0L) {
+                (if (firstContentAt > 0L) firstContentAt else System.currentTimeMillis()) - firstReasoningAt
+            } else {
+                0L
+            }
+
+            /** v1.3.0: the step snapshot with the thinking-duration step prepended. */
+            fun stepsSnapshotWithThinking(): List<ActivityStep> =
+                currentStepsWithThinking(thinkingDurationMs)
+
             if (!inserted || currentReplyText.isBlank() ||
                 // v1.2.1 round-6: a streamed reply that is pure internal
                 // monologue ("Need to search… Let me search.") is the model
@@ -1011,7 +1181,7 @@ class AgentLoop @Inject constructor(
                 )
                 val harnessAnswer = harnessFallbackTurn(provider, turnConfig, lastMsgs)
                 if (!harnessAnswer.isNullOrBlank()) {
-                    val handoffSteps = currentStepsSnapshot()
+                    val handoffSteps = stepsSnapshotWithThinking()
                     val handoffEncoded = com.tsfdroid.ai.core.harness.ActivitySteps.encode(handoffSteps)
                     android.util.Log.i(
                         "AgentLoop",
@@ -1163,7 +1333,7 @@ class AgentLoop @Inject constructor(
                 }
             }
 
-            val stepsSnapshot = currentStepsSnapshot()
+            val stepsSnapshot = stepsSnapshotWithThinking()
             val stepsEncoded = com.tsfdroid.ai.core.harness.ActivitySteps.encode(stepsSnapshot)
             android.util.Log.i(
                 "AgentLoop",
@@ -1567,6 +1737,20 @@ class AgentLoop @Inject constructor(
                 parameters = """{"type":"object","properties":{"path":{"type":"string","description":"optional directory path"}},"required":[]}"""
             )
         )
+        // v1.3.0: ask the user — opencode's question tool. Available in BOTH
+        // modes (asking mutates nothing); the app parks the turn on a visible
+        // answer surface and the reply returns as the tool's result.
+        add(
+            Tool(
+                name = HarnessLoop.ASK_USER_TOOL,
+                description = "Ask the user a question when you need information, a choice, or " +
+                    "a decision before you can proceed. The user sees the question with tappable " +
+                    "option chips plus a free-text answer box; their answer comes back to you as " +
+                    "this tool's result and you continue. Use it instead of guessing missing " +
+                    "details (which contact, what date, what format, which option they prefer).",
+                parameters = """{"type":"object","properties":{"question":{"type":"string","description":"The complete question, one clear sentence"},"header":{"type":"string","description":"Very short label for the answer box (max 30 chars), optional"},"options":{"type":"array","items":{"type":"string"},"description":"2-4 short tappable answer options (optional; the user can always type their own)"}},"required":["question"]}"""
+            )
+        )
         if (mode == ChatMode.AGENT) {
             add(
                 Tool(
@@ -1588,6 +1772,26 @@ class AgentLoop @Inject constructor(
     /** Localized date/time line for the harness system prompt. */
     private fun currentDateTimeLine(): String =
         SimpleDateFormat("EEEE, d MMMM yyyy, h:mm a", Locale.US).format(Date())
+
+    /** v1.3.0: [currentStepsSnapshot] with the thinking-duration step prepended. */
+    private fun currentStepsWithThinking(durationMs: Long): List<ActivityStep> {
+        val base = currentStepsSnapshot()
+        val thinkingStep = thinkingDurationStep(durationMs) ?: return base
+        return listOf(thinkingStep) + base
+    }
+
+    /**
+     * v1.3.0: recent conversation context for the planner — the agent-mode
+     * "model not getting the context" fix. Bounded to the last
+     * [PLANNING_HISTORY_MESSAGES] messages and [PLANNING_HISTORY_MAX_CHARS]
+     * characters (newest kept when the budget cuts), chronological order.
+     */
+    private suspend fun planningHistory(sessionId: String, currentMsg: ChatMessage): List<ChatMessage> {
+        val recent = conversationRepository
+            .getLastMessages(sessionId, PLANNING_HISTORY_MESSAGES + 1)
+            .filter { it.id != currentMsg.id }
+        return trimHistoryToCharBudget(recent, PLANNING_HISTORY_MAX_CHARS)
+    }
 
     /**
      * v1.2.0 vision degradation: when no vision-capable model is reachable,
@@ -1614,13 +1818,18 @@ class AgentLoop @Inject constructor(
             val relevantContext = memoryManager.getRelevantContext(userMsg.text)
             val sysPrompt = "${PlanningPrompts.PLANNING_SYSTEM_PROMPT}\n\nContext about user and device:\n$relevantContext"
             val config = settingsRepository.llmConfig.first()
+            // v1.3.0: the agent-mode context fix — the planner previously saw
+            // ONLY the current message, so contextual follow-ups ("send it to
+            // him too", "same as last time but shorter") planned blind. Recent
+            // conversation history now rides along, bounded by char budget.
+            val planHistory = planningHistory(sessionId, userMsg)
             val plan = if (config.multiAgentModeEnabled) {
                 kotlinx.coroutines.coroutineScope {
                     val plannerDeferred = async(Dispatchers.Default) {
                         provider.complete(
                             LLMRequest(
                                 systemPrompt = sysPrompt,
-                                messages = listOf(userMsg),
+                                messages = planHistory + userMsg,
                                 temperature = 0.2f,
                                 maxTokens = PLANNING_MAX_TOKENS,
                                 responseFormat = ResponseFormat.JSON
@@ -1657,13 +1866,11 @@ class AgentLoop @Inject constructor(
                         provider,
                         LLMRequest(
                             systemPrompt = mergePrompt,
-                            messages = listOf(
-                                ChatMessage(
-                                    id = UUID.randomUUID().toString(),
-                                    text = "Merge the plan and critique into the final JSON plan.",
-                                    sender = ChatMessage.Sender.USER,
-                                    imageBase64 = userMsg.imageBase64
-                                )
+                            messages = planHistory + userMsg + ChatMessage(
+                                id = UUID.randomUUID().toString(),
+                                text = "Merge the plan and critique into the final JSON plan.",
+                                sender = ChatMessage.Sender.USER,
+                                imageBase64 = userMsg.imageBase64
                             ),
                             temperature = 0.1f,
                             maxTokens = PLANNING_MAX_TOKENS,
@@ -1678,7 +1885,7 @@ class AgentLoop @Inject constructor(
                     provider,
                     LLMRequest(
                         systemPrompt = sysPrompt,
-                        messages = listOf(userMsg),
+                        messages = planHistory + userMsg,
                         temperature = 0.1f,
                         maxTokens = PLANNING_MAX_TOKENS,
                         responseFormat = ResponseFormat.JSON

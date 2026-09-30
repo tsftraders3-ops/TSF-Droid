@@ -83,8 +83,29 @@ class UserMemoryLearner @Inject constructor(
                     responseFormat = ResponseFormat.JSON
                 )
             )
-            val items = parseItems(response.content)
-            for (item in items) {
+            val llmItems = parseItems(response.content)
+
+            // v1.3.0: the deterministic assistant-identity pass. "I am naming
+            // you Farhan" is about the ASSISTANT'S name, but the extractor's
+            // job description says "facts about the user", so it kept filing
+            // the name under the USER's facts (the exact field failure this
+            // pass exists to make impossible). Regex-first, model-second: the
+            // detector's items win their keys, and a same-value `name` item
+            // from the model in the same turn is the misattribution — dropped.
+            val detectorItems = detectAssistantIdentity(userText)
+            val detectorNames = detectorItems.mapNotNull { extractQuotedName(it.value) }.toSet()
+            val correctedItems = llmItems.filterNot { item ->
+                (item.key == "name" || item.key == "user_name") &&
+                    detectorNames.isNotEmpty() &&
+                    detectorNames.any { item.value.contains(it, ignoreCase = true) }
+            }
+            // Detector items override the model's same-key extraction; every
+            // other model item passes through untouched.
+            val finalItems = correctedItems.filter { item ->
+                detectorItems.none { it.key == item.key }
+            } + detectorItems
+
+            for (item in finalItems) {
                 val previous = existing.firstOrNull {
                     it.key == KEY_PREFIX + item.key
                 }
@@ -117,6 +138,21 @@ class UserMemoryLearner @Inject constructor(
         Do NOT learn: temporary states ("I'm hungry today"), the assistant's behavior,
         anything about the world at large, anything already known (list below) unless
         the user CHANGED it — in that case re-emit the same key with the new value.
+
+        WHO IS WHO — the single most important rule:
+        Facts about the USER ("my name is Aisha", "I work in Delhi") get normal keys
+        (name, job, city).
+        Facts about THE ASSISTANT ITSELF go under assistant_ keys. When the user
+        NAMES the assistant or refers to it by a chosen name — "I am naming you
+        Farhan", "I'll call you JARVIS", "your name is Buddy" — that is the
+        ASSISTANT'S name, NOT the user's: emit
+        {"key":"assistant_name","value":"The user calls the assistant 'Farhan'"}.
+        NEVER store the assistant's name under the user's name key.
+
+        CORRECTIONS — the user teaching the app what it got wrong:
+        When the user corrects a previously learned fact ("no, I said I prefer X",
+        "that's wrong, I live in Mumbai now", "actually don't do that"), re-emit the
+        SAME key with the corrected value — the memory system updates in place.
 
         Already known memories:
         $existingKeys
@@ -154,5 +190,54 @@ class UserMemoryLearner @Inject constructor(
         private const val MAX_TURN_CHARS = 4000
         private const val EXTRACTION_MAX_TOKENS = 350
         private const val MAX_ITEMS_PER_EXCHANGE = 3
+
+        /** v1.3.0: the key that holds the assistant's own chosen name. */
+        const val ASSISTANT_NAME_KEY = "assistant_name"
+
+        /**
+         * v1.3.0: continuations that look like a name but are not one —
+         * "I'll call you back", "call you later", "call you when I land".
+         */
+        private val NOT_A_NAME = setOf(
+            "back", "later", "soon", "again", "first", "now", "when", "if",
+            "then", "okay", "ok", "alright", "maybe", "tomorrow", "today",
+            "tonight", "home", "there", "here", "dad", "mom", "mum"
+        )
+
+        /**
+         * v1.3.0: deterministic assistant-naming detector — the Farhan fix.
+         * Matches "(naming|name|call|I'll call|I will call) (you|yourself) X"
+         * and "your name is X", where X is 1-3 plausible name words. Runs
+         * BEFORE the model's extraction and overrides it on collision.
+         */
+        private val ASSISTANT_NAMING = Regex(
+            "(?i)(?:\\b(?:naming|i(?:'?:?a?m)?\\s+name|name|call(?:ing)?|will\\s+call|'ll\\s+call)\\s+(?:you|yourself)\\s+|(?:your\\s+name(?:'?s|\\s+is)\\s+))" +
+                "([\\p{L}][\\p{L}'\\u2019-]{0,24}(?:\\s+[\\p{L}][\\p{L}'\\u2019-]{0,24}){0,2})"
+        )
+
+        /** Visible for testing: the deterministic assistant-identity pass. */
+        internal fun detectAssistantIdentity(userText: String): List<LearnedItem> {
+            val found = ASSISTANT_NAMING.findAll(userText)
+                .mapNotNull { m ->
+                    val raw = m.groupValues[1].trim().trim('"', '\'', '\u201C', '\u201D', '.', '!', ',').trim()
+                    if (raw.isEmpty()) return@mapNotNull null
+                    val words = raw.split(Regex("\\s+")).filter { it.isNotBlank() }
+                    if (words.isEmpty() || words.size > 3) return@mapNotNull null
+                    val first = words.first().lowercase()
+                    if (first in NOT_A_NAME) return@mapNotNull null
+                    if (words.size > 1 && words.last().lowercase() in setOf("too", "then", "ok")) return@mapNotNull null
+                    LearnedItem(
+                        key = ASSISTANT_NAME_KEY,
+                        value = "The user calls the assistant '$raw'"
+                    )
+                }
+                .toList()
+            // A single assistant name per exchange — keep the first mention.
+            return if (found.isEmpty()) emptyList() else listOf(found.first())
+        }
+
+        /** Visible for testing: pulls the quoted display name out of a saved value. */
+        internal fun extractQuotedName(value: String): String? =
+            Regex("'([^']{1,40})'").find(value)?.groupValues?.getOrNull(1)
     }
 }

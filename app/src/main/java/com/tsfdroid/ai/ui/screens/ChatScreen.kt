@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Send
@@ -78,7 +79,10 @@ import com.tsfdroid.ai.ui.components.AgentTodoChecklist
 import com.tsfdroid.ai.data.models.resolvedAutoMode
 import com.tsfdroid.ai.data.repository.ChatSession
 import com.tsfdroid.ai.ui.components.ContactPickerCard
+import com.tsfdroid.ai.ui.components.RichMessageText
+import com.tsfdroid.ai.ui.components.SourceChipsRow
 import com.tsfdroid.ai.ui.theme.*
+import com.tsfdroid.ai.ui.text.extractUrls
 import com.tsfdroid.ai.ui.viewmodel.ChatViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -131,6 +135,9 @@ fun ChatScreen(
     val liveActivity by viewModel.visibleActivitySteps.collectAsState()
     val livePlan by viewModel.currentPlan.collectAsState()
     val availableEffortLevels by viewModel.availableEffortLevels.collectAsState()
+    // v1.3.0: the live ask_user question this chat's task is parked on — drives
+    // the dedicated answer surface (accent input bar + option chips).
+    val pendingAsk by viewModel.pendingAsk.collectAsState()
     val chatMode = ChatMode.fromNullable(llmConfig.chatMode)
     var showAttachSheet by remember { mutableStateOf(false) }
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -640,6 +647,71 @@ fun ChatScreen(
                     .padding(16.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    // v1.3.0 ANSWER SURFACE — when this chat's agent task is
+                    // parked on an ask_user question, the input bar becomes
+                    // the answer box: the question is repeated as a labeled
+                    // strip with its tappable option chips directly above the
+                    // field, and the field itself gets the accent treatment so
+                    // there is never any doubt WHERE the answer goes.
+                    pendingAsk?.let { ask ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 4.dp, bottom = 8.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(AccentCyan.copy(alpha = 0.10f))
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.HelpOutline,
+                                    contentDescription = null,
+                                    tint = AccentCyan,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "ANSWER NEEDED",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AccentCyan,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = ask.question,
+                                fontSize = 13.sp,
+                                color = TextPrimary,
+                                lineHeight = 17.sp
+                            )
+                            if (ask.options.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    ask.options.forEach { option ->
+                                        Text(
+                                            text = option,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = AccentCyan,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(AccentCyan.copy(alpha = 0.16f))
+                                                .clickable {
+                                                    viewModel.sendMessage(option, context)
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // v1.2.0: pending upload strip — removable chips for
                     // everything that will be sent with the next message.
                     if (pendingAttachments.isNotEmpty()) {
@@ -793,13 +865,30 @@ fun ChatScreen(
                         Spacer(modifier = Modifier.width(8.dp))
 
                         // Text Input Field / Voice Waveform Area — Aurora chatfield:
-                        // r-hero 30px, tonal surface-high fill, no border
+                        // r-hero 30px, tonal surface-high fill, no border.
+                        // v1.3.0: while an ask_user question is pending, the
+                        // SAME field is the answer box — accent border + an
+                        // "answer the question" placeholder make the contract
+                        // visible; the send path is unchanged (processQuery
+                        // routes it to the parked question).
+                        val answeringAsk = pendingAsk != null
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .heightIn(min = 54.dp, max = 120.dp)
                                 .clip(RoundedCornerShape(30.dp))
                                 .background(AuroraSurfaceHigh)
+                                .then(
+                                    if (answeringAsk) {
+                                        Modifier.border(
+                                            1.5.dp,
+                                            AccentCyan.copy(alpha = 0.65f),
+                                            RoundedCornerShape(30.dp)
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                                 .padding(horizontal = 18.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
@@ -815,7 +904,17 @@ fun ChatScreen(
                                 TextField(
                                     value = inputQuery,
                                     onValueChange = { inputQuery = it; voiceError = null },
-                                    placeholder = { Text("Ask TSF Droid to run an autonomous task...", color = TextSecondary, fontSize = 14.sp) },
+                                    placeholder = {
+                                        Text(
+                                            text = if (answeringAsk) {
+                                                "Type your answer — the agent is waiting…"
+                                            } else {
+                                                "Ask TSF Droid to run an autonomous task..."
+                                            },
+                                            color = if (answeringAsk) AccentCyan else TextSecondary,
+                                            fontSize = 14.sp
+                                        )
+                                    },
                                     colors = TextFieldDefaults.colors(
                                         focusedContainerColor = Color.Transparent,
                                         unfocusedContainerColor = Color.Transparent,
@@ -1191,6 +1290,15 @@ fun ChatBubble(
                     var thinkingExpanded by remember(message.id) {
                         mutableStateOf(message.text.isBlank())
                     }
+                    // v1.3.0: Claude-style header — when the turn's reasoning
+                    // phase was measured, the collapsed section reads
+                    // "THOUGHT FOR 12s" instead of a bare "THINKING" label.
+                    val thoughtForLabel = remember(message.id) {
+                        message.activitySteps()
+                            .firstOrNull { it.kind == ActivityStep.KIND_THINKING }
+                            ?.label
+                            ?.uppercase(Locale.getDefault())
+                    }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -1209,7 +1317,8 @@ fun ChatBubble(
                                 }
                         )
                         Text(
-                            text = "THINKING",
+                            text = thoughtForLabel
+                                ?: if (message.text.isBlank()) "THINKING" else "THOUGHT",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = AccentPurple,
@@ -1311,12 +1420,76 @@ fun ChatBubble(
                     Spacer(modifier = Modifier.height(6.dp))
                 }
 
-                Text(
-                    text = message.text,
-                    fontSize = 14.sp,
-                    color = bubbleTextColor,
-                    lineHeight = 21.sp
-                )
+                // v1.3.0 (Phase 14, Wave B): agent replies render through the
+                // markdown-lite rich renderer — headings, bullets, code fences,
+                // tappable links — plus a numbered SOURCES chip row when the
+                // reply cites URLs. User bubbles stay plain text.
+                if (isAgent) {
+                    RichMessageText(
+                        text = message.text,
+                        baseColor = bubbleTextColor
+                    )
+                    val sourceUrls = remember(message.id, message.text) {
+                        extractUrls(message.text)
+                    }
+                    if (sourceUrls.isNotEmpty()) {
+                        SourceChipsRow(
+                            urls = sourceUrls,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                } else {
+                    Text(
+                        text = message.text,
+                        fontSize = 14.sp,
+                        color = bubbleTextColor,
+                        lineHeight = 21.sp
+                    )
+                }
+
+                // v1.3.0 ask_user bubble: tappable option chips under the
+                // question. While the ask is live these answer the parked
+                // question (the answer-mode strip above the input mirrors
+                // them); afterwards they still send the option as a plain
+                // message — the model sees the whole history either way.
+                if (isAgent) {
+                    message.askOptions()?.let { ask ->
+                        if (ask.options.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ask.options.forEach { option ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(AccentCyan.copy(alpha = 0.12f))
+                                            .clickable {
+                                                if (viewModel != null && context != null) {
+                                                    viewModel.sendMessage(option, context)
+                                                }
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Check,
+                                            contentDescription = null,
+                                            tint = AccentCyan,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = option,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = TextPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 
                 Spacer(modifier = Modifier.height(4.dp))
 

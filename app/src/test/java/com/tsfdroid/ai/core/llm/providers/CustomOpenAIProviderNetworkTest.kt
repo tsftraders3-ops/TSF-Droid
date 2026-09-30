@@ -42,7 +42,17 @@ import org.junit.Test
 class CustomOpenAIProviderNetworkTest {
 
     private val server = MockWebServer().also { it.start(InetAddress.getByName("127.0.0.1"), 0) }
-    private val provider = CustomOpenAIProvider(AppModule.provideOkHttpClient(), newSettingsRepository())
+
+    /**
+     * v1.3.0 (Phase 14 WAVE C): the provider now takes the shared models.dev
+     * registry (reasoning-effort gating). These requests carry no effort
+     * selection, so the registry is never consulted; the URL is still pointed
+     * at the mock server so the test stays hermetic even if that changes.
+     */
+    private val registry = ModelsDevRegistry(AppModule.provideOkHttpClient()).apply {
+        registryUrl = server.url("/registry").toString()
+    }
+    private val provider = CustomOpenAIProvider(AppModule.provideOkHttpClient(), newSettingsRepository(), registry)
 
     /** Never logged or asserted on directly; only its absence from failures is asserted. */
     private val apiKey = "sk-test-0123456789abcdef"

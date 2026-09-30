@@ -40,6 +40,10 @@ data class ActivityStep(
         const val KIND_VISION = "vision"
         /** The model answered a long-form ask too briefly; one bounded expansion pass. */
         const val KIND_EXPANSION = "expansion"
+        /** v1.3.0: the measured reasoning phase — label reads "Thought for 12s". */
+        const val KIND_THINKING = "thinking"
+        /** v1.3.0: the agent asked the user a question and waited for the answer. */
+        const val KIND_ASK = "ask_user"
 
         const val STATUS_RUNNING = "running"
         const val STATUS_DONE = "done"
