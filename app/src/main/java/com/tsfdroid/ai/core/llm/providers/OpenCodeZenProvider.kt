@@ -555,9 +555,12 @@ class OpenCodeZenProvider @Inject constructor(
             // every-16-lines version still allowed a 16x inter-line gap —
             // 16 minutes on a 1-line-per-minute trickle, run 36659560010).
             val pumpContext = currentCoroutineContext()
+            android.util.Log.i("OpenCodeZen", "pump BEGIN model=$selectedModel")
+            var sseLineCount = 0
             BufferedReader(InputStreamReader(source.inputStream(), StandardCharsets.UTF_8)).useLines { lines ->
                 for (line in lines) {
                     pumpContext.ensureActive()
+                    sseLineCount++
                     if (!line.startsWith(SSE_DATA_PREFIX)) continue
                     val payload = line.removePrefix(SSE_DATA_PREFIX).trim()
                     if (payload == SSE_DONE) break
@@ -653,6 +656,10 @@ class OpenCodeZenProvider @Inject constructor(
                 }
             }
 
+            android.util.Log.i(
+                "OpenCodeZen",
+                "pump END model=$selectedModel lines=$sseLineCount content=${content.length}c reasoning=${reasoning.length}c tools=${toolCallFragments.size} finish=$lastFinishReason"
+            )
             StreamPump(
                 content = content.toString(),
                 tokensUsed = tokensUsed,
