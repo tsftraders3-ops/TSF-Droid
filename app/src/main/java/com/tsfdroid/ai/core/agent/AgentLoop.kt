@@ -73,9 +73,8 @@ private const val MAX_INCOMPLETE_MESSAGE_IDS = 100
 /** Tail length of the live thinking trace published during planning. */
 private const val LIVE_THINKING_TAIL = 1500
 
-/** v1.3.0: planner history bounds — recent turns ride along, char-capped. */
+/** v1.3.0: planner history bound — how many recent turns ride along. */
 private const val PLANNING_HISTORY_MESSAGES = 10
-private const val PLANNING_HISTORY_MAX_CHARS = 24_000
 /** Rough per-message serialization overhead for char-budget trimming. */
 private const val MESSAGE_OVERHEAD_CHARS = 48
 /**
@@ -1783,14 +1782,23 @@ class AgentLoop @Inject constructor(
     /**
      * v1.3.0: recent conversation context for the planner — the agent-mode
      * "model not getting the context" fix. Bounded to the last
-     * [PLANNING_HISTORY_MESSAGES] messages and [PLANNING_HISTORY_MAX_CHARS]
-     * characters (newest kept when the budget cuts), chronological order.
+     * [PLANNING_HISTORY_MESSAGES] messages and an ADAPTIVE char budget
+     * (25% of the model's registry window — the planning system prompt with
+     * the full action schema is itself large, so history gets a modest share;
+     * unknown models keep the 16k legacy-safe default), chronological order.
      */
-    private suspend fun planningHistory(sessionId: String, currentMsg: ChatMessage): List<ChatMessage> {
+    private suspend fun planningHistory(
+        sessionId: String,
+        currentMsg: ChatMessage,
+        modelSpec: com.tsfdroid.ai.core.llm.providers.ZenModelSpec?
+    ): List<ChatMessage> {
+        val window = modelSpec?.contextWindow?.takeIf { it > 0 }
+        val budget = window?.let { (it * 3.5 * 0.25).toInt() } ?: 16_000
+        val capped = budget.coerceIn(6_000, 24_000)
         val recent = conversationRepository
             .getLastMessages(sessionId, PLANNING_HISTORY_MESSAGES + 1)
             .filter { it.id != currentMsg.id }
-        return trimHistoryToCharBudget(recent, PLANNING_HISTORY_MAX_CHARS)
+        return trimHistoryToCharBudget(recent, capped)
     }
 
     /**
@@ -1821,8 +1829,11 @@ class AgentLoop @Inject constructor(
             // v1.3.0: the agent-mode context fix — the planner previously saw
             // ONLY the current message, so contextual follow-ups ("send it to
             // him too", "same as last time but shorter") planned blind. Recent
-            // conversation history now rides along, bounded by char budget.
-            val planHistory = planningHistory(sessionId, userMsg)
+            // conversation history now rides along, adaptively budgeted to the
+            // active model's registry context window.
+            val activeModelId = config.selectedModelFor(config.activeProvider)
+            val planModelSpec = runCatching { modelsDevRegistry.specs()[activeModelId] }.getOrNull()
+            val planHistory = planningHistory(sessionId, userMsg, planModelSpec)
             val plan = if (config.multiAgentModeEnabled) {
                 kotlinx.coroutines.coroutineScope {
                     val plannerDeferred = async(Dispatchers.Default) {
