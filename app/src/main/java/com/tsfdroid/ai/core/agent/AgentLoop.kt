@@ -46,7 +46,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.timeout
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -72,13 +73,13 @@ private const val MAX_INCOMPLETE_MESSAGE_IDS = 100
 private const val LIVE_THINKING_TAIL = 1500
 
 /**
- * v1.2.1 round-10: hard wall-clock bound on the STREAMED first call of a
- * chat turn. Free-tier reasoning models can trickle a stream for 15+
- * minutes (one token at a time keeps the connection alive — no read
- * timeout, no runaway fuse). Past this bound the harness finishes the turn
- * with deterministic complete()-based rounds.
+ * v1.2.1 round-11: IDLE bound on the streamed first call of a chat turn —
+ * the maximum silence between two deltas. Free-tier reasoning models can
+ * trickle a stream for 15+ minutes (a token every few seconds keeps the
+ * 300s read timeout quiet); a healthy stream never hits this because its
+ * deltas arrive continuously, no matter how long the full answer runs.
  */
-private const val FIRST_STREAM_CALL_TIMEOUT_MS = 300_000L
+private const val STREAM_IDLE_TIMEOUT_MS = 120_000L
 /**
  * v1.2.0: bounded rounds for the chat-path tool loop now live in
  * [HarnessLoop] (OpenCode-style: tool rounds + continuation + doom guard).
@@ -809,20 +810,16 @@ class AgentLoop @Inject constructor(
                 }
             )
 
-            // v1.2.1 round-10: a hard wall-clock bound on the STREAMED first
-            // call. Field evidence (cap15, run 36629953091, both passes): a
-            // free-tier reasoning model trickled its stream for ~15 minutes —
-            // the connection stays alive one token at a time, so neither the
-            // read timeout nor the runaway-reasoning fuse fires — and the
-            // turn's grounding (research guarantee → harness rounds) only
-            // started AFTER the user had stared at a half-answer for a
-            // quarter of an hour. 5 minutes is the ceiling of acceptable
-            // first-call waiting; past it the harness takes the turn with
-            // deterministic complete()-based rounds (and the visible ACTIVITY
-            // steps the streamed path cannot produce).
+            // v1.2.1 round-10/11: the STREAMED first call is bounded by the
+            // IDLE GAP between deltas, not the total duration (round-10 field
+            // evidence, run 36640751137: free-tier reasoning models trickle —
+            // one token every few seconds keeps every 300s read-timeout quiet
+            // while the user stares at a half-answer for a quarter of an
+            // hour). A healthy long answer keeps emitting and is never cut;
+            // a 120s silence means the stream is stalled — the partial stays
+            // on screen and the harness finishes the turn below.
             try {
-                withTimeout(FIRST_STREAM_CALL_TIMEOUT_MS) {
-                    provider.streamCompleteDetailed(
+                provider.streamCompleteDetailed(
                         LLMRequest(
                             systemPrompt = systemPrompt,
                             messages = lastMsgs,
@@ -839,7 +836,8 @@ class AgentLoop @Inject constructor(
                             tools = chatToolsFor(mode),
                             reasoningEffort = config.reasoningEffort
                         )
-                    ).collect { event ->
+                    ).timeout(STREAM_IDLE_TIMEOUT_MS.milliseconds)
+                    .collect { event ->
                         when (event) {
                             is LLMStreamEvent.Content -> {
                                 if (event.text.isEmpty()) return@collect
@@ -855,14 +853,13 @@ class AgentLoop @Inject constructor(
                             is LLMStreamEvent.Finished -> lastFinishReason = event.reason
                         }
                     }
-                }
             } catch (timedOut: TimeoutCancellationException) {
-                // NOT a user cancel: the model's first call simply outlived its
-                // welcome. Whatever streamed stays on screen; the flow below
+                // NOT a user cancel: the stream went silent past the idle
+                // bound. Whatever streamed stays on screen; the flow below
                 // (research guarantee / harness fallback) finishes the turn.
                 android.util.Log.w(
                     "AgentLoop",
-                    "streamed first call exceeded ${FIRST_STREAM_CALL_TIMEOUT_MS / 1000}s — handing the turn to the harness"
+                    "streamed first call went idle past ${STREAM_IDLE_TIMEOUT_MS / 1000}s — handing the turn to the harness"
                 )
             } catch (streamError: CancellationException) {
                 _liveThinking.value = null
