@@ -1473,10 +1473,14 @@ class AgentCapabilityE2EInstrumentedTest {
         )
 
         // 1. The dedicated answer surface appears: the ANSWER NEEDED strip
-        //    (or the answer-mode placeholder) with the question.
-        val surfaceDeadline = System.currentTimeMillis() + 420_000
+        //    (or the answer-mode placeholder) with the question. The plan may
+        //    ask MORE THAN ONCE (round-100 evidence: a two-step ask plan -
+        //    "ask which city" then "confirm the choice" - posted a second
+        //    question the moment the first was answered), so the answer loop
+        //    keeps answering every question that appears, up to 3 times.
+        val firstSurfaceDeadline = System.currentTimeMillis() + 420_000
         var sawAnswerSurface = false
-        while (System.currentTimeMillis() < surfaceDeadline) {
+        while (System.currentTimeMillis() < firstSurfaceDeadline) {
             device.runWatchers()
             if (device.findObject(By.textContains("ANSWER NEEDED")) != null ||
                 device.findObject(By.textContains("Type your answer")) != null
@@ -1494,13 +1498,29 @@ class AgentCapabilityE2EInstrumentedTest {
             sawAnswerSurface
         )
 
-        // 2. Snapshot everything visible NOW (the question bubble, option
-        //    chips, the user's typed answer) so only the FINAL reply counts
-        //    as new text below.
-        val baseline2 = visibleTexts()
-        assertTrue("could not type the ask answer", typeChatMessage("Pune"))
-        shoot("cap21_ask_typed")
-        assertTrue("could not send the ask answer", tapSendAndVerify("Pune"))
+        // 2. Answer every question the turn asks (the plan can re-ask).
+        var answered = 0
+        var baseline2 = visibleTexts()
+        while (answered < 3) {
+            assertTrue("could not type the ask answer", typeChatMessage("Pune"))
+            shoot("cap21_ask_typed")
+            assertTrue("could not send the ask answer", tapSendAndVerify("Pune"))
+            answered++
+            // Wait until the current ask resolves: either a NEW question
+            // appears (answer it too) or the turn goes idle (final reply).
+            val nextDeadline = System.currentTimeMillis() + 120_000
+            var askedAgain = false
+            while (System.currentTimeMillis() < nextDeadline) {
+                device.runWatchers()
+                val askUp = device.findObject(By.textContains("ANSWER NEEDED")) != null
+                val busy = agentBusyOnScreen()
+                if (askUp) { askedAgain = true; break }
+                if (!busy && !askUp) break
+                runCatching { Thread.sleep(2_000) }
+            }
+            baseline2 = visibleTexts()
+            if (!askedAgain) break
+        }
 
         // 3. The resumed turn lands a reply that references the chosen city.
         //    Everything from before the answer is in baseline2; the answer
@@ -1533,10 +1553,20 @@ class AgentCapabilityE2EInstrumentedTest {
                 "like coindesk.com) in your answer.",
             "cap22_sources"
         )
-        val reply = waitNewText(baseline, 420_000)
+        // The reply must be the GROUNDED answer, not the model's transient
+        // monologue ("I don't have a dedicated web_search tool here..." -
+        // round-100 evidence): it carries a price figure or a citation.
+        val reply = waitNewText(
+            baseline,
+            420_000,
+            predicate = { t ->
+                (t.contains("USD", ignoreCase = true) || t.contains("$")) &&
+                    t.length > 40
+            }
+        )
         shoot("cap22_sources_reply")
         dumpHierarchy("cap22_sources_reply")
-        assertNotNull("no research reply arrived", reply)
+        assertNotNull("no grounded research reply arrived", reply)
 
         val hasSourcesRow = device.findObject(By.textContains("SOURCES")) != null
         assertTrue(
