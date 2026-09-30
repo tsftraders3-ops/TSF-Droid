@@ -4,6 +4,82 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.3.0 — Core agent experience: ask_user, real effort levels, rich answers & the memory identity fix
+
+The "make every promise real" release: every capability the UI offered now
+actually works end to end, verified feature by feature.
+
+### ask_user — the agent can ask YOU a question (opencode's question tool)
+
+- The model gets an `ask_user` tool in both Chat and Agent modes: it asks
+  with tappable option chips + a free-text answer, the app parks the turn on
+  a visible ANSWER NEEDED surface (accent answer box + option chips above
+  the input), and the answer returns to the model as the tool result so the
+  turn continues with it in context. No more dead-end questions, and no more
+  typing an answer that vanishes into a new query — the input bar IS the
+  answer box while a question is pending. Ask parking is UNBOUNDED: a slow
+  answer never trips the 15-minute turn bound (only model work is bounded).
+- Question options persist with the message (Room v14) so chips survive
+  process death and reload with history.
+
+### Effort levels that are real for EVERY provider
+
+- The reasoning-effort selector previously only reached the wire on the Zen
+  keyless provider — for OpenAI, DeepSeek, OpenRouter, Groq, Together,
+  Mistral, Copilot and custom endpoints it silently did nothing. Now all 8
+  OpenAI-compatible providers send `reasoning_effort`, gated on the model's
+  models.dev registry levels (never fired at a model that rejects it), and
+  fetched model lists are enriched with registry reasoning levels so the
+  selector appears for the models that actually support it.
+
+### Rich answers — markdown, clickable sources, "Thought for X seconds"
+
+- Agent replies render as markdown-lite (headings, bold/italic, bullets,
+  numbered lists, code blocks, quotes) with every URL clickable, and a
+  SOURCES chip row of numbered domain chips at the bottom — researched
+  answers read like Claude/Gemini citations, not raw text slop.
+- The thinking section header now reads "THOUGHT FOR 12s" (measured from
+  the first reasoning delta to the first answer delta) — the Claude-style
+  cost-of-thought surface — and the reasoning phase appears as the first
+  ACTIVITY step.
+
+### The Farhan fix — memory knows who is who
+
+- "I am naming you Farhan" now lands as the ASSISTANT'S name (a deterministic
+  naming detector runs before the LLM extractor and overrides its
+  misattribution), the extractor prompt carries an explicit who-is-who rule
+  plus correction learning, and injection renders the assistant's own
+  identity in a separate, unmissable section. A self-heal pass deletes the
+  misfiled `learn_name` rows from before this fix the next time the user
+  names the assistant.
+
+### Context that actually carries (and never overflows)
+
+- Agent-mode planning now carries recent conversation history (bounded to
+  25% of the model's registry window; on-device models keep the old
+  no-history behavior) — follow-ups like "send it to him too" no longer
+  plan blind. This was the root cause of "the model is not getting the
+  context of the chat".
+- The chat history window is now TOKEN-AWARE: up to 200 messages, trimmed
+  to 60% of the model's real context window (the old hard 30-message cap is
+  gone), with images counted at their token weight and on-device models
+  hard-capped so 4k-token models can never overflow. The 75% compaction rule
+  stays the primary never-lose-potential mechanism above the trim.
+- Vision routing is actually wired: a blind pinned model with images in the
+  turn now rides the Zen vision chain (the requireVision flag existed since
+  v1.2.0 but was never set by any caller); when no routing is possible the
+  images degrade to an honest note.
+
+### Also
+
+- Harness prompts upgraded: ask_user tool lines, inline-URL citation
+  discipline (the app renders them as chips), personal-memory honoring line.
+- No tool-call caps: 10 harness rounds each batching multiple tool calls,
+  32k output ceiling with automatic continuation, doom-loop guard — the old
+  4-call limit is long gone and stays gone.
+- Room v13 → v14 (ask options column, migration tested), 791 unit tests
+  green (was 715 at v1.2.1), E2E suite extended and green.
+
 ## v1.2.1 — Hermes loop: personal memory, context compaction, visible work & todo list
 
 The "learn and show your work" release on top of the v1.2.0 harness.
