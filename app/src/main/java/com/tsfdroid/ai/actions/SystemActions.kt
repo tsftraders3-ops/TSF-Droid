@@ -1001,13 +1001,14 @@ class SystemActions @Inject constructor(
         override val name: String = "ASK_USER"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val question = params["question"] ?: params["message"] ?: "Please provide the required information."
-            agentLoop.get().onSpeakCallback?.invoke(question)
-            try {
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    android.widget.Toast.makeText(context, question, android.widget.Toast.LENGTH_LONG).show()
-                }
-            } catch (e: Exception) {}
-            val response = agentLoop.get().awaitUserResponse().trim()
+            // v1.3.0: the question renders as a REAL chat bubble with the
+            // ANSWER NEEDED surface + tappable option chips — shared with the
+            // chat-path ask_user tool. The old Toast vanished in seconds and
+            // never appeared in the chat at all (E2E cap21 evidence: the
+            // surface test found nothing to answer).
+            val options = params["options"]
+                ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+            val response = agentLoop.get().askUserQuestion(question, options).trim()
             return ActionResult(true, response, null)
         }
     }

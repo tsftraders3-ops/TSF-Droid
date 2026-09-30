@@ -74,6 +74,38 @@ private val linkRegex = Regex("\\[([^\\]]*)\\]\\((https?://[^)\\s]+)\\)")
 private const val TRAILING_URL_CHARS = ").,;:!?>'\"}]"
 
 /**
+ * v1.3.0: scheme-less citation domains — "Source: CoinDesk (coindesk.com/"
+ * "price/bitcoin)" is how live models actually cite on the free tier (E2E
+ * cap22 evidence: zero http(s):// in the whole reply). A bare domain is
+ * label(.label)+COMMON-TLD, optionally followed by a /path. Restricting the
+ * TLD to this curated list is what keeps prose out: "foo.bar", "e.g.",
+ * "i.e.", "v1.2" and "node.js" never match; unusual real TLDs still work
+ * when cited with their full https:// URL (the first branch).
+ */
+private const val COMMON_TLDS =
+    "com|org|net|io|ai|co|gov|edu|dev|app|info|news|xyz|me|tv|us|uk|in|de|fr|jp|cn|ru|br|ca|au" +
+        "|site|online|shop|store|blog|tech|cloud|live|life|world|today|space|link|page|wiki|media" +
+        "|video|zone|social|tools|systems|network|digital|finance|market|software|solutions" +
+        "|company|studio|design|science|expert|guide|city|events|health|fitness|club|team|group" +
+        "|work|jobs|careers|law|legal|tax|insurance|estate|house|home|garden|pet|education|school" +
+        "|academy|college|university"
+
+private val bareDomainRegex = Regex(
+    "((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\\.)+(?:" + COMMON_TLDS + "))(/[^\\s)\\]}>\"'.,;!?]*)?"
+)
+
+/**
+ * A bare-domain citation may only START after a boundary: start of text,
+ * whitespace, or an opening bracket/quote. Starting mid-word ("foo.bar") is
+ * prose, not a link.
+ */
+private fun bareDomainBoundaryOk(text: String, index: Int): Boolean {
+    if (index == 0) return true
+    val prev = text[index - 1]
+    return prev.isWhitespace() || prev in "([{<'\"\u2014" || prev == '\u2018' || prev == '\u201C'
+}
+
+/**
  * Parses [text] into markdown-lite [Block]s. Pure Kotlin, no Android or
  * Compose dependencies — unit-testable on the JVM.
  */
@@ -327,6 +359,23 @@ private object MarkdownLiteParser {
                         // Advance only past the URL — trimmed punctuation stays
                         // in the stream and renders literally after the link.
                         i += url.length
+                    } else {
+                        literal.append(c)
+                        i++
+                    }
+                }
+
+                // v1.3.0: bare-domain citation — "coindesk.com/price" with no
+                // scheme (E2E cap22 evidence: live models cite this way). The
+                // span text stays exactly as typed; the link target gets the
+                // https:// prefix ACTION_VIEW needs.
+                c.isLetter() && bareDomainBoundaryOk(text, i) -> {
+                    val m = bareDomainRegex.find(text, i)
+                    if (m != null && m.range.first == i && m.value.length >= 5) {
+                        flushLiteral()
+                        val target = "https://${m.value}"
+                        spans += Span(m.value, bold = bold, italic = italic, linkUrl = target)
+                        i += m.value.length
                     } else {
                         literal.append(c)
                         i++

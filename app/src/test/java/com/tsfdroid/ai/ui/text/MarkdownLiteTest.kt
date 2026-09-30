@@ -1,6 +1,7 @@
 package com.tsfdroid.ai.ui.text
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -469,4 +470,76 @@ class MarkdownLiteTest {
         assertTrue(extractUrls("no links here, just words").isEmpty())
         assertTrue(extractUrls("").isEmpty())
     }
+    // ── v1.3.0: scheme-less citation domains (E2E cap22 evidence) ────────
+
+    @Test
+    fun `bare domain citation becomes a link with https target`() {
+        val spans = parseInlineForTest("Source: CoinDesk (coindesk.com/price/bitcoin).")
+        val link = spans.firstOrNull { it.linkUrl != null }
+        assertNotNull("bare domain citation was not linkified", link)
+        assertEquals("coindesk.com/price/bitcoin", link!!.text)
+        assertEquals("https://coindesk.com/price/bitcoin", link.linkUrl)
+    }
+
+    @Test
+    fun `bare domain without path still linkifies`() {
+        val spans = parseInlineForTest("Read more at reuters.com today")
+        val link = spans.firstOrNull { it.linkUrl != null }
+        assertNotNull(link)
+        assertEquals("reuters.com", link!!.text)
+        assertEquals("https://reuters.com", link.linkUrl)
+    }
+
+    @Test
+    fun `e g and i e are not domains`() {
+        val spans = parseInlineForTest("Common abbreviations, e.g. this one, i.e. this too, are prose.")
+        assertTrue(spans.none { it.linkUrl != null })
+    }
+
+    @Test
+    fun `version numbers and dates are not domains`() {
+        val spans = parseInlineForTest("Version 1.2 shipped Sept 30, 2026 with v2.0 fixes.")
+        assertTrue(spans.none { it.linkUrl != null })
+    }
+
+    @Test
+    fun `mid-word dots are not domain starts`() {
+        val spans = parseInlineForTest("The foo.bar pattern is prose, not a citation.")
+        assertTrue(spans.none { it.linkUrl != null })
+    }
+
+    @Test
+    fun `extractUrls collects bare domains with the https prefix`() {
+        val urls = extractUrls(
+            "Bitcoin is around $84,100. Source: CoinDesk (coindesk.com/price/bitcoin) " +
+                "and https://coingecko.com/en/coins/bitcoin."
+        )
+        assertTrue(urls.contains("https://coindesk.com/price/bitcoin"))
+        assertTrue(urls.contains("https://coingecko.com/en/coins/bitcoin"))
+    }
+
+    @Test
+    fun `trailing period after bare domain stays literal`() {
+        val spans = parseInlineForTest("See example.org.")
+        val link = spans.firstOrNull { it.linkUrl != null }
+        assertNotNull(link)
+        assertEquals("example.org", link!!.text)
+        // The final period is NOT part of the link.
+        assertEquals(".", spans.lastOrNull { it.linkUrl == null }?.text?.takeLast(1))
+    }
+
+    /** v1.3.0 test seam: inline spans of the first parsed block. */
+    private fun parseInlineForTest(text: String): List<Span> {
+        val blocks = parseMarkdownLite(text)
+        return blocks.filterIsInstance<Block.Paragraph>().firstOrNull()?.spans
+            ?: blocks.firstNotNullOfOrNull { b ->
+                when (b) {
+                    is Block.Heading -> b.spans
+                    is Block.Quote -> b.spans
+                    else -> null
+                }
+            }
+            ?: emptyList()
+    }
+
 }

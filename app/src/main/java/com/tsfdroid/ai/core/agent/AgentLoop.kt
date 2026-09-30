@@ -464,11 +464,17 @@ class AgentLoop @Inject constructor(
      * park THIS task on [awaitUserResponse] until the user answers. The
      * answer returns to the harness as the tool's result and the turn
      * continues with it in context — the opencode "question" tool contract.
+     *
+     * Public surface for the ASK_USER ACTION (the plan path): it used to show
+     * a transient Toast and wait invisibly — the question never appeared in
+     * the chat at all (E2E cap21 evidence). Both ask paths now share this
+     * one implementation, so the ANSWER NEEDED surface renders regardless of
+     * which pipeline asked.
      */
-    private suspend fun handleAskUser(
+    suspend fun askUserQuestion(
         question: String,
         options: List<String>,
-        sessionId: String
+        sessionId: String = activeTaskSessionId
     ): String {
         val askMsg = ChatMessage(
             id = UUID.randomUUID().toString(),
@@ -492,6 +498,12 @@ class AgentLoop @Inject constructor(
             _pendingAsk.value = null
         }
     }
+
+    private suspend fun handleAskUser(
+        question: String,
+        options: List<String>,
+        sessionId: String
+    ): String = askUserQuestion(question, options, sessionId)
 
     // Speak callback to be implemented by TTS service
     var onSpeakCallback: ((String) -> Unit)? = null
@@ -2867,12 +2879,35 @@ class AgentLoop @Inject constructor(
             id = UUID.randomUUID().toString(),
             text = needsInput.question + optionsText,
             sender = ChatMessage.Sender.AGENT,
-            modelBadge = "System"
+            modelBadge = "System",
+            // v1.3.0: the plan-path ask gets the SAME tappable chips and the
+            // SAME answer surface as the chat-path ask_user tool — the user
+            // must never have to guess where to type the answer, whichever
+            // pipeline asked the question (E2E cap21 evidence: the planner
+            // routes "ask me" requests to the ASK_USER action, and the old
+            // bare-text prompt left the input bar looking like normal chat).
+            askOptionsJson = if (needsInput.options.isNotEmpty()) {
+                com.tsfdroid.ai.data.models.serializeAskOptions(
+                    com.tsfdroid.ai.data.models.AskOptions(
+                        header = needsInput.question.take(30).ifBlank { "Quick answer" },
+                        options = needsInput.options
+                    )
+                )
+            } else {
+                null
+            }
         )
         conversationRepository.insertMessage(sessionId, promptMsg)
         onSpeakCallback?.invoke(needsInput.question)
 
-        val answer = awaitUserResponse(sessionId).trim()
+        // v1.3.0: publish the answer surface while the turn is parked on
+        // this question — cleared when the answer lands (or the task dies).
+        _pendingAsk.value = PendingAsk(sessionId, needsInput.question, needsInput.options)
+        val answer = try {
+            awaitUserResponse(sessionId).trim()
+        } finally {
+            _pendingAsk.value = null
+        }
         if (answer.isEmpty()) {
             return NeedsInputRetry(
                 ActionResult.Failure(

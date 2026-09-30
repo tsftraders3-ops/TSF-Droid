@@ -1529,7 +1529,8 @@ class AgentCapabilityE2EInstrumentedTest {
         reachDashboard()
         val baseline = sendTask(
             "Search the web for the current Bitcoin price in USD and tell me the " +
-                "price with the source site you used.",
+                "price, citing the exact source URL (for example the site domain " +
+                "like coindesk.com) in your answer.",
             "cap22_sources"
         )
         val reply = waitNewText(baseline, 420_000)
