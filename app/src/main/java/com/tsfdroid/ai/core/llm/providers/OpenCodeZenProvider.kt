@@ -546,21 +546,18 @@ class OpenCodeZenProvider @Inject constructor(
             var lastFinishReason: String? = null
             val toolCallFragments = mutableListOf<MutableList<Pair<Int, String>>>()
 
+            // v1.2.1 round-13: the read loop is PURE BLOCKING IO — it has no
+            // suspension points, so a caller's withTimeout (the harness's
+            // 480s per-call bound) fires but cannot be OBSERVED until the
+            // loop looks. Capture the pump context once and check it EVERY
+            // line: cancellation and timeouts then land within ONE inter-line
+            // gap, no matter how slowly the model trickles (the round-12
+            // every-16-lines version still allowed a 16x inter-line gap —
+            // 16 minutes on a 1-line-per-minute trickle, run 36659560010).
+            val pumpContext = currentCoroutineContext()
             BufferedReader(InputStreamReader(source.inputStream(), StandardCharsets.UTF_8)).useLines { lines ->
-                var sseLineCount = 0
                 for (line in lines) {
-                    // v1.2.1 round-12: the read loop is PURE BLOCKING IO — it
-                    // contains no suspension points, so a caller's withTimeout
-                    // (the harness's 480s per-call bound) fires but cannot be
-                    // OBSERVED until the stream ends. A free-tier model that
-                    // trickles one SSE line every few seconds blocks the turn
-                    // for 15+ minutes (cap15 field evidence across runs
-                    // 36629953091/36640751137/36650333639). Poll coroutine
-                    // activity regularly so cancellation lands within a few
-                    // lines of the deadline.
-                    if (++sseLineCount % 16 == 0) {
-                        currentCoroutineContext().ensureActive()
-                    }
+                    pumpContext.ensureActive()
                     if (!line.startsWith(SSE_DATA_PREFIX)) continue
                     val payload = line.removePrefix(SSE_DATA_PREFIX).trim()
                     if (payload == SSE_DONE) break
