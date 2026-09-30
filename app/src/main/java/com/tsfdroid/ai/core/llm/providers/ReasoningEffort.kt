@@ -71,7 +71,11 @@ object ReasoningEffort {
         registry: ModelsDevRegistry
     ) {
         if (request.reasoningEffort.isNullOrBlank()) return
-        val modelSpec = runCatching { registry.specs()[modelId] }.getOrNull()
+        // v1.3.0: modelInfo() — the ALL-provider map. specs() only carries the
+        // Zen "opencode" section, so every other provider's models always
+        // resolved to null here and the field was never sent (the selector
+        // stayed a Zen-only lie — the exact defect the critic proved).
+        val modelSpec = runCatching { registry.modelInfo()[modelId] }.getOrNull()
         applyToBody(body, request, modelSpec)
     }
 

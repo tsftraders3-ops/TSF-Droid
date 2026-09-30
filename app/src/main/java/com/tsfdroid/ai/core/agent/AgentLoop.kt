@@ -75,13 +75,18 @@ private const val LIVE_THINKING_TAIL = 1500
 
 /** v1.3.0: planner history bound — how many recent turns ride along. */
 private const val PLANNING_HISTORY_MESSAGES = 10
+/**
+ * v1.3.0: max ask_user resumes per chat turn — the loop must land an answer
+ * eventually; beyond this the model gets a "too many questions" tool result.
+ */
+private const val MAX_ASKS_PER_TURN = 3
 /** Rough per-message serialization overhead for char-budget trimming. */
 private const val MESSAGE_OVERHEAD_CHARS = 48
 /**
- * v1.3.0: approximate char-equivalent of one image's token weight in the
- * history budget (a vision-model image part costs roughly 1k+ tokens).
+ * v1.3.0: approximate token cost of one image part in the history budget
+ * (vision models charge roughly 1k+ tokens per image).
  */
-private const val IMAGE_COST_CHARS = 4_500
+private const val IMAGE_COST_TOKENS = 1_100
 
 /**
  * v1.3.0: the Claude-style thinking-duration step — "Thought for 12s"
@@ -108,19 +113,20 @@ internal fun thinkingDurationStep(durationMs: Long): ActivityStep? {
 }
 
 /**
- * v1.3.0: keeps the NEWEST messages that fit in [maxChars] (each message
- * counted as text length + a per-message overhead, each carried image at
- * its approximate token weight), preserving chronological order. Used by
- * history assembly everywhere the raw message window would otherwise
- * overflow the caller's budget.
+ * v1.3.0: keeps the NEWEST messages whose estimated TOKEN cost fits in
+ * [maxTokens] (text at the same 4-chars-per-token heuristic the compactor
+ * and output clamp use; each carried image at its own token weight),
+ * preserving chronological order. This is the BACKSTOP under the 75%
+ * compaction rule, not a replacement for it: compaction summarizes what it
+ * trims, this only bounds the assembly.
  */
-internal fun trimHistoryToCharBudget(history: List<ChatMessage>, maxChars: Int): List<ChatMessage> {
+internal fun trimHistoryToTokenBudget(history: List<ChatMessage>, maxTokens: Int): List<ChatMessage> {
     val kept = mutableListOf<ChatMessage>()
     var used = 0
     for (msg in history.asReversed()) {
-        val cost = msg.text.length + MESSAGE_OVERHEAD_CHARS +
-            msg.allImages().size * IMAGE_COST_CHARS
-        if (used + cost > maxChars && kept.isNotEmpty()) break
+        val cost = com.tsfdroid.ai.core.llm.PromptBudget.estimateTokens(msg.text) +
+            MESSAGE_OVERHEAD_CHARS / 4 + msg.allImages().size * IMAGE_COST_TOKENS
+        if (used + cost > maxTokens && kept.isNotEmpty()) break
         kept.add(msg)
         used += cost
     }
@@ -129,15 +135,19 @@ internal fun trimHistoryToCharBudget(history: List<ChatMessage>, maxChars: Int):
 }
 
 /**
- * v1.3.0: the char budget for the chat-path history — 45% of the model's
- * registry context window (chars ≈ tokens x 3.5). Unknown model keeps the
- * legacy-equivalent 64k chars. Clamped so even a tiny model keeps a
- * usable window and a giant one cannot blow the request.
+ * v1.3.0: the token budget for the chat-path history — 60% of the model's
+ * registry context window (leaving the system prompt, attachments, and
+ * growth room below the 75% compaction line, which stays the primary
+ * "never lose potential" mechanism). On-device models are hard-capped at
+ * a small budget: they live at 4k-token windows where the old 30-message
+ * cap already flirted with overflow. Unknown remote models keep a
+ * legacy-equivalent 16k tokens.
  */
-internal fun historyBudgetFor(modelSpec: com.tsfdroid.ai.core.llm.providers.ZenModelSpec?): Int {
+internal fun historyBudgetFor(modelSpec: com.tsfdroid.ai.core.llm.providers.ZenModelSpec?, onDeviceProvider: Boolean): Int {
+    if (onDeviceProvider) return 2_500
     val window = modelSpec?.contextWindow?.takeIf { it > 0 }
-    val budget = window?.let { (it * 3.5 * 0.45).toInt() } ?: 64_000
-    return budget.coerceIn(24_000, 300_000)
+    val budget = window?.let { (it * 0.60).toInt() } ?: 16_000
+    return budget.coerceIn(6_000, 120_000)
 }
 
 /**
@@ -834,17 +844,26 @@ class AgentLoop @Inject constructor(
             // into a dense context note (recent messages stay verbatim) and a
             // visible "Compacted conversation history" step is published. Long
             // projects and long chats never hit the wall or silently forget.
+            // v1.3.0: capability lookups (context window, modalities) use the
+            // ALL-provider metadata map — the Zen-only spec map is empty for
+            // every other provider, which silently lied about their windows.
             val activeModelId = config.selectedModelFor(config.activeProvider)
-            val modelSpec = runCatching { modelsDevRegistry.specs()[activeModelId] }.getOrNull()
+            val modelSpec = runCatching { modelsDevRegistry.modelInfo()[activeModelId] }.getOrNull()
+            val onDeviceProvider = config.activeProvider.contains("device", ignoreCase = true) ||
+                config.activeProvider.contains("gemma", ignoreCase = true) ||
+                config.activeProvider.contains("litert", ignoreCase = true)
 
             // v1.2.0 shared context, v1.3.0 TOKEN-AWARE: up to 200 messages ride
-            // along, trimmed to the model's real context budget (45% of the
-            // registry window in chars, images counted at their token weight).
-            // The old fixed 30-message cap silently amputated long conversations
-            // on big-context models — the "model forgot the start of our chat"
-            // field report. Compaction still fires at 75% as the far guard.
-            val historyBudgetChars = historyBudgetFor(modelSpec)
-            var lastMsgs = trimHistoryToCharBudget(
+            // along, trimmed to the model's real context budget in TOKEN units
+            // (60% of the registry window, images at their token weight, on-device
+            // models capped hard — they live at 4k windows). The old fixed
+            // 30-message cap silently amputated long conversations on
+            // big-context models. The 75% compaction rule stays as the far
+            // guard: 60% history + system + attachments can still cross it on
+            // heavy turns, and compaction SUMMARIZES instead of dropping — the
+            // opencode "never lose potential" order of operations.
+            val historyBudgetTokens = historyBudgetFor(modelSpec, onDeviceProvider)
+            var lastMsgs = trimHistoryToTokenBudget(
                 conversationRepository.getLastMessages(sessionId, CHAT_HISTORY_WINDOW_MAX).map { msg ->
                     val withUploads = if (msg.id == userMsg.id) {
                         msg.copy(
@@ -862,25 +881,28 @@ class AgentLoop @Inject constructor(
                         withUploads
                     }
                 },
-                historyBudgetChars
+                historyBudgetTokens
             )
 
             // v1.2.0 vision routing, v1.3.0 ACTUALLY ROUTED: when the turn (or
             // recent history) carries images, requests must reach a model that
             // can see them. Three honest outcomes, checked in order:
-            //   1. the ACTIVE model sees images → send directly (nothing to do);
+            //   1. the ACTIVE model sees images (or its capabilities are
+            //      unknown — trust the user's pin) → send directly;
             //   2. the active model is blind but the provider can route (the Zen
             //      vision chain) → set requireVision and let the chain pick a
             //      vision-capable model — the flag existed since v1.2.0 but NO
-            //      caller ever set it, so blind pins silently received images;
+            //      caller ever set it, AND the `is` check was always false
+            //      because every provider is wrapped (fixed via rawProvider);
             //   3. no routing possible → degrade images to an honest text note.
             val turnHasImages = lastMsgs.any { it.allImages().isNotEmpty() }
             var visionRoutingRequired = false
             if (turnHasImages) {
                 val activeSeesImages = modelSpec?.inputModalities?.contains("image") ?: true
+                val rawProvider = (provider as? com.tsfdroid.ai.core.llm.WrappedLLMProvider)?.rawProvider ?: provider
                 when {
                     activeSeesImages -> Unit
-                    provider is com.tsfdroid.ai.core.llm.providers.OpenCodeZenProvider &&
+                    rawProvider is com.tsfdroid.ai.core.llm.providers.OpenCodeZenProvider &&
                         harnessLoop.hasVisionSupport() -> visionRoutingRequired = true
                     else -> lastMsgs = lastMsgs.map(::degradeImagesToNote)
                 }
@@ -1663,6 +1685,12 @@ class AgentLoop @Inject constructor(
     /**
      * v1.2.0: runs one full harness turn (tool rounds + continuations) as the
      * chat fallback path. Replaces the old fixed-4-round runChatToolLoop.
+     *
+     * v1.3.0 ASK-RESUME: ask_user calls are SURFACED, not suspended inside
+     * the wall-clock bound — the 15-minute turn timeout only ever bounds
+     * MODEL work. Each resume segment (turn segment between user answers)
+     * gets its own fresh bound, and the user can take as long as they like
+     * to answer. Bounded by [MAX_ASKS_PER_TURN] resumes.
      */
     private suspend fun harnessFallbackTurn(
         provider: LLMProvider,
@@ -1670,35 +1698,68 @@ class AgentLoop @Inject constructor(
         history: List<ChatMessage>
     ): String? {
         android.util.Log.i("AgentLoop", "harnessFallbackTurn begin (history=${history.size} msgs)")
-        val result = try {
-            // v1.2.1 round-16: the TURN-level bound. Per-call bounds (8 min)
-            // alone still let a pathological multi-round turn chain far past
-            // every test window; 15 minutes hard-stops the whole fallback and
-            // the caller's fallback (forced search / honesty note / snag)
-            // completes the turn.
-            withTimeout(HARNESS_TURN_TIMEOUT_MS) {
-                harnessLoop.runTurn(
-                    provider,
-                    turnConfig.copy(history = history)
-                ) { status -> _liveThinking.value = status }
+        var currentHistory = history
+        var asks = 0
+        while (true) {
+            val result = try {
+                // v1.2.1 round-16: the TURN-level bound — now per SEGMENT:
+                // each runTurn segment between user answers is bounded, the
+                // ask parking between segments is NOT (a user thinking for
+                // an hour must never kill the turn).
+                withTimeout(HARNESS_TURN_TIMEOUT_MS) {
+                    harnessLoop.runTurn(
+                        provider,
+                        turnConfig.copy(history = currentHistory, surfaceAsks = true)
+                    ) { status -> _liveThinking.value = status }
+                }
+            } catch (tce: TimeoutCancellationException) {
+                android.util.Log.w(
+                    "AgentLoop",
+                    "harness fallback exceeded ${HARNESS_TURN_TIMEOUT_MS / 1000}s — completing the turn without it"
+                )
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("AgentLoop", "Harness fallback failed: ${e.localizedMessage}")
+                null
             }
-        } catch (tce: TimeoutCancellationException) {
-            android.util.Log.w(
-                "AgentLoop",
-                "harness fallback exceeded ${HARNESS_TURN_TIMEOUT_MS / 1000}s — completing the turn without it"
-            )
-            null
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            android.util.Log.w("AgentLoop", "Harness fallback failed: ${e.localizedMessage}")
-            null
-        } finally {
+            if (result == null) {
+                _liveThinking.value = null
+                android.util.Log.i("AgentLoop", "harnessFallbackTurn returned len=-1")
+                return null
+            }
+            val question = result.askQuestion
+            if (question != null) {
+                if (asks < MAX_ASKS_PER_TURN) {
+                    asks++
+                    // UNBOUNDED park: post the question, wait for the user's
+                    // answer, then resume the turn with it as the tool result.
+                    val answer = handleAskUser(question, result.askOptions, activeTaskSessionId)
+                    currentHistory = result.resumedMessages + ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        text = HarnessLoop.askResultMessage(question, answer),
+                        sender = ChatMessage.Sender.USER
+                    )
+                } else {
+                    // Question budget spent: the model must decide itself.
+                    android.util.Log.i("AgentLoop", "ask budget spent — telling the model to decide")
+                    currentHistory = result.resumedMessages + ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        text = HarnessLoop.askResultMessage(
+                            question,
+                            "(question budget for this turn is spent — decide yourself and answer now)"
+                        ),
+                        sender = ChatMessage.Sender.USER
+                    )
+                }
+                continue
+            }
             _liveThinking.value = null
+            val answer = result.content.takeIf { it.isNotBlank() }
+            android.util.Log.i("AgentLoop", "harnessFallbackTurn returned len=${answer?.length ?: -1}")
+            return answer
         }
-        val answer = result?.content?.takeIf { it.isNotBlank() }
-        android.util.Log.i("AgentLoop", "harnessFallbackTurn returned len=${answer?.length ?: -1}")
-        return answer
     }
 
     /**
@@ -1782,23 +1843,27 @@ class AgentLoop @Inject constructor(
     /**
      * v1.3.0: recent conversation context for the planner — the agent-mode
      * "model not getting the context" fix. Bounded to the last
-     * [PLANNING_HISTORY_MESSAGES] messages and an ADAPTIVE char budget
+     * [PLANNING_HISTORY_MESSAGES] messages and an ADAPTIVE token budget
      * (25% of the model's registry window — the planning system prompt with
-     * the full action schema is itself large, so history gets a modest share;
-     * unknown models keep the 16k legacy-safe default), chronological order.
+     * the full action schema is itself large, so history gets a modest
+     * share). ON-DEVICE models get NO history: their 4k-token windows are
+     * already consumed by the schema prompt (pre-v1.3.0 behavior), and any
+     * history would overflow the request exactly where it used to fit.
      */
     private suspend fun planningHistory(
         sessionId: String,
         currentMsg: ChatMessage,
-        modelSpec: com.tsfdroid.ai.core.llm.providers.ZenModelSpec?
+        modelSpec: com.tsfdroid.ai.core.llm.providers.ZenModelSpec?,
+        onDeviceProvider: Boolean
     ): List<ChatMessage> {
+        if (onDeviceProvider) return emptyList()
         val window = modelSpec?.contextWindow?.takeIf { it > 0 }
-        val budget = window?.let { (it * 3.5 * 0.25).toInt() } ?: 16_000
-        val capped = budget.coerceIn(6_000, 24_000)
+        val budgetTokens = window?.let { (it * 0.25).toInt() } ?: 4_000
+        val capped = budgetTokens.coerceIn(1_000, 6_000)
         val recent = conversationRepository
             .getLastMessages(sessionId, PLANNING_HISTORY_MESSAGES + 1)
             .filter { it.id != currentMsg.id }
-        return trimHistoryToCharBudget(recent, capped)
+        return trimHistoryToTokenBudget(recent, capped)
     }
 
     /**
@@ -1832,8 +1897,11 @@ class AgentLoop @Inject constructor(
             // conversation history now rides along, adaptively budgeted to the
             // active model's registry context window.
             val activeModelId = config.selectedModelFor(config.activeProvider)
-            val planModelSpec = runCatching { modelsDevRegistry.specs()[activeModelId] }.getOrNull()
-            val planHistory = planningHistory(sessionId, userMsg, planModelSpec)
+            val planModelSpec = runCatching { modelsDevRegistry.modelInfo()[activeModelId] }.getOrNull()
+            val onDeviceProvider = config.activeProvider.contains("device", ignoreCase = true) ||
+                config.activeProvider.contains("gemma", ignoreCase = true) ||
+                config.activeProvider.contains("litert", ignoreCase = true)
+            val planHistory = planningHistory(sessionId, userMsg, planModelSpec, onDeviceProvider)
             val plan = if (config.multiAgentModeEnabled) {
                 kotlinx.coroutines.coroutineScope {
                     val plannerDeferred = async(Dispatchers.Default) {

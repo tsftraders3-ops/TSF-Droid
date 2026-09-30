@@ -127,6 +127,16 @@ class HarnessLoop @Inject constructor(
          */
         val onAskUser: (suspend (question: String, options: List<String>) -> String)? = null,
         /**
+         * v1.3.0: when true, an ask_user call does NOT suspend this loop —
+         * runTurn returns an ask-shaped [TurnResult] (question, options, and
+         * the messages to resume from) so the CALLER parks the turn outside
+         * any wall-clock bound and re-invokes runTurn with the answer
+         * appended. The user answering slowly must never trip a turn
+         * timeout; the suspension path ([onAskUser]) remains for callers
+         * that run unbounded (e.g. mid-continuation).
+         */
+        val surfaceAsks: Boolean = false,
+        /**
          * v1.2.1: visible-work hooks. [onToolEvent] fires once per executed
          * tool call (mapped action, success, one-line outcome) and
          * [onContinuation] fires per output-limit continuation — both feed
@@ -144,7 +154,17 @@ class HarnessLoop @Inject constructor(
         /** finish_reason of the last model call (null when unsurfaced). */
         val finishReason: String?,
         /** True when even after all continuations the answer stayed length-cut. */
-        val stillTruncated: Boolean
+        val stillTruncated: Boolean,
+        /**
+         * v1.3.0: non-null when [TurnConfig.surfaceAsks] is set and the model
+         * called ask_user — the caller must park the user, collect the
+         * answer (unbounded), then resume by calling runTurn again with
+         * [resumedMessages] + [askResultMessage] appended.
+         */
+        val askQuestion: String? = null,
+        val askOptions: List<String> = emptyList(),
+        /** The full message list to resume the turn from (history + this round's stubs). Empty unless [askQuestion] is set. */
+        val resumedMessages: List<ChatMessage> = emptyList()
     )
 
     /**
@@ -340,13 +360,39 @@ class HarnessLoop @Inject constructor(
                 // parks the turn on the USER. Intercepted before the bridge
                 // (it maps to no device action) and allowed in read-only
                 // Chat mode too: asking a question mutates nothing. Mirrors
-                // opencode's question tool: the answer returns as this tool's
-                // result and the loop continues with it in context.
+                // opencode's question tool. Two execution modes:
+                //   - surfaceAsks: return the question to the CALLER (which
+                //     parks the user outside any wall-clock bound, timeout-
+                //     safe) — the chat path;
+                //   - onAskUser: suspend here (legacy/unbounded callers).
                 if (call.name.equals(ASK_USER_TOOL, ignoreCase = true) ||
                     call.name.equals("question", ignoreCase = true)
                 ) {
                     val ask = parseAskUserArguments(call.arguments)
                     if (ask.first.isNotBlank()) {
+                        if (config.surfaceAsks) {
+                            config.onToolEvent?.invoke("ask_user", true, ask.first.take(120))
+                            android.util.Log.i(
+                                "HarnessLoop",
+                                "round $round ask_user surfaced to caller (options=${ask.second.size})"
+                            )
+                            return TurnResult(
+                                content = "",
+                                rounds = round,
+                                toolCallsExecuted = toolCallsExecuted,
+                                continuationSegments = continuationSegments,
+                                finishReason = lastFinishReason,
+                                stillTruncated = false,
+                                askQuestion = ask.first,
+                                askOptions = ask.second,
+                                resumedMessages = messages +
+                                    (if (narrationWithCalls) {
+                                        listOf(assistantMessage(response.content))
+                                    } else {
+                                        emptyList()
+                                    }) + toolRoundStub(response.toolCalls)
+                            )
+                        }
                         val answer = if (config.onAskUser != null) {
                             config.onToolEvent?.invoke(
                                 "ask_user", true, ask.first.take(120)
@@ -832,6 +878,15 @@ class HarnessLoop @Inject constructor(
 
         /** v1.3.0: the ask-the-user tool's advertised name (opencode: "question"). */
         const val ASK_USER_TOOL = "ask_user"
+
+        /**
+         * v1.3.0: the tool-result message the CALLER appends to
+         * [TurnResult.resumedMessages] before re-invoking runTurn — the
+         * resume equivalent of the in-loop suspension's result text.
+         */
+        fun askResultMessage(question: String, answer: String): String =
+            "TOOL RESULT ask_user (status: OK):\n" +
+                "The user answered: \"$answer\". Continue with this answer in mind."
 
         /** Max options accepted from the model's ask_user call — keep the chip row tappable. */
         const val ASK_USER_MAX_OPTIONS = 5

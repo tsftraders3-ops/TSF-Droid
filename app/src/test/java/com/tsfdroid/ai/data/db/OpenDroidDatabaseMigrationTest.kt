@@ -195,6 +195,51 @@ class OpenDroidDatabaseMigrationTest {
         }
     }
 
+
+    /**
+     * v1.3.0: migration 13 -> 14 adds the ask_options column to conversations
+     * (ask_user question options). Purely additive: existing rows read NULL,
+     * new rows round-trip the options JSON.
+     */
+    @Test
+    fun `migration 13 to 14 preserves messages and adds the ask options column`() {
+        helper.createDatabase(databasePath, 13).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO conversations (`id`, `text`, `sender`, `timestamp`, `sessionId`)
+                VALUES ('msg-1', 'hello there', 'USER', 1234, 'sess-1')
+                """.trimIndent()
+            )
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            databasePath, 14, true, OpenDroidDatabase.MIGRATION_13_14
+        )
+
+        // Pre-existing message survives with its content intact.
+        migrated.query("SELECT `text`, `sender` FROM conversations WHERE `id` = 'msg-1'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("hello there", cursor.getString(0))
+            assertEquals("USER", cursor.getString(1))
+        }
+
+        // The new column exists, defaults to NULL, and round-trips a value.
+        migrated.query("SELECT `askOptionsJson` FROM conversations WHERE `id` = 'msg-1'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+        }
+        migrated.execSQL(
+            """
+            INSERT INTO conversations (`id`, `text`, `sender`, `timestamp`, `sessionId`, `askOptionsJson`)
+            VALUES ('msg-2', 'Which city?', 'AGENT', 1235, 'sess-1', '{"header":"City","options":["Pune","Mumbai"]}')
+            """.trimIndent()
+        )
+        migrated.query("SELECT `askOptionsJson` FROM conversations WHERE `id` = 'msg-2'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("""{"header":"City","options":["Pune","Mumbai"]}""", cursor.getString(0))
+        }
+    }
+
     private class V1SchemaCallback : SupportSQLiteOpenHelper.Callback(1) {
         override fun onCreate(db: SupportSQLiteDatabase) {
             V1_CREATE_STATEMENTS.forEach(db::execSQL)

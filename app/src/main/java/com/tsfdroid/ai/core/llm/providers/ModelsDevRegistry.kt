@@ -72,6 +72,17 @@ class ModelsDevRegistry @Inject constructor(
     private var lastFetchAtMs: Long = 0L
     private var lastFailureAtMs: Long = 0L
 
+    /**
+     * v1.3.0: ALL-provider model metadata (context windows, reasoning levels,
+     * input modalities) keyed by bare model id — populated from the same
+     * models.dev fetch as the Zen spec map. Used for capability lookups on
+     * NON-Zen providers (effort levels, history budgets, vision routing)
+     * where the old spec map — deliberately restricted to the "opencode"
+     * section so the Zen model chain can never leak a foreign model — was
+     * always empty, making every capability lookup outside Zen a silent lie.
+     */
+    private var allProviderCache: Map<String, ZenModelSpec>? = null
+
     suspend fun specs(): Map<String, ZenModelSpec> {
         val now = System.currentTimeMillis()
         cached?.let { map ->
@@ -84,25 +95,41 @@ class ModelsDevRegistry @Inject constructor(
             cached?.takeIf { recheck - lastFetchAtMs < SUCCESS_TTL }?.let { return it }
             if (recheck - lastFailureAtMs < FAILURE_COOLDOWN) return cached.orEmpty()
 
-            val outcome = withContext(Dispatchers.IO) { runCatching { fetchRegistry() } }
+            val outcome = withContext(Dispatchers.IO) { runCatching { fetchBody() } }
             outcome.getOrElse {
                 lastFailureAtMs = System.currentTimeMillis()
                 Log.w(TAG, "models.dev registry unavailable: ${it.message}")
                 return cached.orEmpty()
-            }.also { specs ->
-                cached = specs
+            }.let { body ->
+                val zenSpecs = parse(body)
+                cached = zenSpecs
+                allProviderCache = parseAllProviders(body)
                 lastFetchAtMs = System.currentTimeMillis()
             }
+            cached.orEmpty()
         }
     }
 
-    private fun fetchRegistry(): Map<String, ZenModelSpec> {
+    /**
+     * v1.3.0: capability metadata for ANY known model id across ALL
+     * providers (not just the Zen section). Warms the shared cache on first
+     * call; returns whatever is available offline.
+     */
+    suspend fun modelInfo(): Map<String, ZenModelSpec> {
+        allProviderCache?.let { return it }
+        specs() // single shared fetch populates both caches
+        return allProviderCache.orEmpty()
+    }
+
+    private fun fetchRegistry(): Map<String, ZenModelSpec> = parse(fetchBody())
+
+    private fun fetchBody(): String {
         val request = Request.Builder().url(registryUrl).get().build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("models.dev HTTP ${response.code}")
             val body = response.body.string()
             if (body.isBlank()) throw IOException("models.dev empty body")
-            return parse(body)
+            return body
         }
     }
 
@@ -167,6 +194,67 @@ class ModelsDevRegistry @Inject constructor(
 
         private const val CHAT_COMPLETIONS_SDK = "@ai-sdk/openai-compatible"
         private const val STATUS_DEPRECATED = "deprecated"
+
+        /**
+         * v1.3.0: parses EVERY provider section of models.dev into one
+         * metadata map keyed by bare model id (first provider wins on id
+         * collisions — deterministic, and collisions across providers are
+         * rare). Same per-model field extraction as [parse], but with no
+         * Zen-section restriction: this map is for CAPABILITY LOOKUPS ONLY
+         * (context windows, reasoning levels, modalities) — never for model
+         * chain selection, which stays exclusively on the Zen [specs] map.
+         */
+        internal fun parseAllProviders(body: String): Map<String, ZenModelSpec> {
+            return runCatching {
+                val root = JSONObject(body)
+                val out = LinkedHashMap<String, ZenModelSpec>()
+                for (providerKey in root.keys().asSequence()) {
+                    val provider = root.optJSONObject(providerKey) ?: continue
+                    val models = provider.optJSONObject("models") ?: continue
+                    val providerLevelNpm = provider.optString("npm").takeIf { it.isNotBlank() }
+                    for (id in models.keys().asSequence()) {
+                        if (out.containsKey(id)) continue
+                        val obj = models.optJSONObject(id) ?: continue
+                        parseModelEntry(obj, id, providerLevelNpm)?.let { spec ->
+                            out[id] = spec
+                        }
+                    }
+                }
+                out
+            }.getOrElse { emptyMap() }
+        }
+
+        /** Shared per-model spec extraction used by [parse] and [parseAllProviders]. */
+        private fun parseModelEntry(
+            obj: JSONObject,
+            id: String,
+            providerLevelNpm: String?
+        ): ZenModelSpec? {
+            val limit = obj.optJSONObject("limit")
+            val context = limit?.optInt("context")?.takeIf { it > 0 } ?: return null
+            val cost = obj.optJSONObject("cost")
+            val inputCost = cost?.optDouble("input") ?: Double.MAX_VALUE
+            val outputCost = cost?.optDouble("output") ?: Double.MAX_VALUE
+            val npm = obj.optJSONObject("provider")?.optString("npm")
+                ?.takeIf { it.isNotBlank() }
+                ?: providerLevelNpm
+            return ZenModelSpec(
+                id = id,
+                name = obj.optString("name").takeIf { it.isNotBlank() } ?: id,
+                contextWindow = context,
+                maxOutput = limit.optInt("output").takeIf { it > 0 } ?: 0,
+                reasoning = obj.optBoolean("reasoning"),
+                toolCall = obj.optBoolean("tool_call"),
+                reasoningLevels = parseReasoningLevels(obj),
+                free = inputCost == 0.0 && outputCost == 0.0,
+                chatCompletions = npm == null || npm == CHAT_COMPLETIONS_SDK,
+                deprecated = obj.optString("status") == STATUS_DEPRECATED,
+                inputModalities = obj.optJSONObject("modalities")
+                    ?.optJSONArray("input")
+                    ?.let { array -> (0 until array.length()).mapNotNull { array.optString(it) } }
+                    .orEmpty(),
+            )
+        }
 
         /**
          * Reasoning-level extraction, mirroring how the OpenCode client

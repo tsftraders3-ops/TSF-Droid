@@ -1293,7 +1293,11 @@ fun ChatBubble(
                     // v1.3.0: Claude-style header — when the turn's reasoning
                     // phase was measured, the collapsed section reads
                     // "THOUGHT FOR 12s" instead of a bare "THINKING" label.
-                    val thoughtForLabel = remember(message.id) {
+                    // The remember key includes stepsJson presence: the live
+                    // bubble first renders WITHOUT steps, and the persisted
+                    // trace (carrying the duration) lands on the SAME message
+                    // id later — a pure id key would cache the null forever.
+                    val thoughtForLabel = remember(message.id, message.stepsJson != null) {
                         message.activitySteps()
                             .firstOrNull { it.kind == ActivityStep.KIND_THINKING }
                             ?.label

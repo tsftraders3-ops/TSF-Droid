@@ -18,7 +18,7 @@ import org.junit.Test
  *  - [HarnessLoop.parseAskUserArguments] — the ask_user tool's tolerant
  *    argument contract (plain strings, object arrays, headers).
  *  - [thinkingDurationStep] — the Claude-style "Thought for Xs" step.
- *  - [trimHistoryToCharBudget] / [historyBudgetFor] — the token-aware chat
+ *  - [trimHistoryToTokenBudget] / [historyBudgetFor] — the token-aware chat
  *    history window that replaces the fixed 30-message cap.
  */
 class Phase14CoreExperienceTest {
@@ -52,6 +52,14 @@ class Phase14CoreExperienceTest {
         val items = UserMemoryLearner.detectAssistantIdentity("Please call yourself Alpha")
         assertEquals(1, items.size)
         assertTrue(items.first().value.contains("Alpha"))
+    }
+
+    @Test
+    fun `call you in the morning is not a name`() {
+        // Critic-proven misfire: lowercase prepositional continuation.
+        assertEquals(0, UserMemoryLearner.detectAssistantIdentity("I will call you in the morning").size)
+        assertEquals(0, UserMemoryLearner.detectAssistantIdentity("I'll call you when I land").size)
+        assertEquals(0, UserMemoryLearner.detectAssistantIdentity("Your name is on the list").size)
     }
 
     @Test
@@ -182,9 +190,9 @@ class Phase14CoreExperienceTest {
     @Test
     fun `history trim keeps the newest messages within budget`() {
         val history = (1..10).map { msg("message $it".padEnd(100, '.')) }
-        val trimmed = trimHistoryToCharBudget(history, 320)
-        // Each message costs 100 chars + 48 overhead = 148; a 320-char budget
-        // keeps the newest 2 (148 + 148 = 296; a third would exceed 320).
+        val trimmed = trimHistoryToTokenBudget(history, 75)
+        // Each message: ceil(100/4)=25 tokens + 12 overhead = 37; budget 75
+        // keeps the newest 2 (74 used; a third would hit 111).
         assertEquals(2, trimmed.size)
         // The NEWEST survive, and order stays chronological.
         assertEquals(history.last().id, trimmed.last().id)
@@ -194,7 +202,7 @@ class Phase14CoreExperienceTest {
     @Test
     fun `history trim never returns empty for non-empty input`() {
         val history = listOf(msg("x".repeat(10_000)))
-        val trimmed = trimHistoryToCharBudget(history, 100)
+        val trimmed = trimHistoryToTokenBudget(history, 100)
         assertEquals(1, trimmed.size)
     }
 
@@ -205,9 +213,9 @@ class Phase14CoreExperienceTest {
             imageBase64 = "pretend-jpeg-bytes"
         )
         val plain = msg("y".repeat(100))
-        val trimmed = trimHistoryToCharBudget(listOf(plain, withImage), 200)
-        // withImage costs ~4500+48+5 chars — far over 200, so only the newest
-        // (withImage) survives the always-keep-first-slot rule.
+        val trimmed = trimHistoryToTokenBudget(listOf(plain, withImage), 100)
+        // withImage costs 1 (text) + 12 + 1100 (image) ≈ 1113 tokens — far
+        // over 100, so only the newest (withImage) survives the rule.
         assertEquals(listOf(withImage.id), trimmed.map { it.id })
     }
 
@@ -222,11 +230,14 @@ class Phase14CoreExperienceTest {
         )
         val small = big.copy(id = "small", contextWindow = 8_000)
         val unknown: ZenModelSpec? = null
-        assertTrue(historyBudgetFor(big) > historyBudgetFor(small))
-        assertEquals(64_000, historyBudgetFor(unknown))
-        // Small model: 8000 * 3.5 * 0.45 = 12600 → clamped to the 24k floor.
-        assertEquals(24_000, historyBudgetFor(small))
-        // Big model: 200000 * 3.5 * 0.45 = 315000 → clamped to the 300k ceiling.
-        assertEquals(300_000, historyBudgetFor(big))
+        assertTrue(historyBudgetFor(big, false) > historyBudgetFor(small, false))
+        assertEquals(16_000, historyBudgetFor(unknown, false))
+        // Small model: 8000 * 0.60 = 4800 → clamped to the 6k floor.
+        assertEquals(6_000, historyBudgetFor(small, false))
+        // Big model: 200000 * 0.60 = 120000 → clamped to the 120k ceiling.
+        assertEquals(120_000, historyBudgetFor(big, false))
+        // On-device models are hard-capped (4k-token windows must not overflow).
+        assertEquals(2_500, historyBudgetFor(big, true))
+        assertEquals(2_500, historyBudgetFor(unknown, true))
     }
 }

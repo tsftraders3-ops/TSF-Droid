@@ -105,6 +105,25 @@ class UserMemoryLearner @Inject constructor(
                 detectorItems.none { it.key == item.key }
             } + detectorItems
 
+            // v1.3.0 self-heal: if the device still carries a MISFILED
+            // assistant name from before this fix (learn_name = "Farhan"
+            // recorded when the user named the assistant), a fresh, explicit
+            // naming statement is the moment to correct the record: delete
+            // the old wrong-key row so it stops injecting as the user's name.
+            if (detectorItems.isNotEmpty()) {
+                val detectedName = detectorItems.first().let { extractQuotedName(it.value) }
+                if (detectedName != null) {
+                    val misfiled = existing.filter {
+                        it.key == KEY_PREFIX + "name" &&
+                            it.value.contains(detectedName, ignoreCase = true)
+                    }
+                    for (stale in misfiled) {
+                        memoryRepository.deleteMemory(stale.key)
+                        Log.i(TAG, "Memory self-heal: removed misfiled assistant name from ${stale.key}")
+                    }
+                }
+            }
+
             for (item in finalItems) {
                 val previous = existing.firstOrNull {
                     it.key == KEY_PREFIX + item.key
@@ -195,13 +214,21 @@ class UserMemoryLearner @Inject constructor(
         const val ASSISTANT_NAME_KEY = "assistant_name"
 
         /**
-         * v1.3.0: continuations that look like a name but are not one —
-         * "I'll call you back", "call you later", "call you when I land".
+         * v1.3.0: words that follow "call you …" / "your name is …" but are
+         * continuations, prepositions, or time words — not names.
+         * "I'll call you back", "call you in the morning", "your name is on
+         * the list" must all stay silent. The capitalized-first-letter rule
+         * catches these too; this list is the second net (names written in
+         * lowercase are deliberately sacrificed — a false "the user's name
+         * is In The Morning" memory is far worse than a missed lowercase
+         * nickname the LLM extractor still catches).
          */
         private val NOT_A_NAME = setOf(
             "back", "later", "soon", "again", "first", "now", "when", "if",
             "then", "okay", "ok", "alright", "maybe", "tomorrow", "today",
-            "tonight", "home", "there", "here", "dad", "mom", "mum"
+            "tonight", "home", "there", "here", "dad", "mom", "mum",
+            "in", "at", "on", "for", "from", "with", "about", "after",
+            "before", "until", "up", "over", "out", "the", "a", "an"
         )
 
         /**
@@ -223,8 +250,14 @@ class UserMemoryLearner @Inject constructor(
                     if (raw.isEmpty()) return@mapNotNull null
                     val words = raw.split(Regex("\\s+")).filter { it.isNotBlank() }
                     if (words.isEmpty() || words.size > 3) return@mapNotNull null
-                    val first = words.first().lowercase()
-                    if (first in NOT_A_NAME) return@mapNotNull null
+                    // The first word must read like a NAME: capitalized (names
+                    // are proper nouns) and not a stopword. This is the net that
+                    // kills "call you in the morning" / "your name is on the
+                    // list" — prepositions and time words are never names.
+                    val first = words.first()
+                    val firstLower = first.lowercase()
+                    if (firstLower in NOT_A_NAME) return@mapNotNull null
+                    if (first.firstOrNull()?.isUpperCase() != true) return@mapNotNull null
                     if (words.size > 1 && words.last().lowercase() in setOf("too", "then", "ok")) return@mapNotNull null
                     LearnedItem(
                         key = ASSISTANT_NAME_KEY,

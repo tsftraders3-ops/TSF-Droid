@@ -64,7 +64,12 @@ class SettingsViewModel @Inject constructor(
     private val providerCredentialStore: ProviderCredentialStore,
     // The verification timestamp says when a token was last checked, never what the token is,
     // so it lives with ordinary settings rather than in encrypted storage.
-    private val appSettingsStore: AppSettingsStore
+    private val appSettingsStore: AppSettingsStore,
+    // v1.3.0: models.dev capability metadata (reasoning levels, context
+    // windows) for models of ANY provider — the live /models APIs do not
+    // carry reasoning info, so without this merge the effort selector
+    // would stay hidden for every non-Zen provider.
+    private val modelsDevRegistry: com.tsfdroid.ai.core.llm.providers.ModelsDevRegistry
 ) : ViewModel() {
 
     private val _huggingFaceToken = MutableStateFlow("")
@@ -317,7 +322,24 @@ class SettingsViewModel @Inject constructor(
                     when (val outcome = modelFetcher.get().fetchModels(provider)) {
                         is ModelFetchOutcome.Success -> {
                             _modelFetchNotice.value = null
-                            val models = outcome.models
+                            // v1.3.0: merge models.dev capability metadata —
+                            // reasoning levels and context windows the
+                            // provider's own /models API does not report. This
+                            // is what makes the effort selector REAL for
+                            // OpenAI/DeepSeek/OpenRouter/… models, not a
+                            // Zen-only feature.
+                            val models = runCatching {
+                                val info = modelsDevRegistry.modelInfo()
+                                if (info.isEmpty()) outcome.models else outcome.models.map { m ->
+                                    val spec = info[m.id]
+                                    if (spec == null || m.reasoningLevels.isNotEmpty()) m
+                                    else m.copy(
+                                        reasoningLevels = spec.reasoningLevels,
+                                        contextWindow = m.contextWindow ?: spec.contextWindow,
+                                        reasoning = m.reasoning || spec.reasoning
+                                    )
+                                }
+                            }.getOrDefault(outcome.models)
                             try {
                                 settingsRepository.saveModelCache(provider, models)
                             } catch (e: Exception) {

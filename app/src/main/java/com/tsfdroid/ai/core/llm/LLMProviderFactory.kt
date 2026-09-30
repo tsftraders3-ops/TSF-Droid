@@ -188,6 +188,15 @@ class WrappedLLMProvider(
     override val name: String get() = delegate.name
     override val availableModels: List<String> get() = delegate.availableModels
 
+    /**
+     * v1.3.0: every provider from [LLMProviderFactory.getProviderByName] is
+     * wrapped, so `provider is SomeConcreteProvider` checks in callers were
+     * ALWAYS false — the vision-routing check in AgentLoop silently never
+     * fired. This accessor unwraps for capability checks (identity only;
+     * calls still go through the wrapper's retry/rewrite pipeline).
+     */
+    val rawProvider: LLMProvider get() = delegate
+
     override suspend fun complete(request: LLMRequest): LLMResponse {
         val resolved = resolveRequest(request)
         val registrations = registerSecrets(resolved)

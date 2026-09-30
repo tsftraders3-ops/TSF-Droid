@@ -27,6 +27,9 @@ data class ConversationEntity(
     // v1.2.1: agent-activity trace (ActivityStep records) for the visible
     // steps this reply took. Null for replies without recorded steps.
     val stepsJson: String? = null,
+    // v1.3.0: ask_user question options (AskOptions JSON) — persisted so the
+    // tappable chips survive process death and history reloads.
+    val askOptionsJson: String? = null,
     // Which chat history this message belongs to. See ChatSessionEntity.
     val sessionId: String
 )

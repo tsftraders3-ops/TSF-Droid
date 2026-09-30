@@ -69,7 +69,7 @@ import androidx.room.TypeConverters
         SocialAutomationRuleEntity::class,
         SocialAuditLogEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -297,6 +297,15 @@ abstract class OpenDroidDatabase : RoomDatabase() {
                 // reply (the visible steps behind each answer). Purely
                 // additive - existing history reads NULL and renders as before.
                 database.execSQL("ALTER TABLE conversations ADD COLUMN stepsJson TEXT DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // v1.3.0 ask_user tool: the tappable options for a question
+                // the agent asked mid-turn. Purely additive — existing rows
+                // read NULL (not an ask) and render exactly as before.
+                database.execSQL("ALTER TABLE conversations ADD COLUMN askOptionsJson TEXT DEFAULT NULL")
             }
         }
 
