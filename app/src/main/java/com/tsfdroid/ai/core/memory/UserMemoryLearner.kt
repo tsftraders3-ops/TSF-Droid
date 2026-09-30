@@ -108,14 +108,17 @@ class UserMemoryLearner @Inject constructor(
             // v1.3.0 self-heal: if the device still carries a MISFILED
             // assistant name from before this fix (learn_name = "Farhan"
             // recorded when the user named the assistant), a fresh, explicit
-            // naming statement is the moment to correct the record: delete
-            // the old wrong-key row so it stops injecting as the user's name.
+            // naming statement is the moment to correct the record. The match
+            // is EXACT (normalized), never a substring: "Sam" must not delete
+            // the user's legitimate name "Samir" — a substring predicate here
+            // would silently eat real user data (critic round 2).
             if (detectorItems.isNotEmpty()) {
                 val detectedName = detectorItems.first().let { extractQuotedName(it.value) }
                 if (detectedName != null) {
+                    val normalizedDetected = detectedName.trim().lowercase()
                     val misfiled = existing.filter {
                         it.key == KEY_PREFIX + "name" &&
-                            it.value.contains(detectedName, ignoreCase = true)
+                            it.value.trim().trim('"', '\'', '.', '!', ',').lowercase() == normalizedDetected
                     }
                     for (stale in misfiled) {
                         memoryRepository.deleteMemory(stale.key)
@@ -228,7 +231,13 @@ class UserMemoryLearner @Inject constructor(
             "then", "okay", "ok", "alright", "maybe", "tomorrow", "today",
             "tonight", "home", "there", "here", "dad", "mom", "mum",
             "in", "at", "on", "for", "from", "with", "about", "after",
-            "before", "until", "up", "over", "out", "the", "a", "an"
+            "before", "until", "up", "over", "out", "the", "a", "an",
+            // Critic round 2: capitalized TIME words fired as names —
+            // "I'll call you Monday about the invoice" named the assistant
+            // "Monday about the". Weekdays and clock words are never names.
+            "monday", "tuesday", "wednesday", "thursday", "friday",
+            "saturday", "sunday", "noon", "midnight", "morning",
+            "afternoon", "evening", "asap", "weekend", "weekdays"
         )
 
         /**

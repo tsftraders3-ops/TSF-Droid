@@ -376,6 +376,11 @@ class HarnessLoop @Inject constructor(
                                 "HarnessLoop",
                                 "round $round ask_user surfaced to caller (options=${ask.second.size})"
                             )
+                            // `messages` ALREADY carries this round's stub
+                            // (or narration) — the append above ran before the
+                            // tool loop — so the resume payload is exactly it.
+                            // Re-adding the stub/narration here would duplicate
+                            // them (critic round 2).
                             return TurnResult(
                                 content = "",
                                 rounds = round,
@@ -385,12 +390,7 @@ class HarnessLoop @Inject constructor(
                                 stillTruncated = false,
                                 askQuestion = ask.first,
                                 askOptions = ask.second,
-                                resumedMessages = messages +
-                                    (if (narrationWithCalls) {
-                                        listOf(assistantMessage(response.content))
-                                    } else {
-                                        emptyList()
-                                    }) + toolRoundStub(response.toolCalls)
+                                resumedMessages = messages
                             )
                         }
                         val answer = if (config.onAskUser != null) {

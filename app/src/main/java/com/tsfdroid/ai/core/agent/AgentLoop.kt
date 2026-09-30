@@ -144,7 +144,14 @@ internal fun trimHistoryToTokenBudget(history: List<ChatMessage>, maxTokens: Int
  * legacy-equivalent 16k tokens.
  */
 internal fun historyBudgetFor(modelSpec: com.tsfdroid.ai.core.llm.providers.ZenModelSpec?, onDeviceProvider: Boolean): Int {
-    if (onDeviceProvider) return 2_500
+    if (onDeviceProvider) {
+        // Critic round 2: the flat budget ignored the REAL on-device windows
+        // (Gemma 4096, recommended Qwen 0.5B 1280) and the fixed prompt cost
+        // (~1.3k tokens: system + tools + context). 1000 tokens of history
+        // fits Gemma with output room; the Qwen 0.5B overflow is a pre-existing
+        // prompt-size condition no history budget can cure.
+        return 1_000
+    }
     val window = modelSpec?.contextWindow?.takeIf { it > 0 }
     val budget = window?.let { (it * 0.60).toInt() } ?: 16_000
     return budget.coerceIn(6_000, 120_000)
@@ -909,8 +916,15 @@ class AgentLoop @Inject constructor(
             }
 
             // v1.2.1: the 75% compaction pass (uses the vision-routed history).
+            // v1.3.0: on-device models have no models.dev spec, so the compactor
+            // gets the Gemma-class 4096 window as its reference — the 1000-token
+            // history budget keeps the assembly far below it, compaction stays
+            // the far guard rather than being silently disabled.
             val compaction = ContextCompactor(provider)
-                .compactIfNeeded(systemPrompt, lastMsgs, modelSpec?.contextWindow)
+                .compactIfNeeded(
+                    systemPrompt, lastMsgs,
+                    modelSpec?.contextWindow ?: if (onDeviceProvider) 4_096 else null
+                )
             if (compaction.compacted) {
                 publishStep(
                     ActivityStep(
@@ -1122,6 +1136,7 @@ class AgentLoop @Inject constructor(
                         )
                         val loopMsg = replyMsg.copy(
                             text = harnessAnswer,
+                            timestamp = System.currentTimeMillis(),
                             thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
                             // v1.2.1: persist the visible step trace on the reply.
                             stepsJson = loopStepsEncoded
@@ -1209,6 +1224,9 @@ class AgentLoop @Inject constructor(
                         "handoff reply save: steps=${handoffSteps.size} jsonLen=${handoffEncoded?.length ?: -1} id=$replyId"
                     )
                     val loopMsg = replyMsg.copy(
+                        // v1.3.0: save-time stamp — must sort after any ask_user
+                        // question bubble that landed mid-turn (ts ASC ordering).
+                        timestamp = System.currentTimeMillis(),
                         text = harnessAnswer,
                         thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
                         // v1.2.1: persist the visible step trace on the reply.
@@ -1361,6 +1379,10 @@ class AgentLoop @Inject constructor(
                 "final reply save: steps=${stepsSnapshot.size} jsonLen=${stepsEncoded?.length ?: -1} id=$replyId"
             )
             val finalReplyMsg = replyMsg.copy(
+                // v1.3.0: save-time stamp — a reply that answered an ask_user
+                // question must sort AFTER that question bubble, never before
+                // it (Room orders conversations by timestamp ASC).
+                timestamp = System.currentTimeMillis(),
                 text = currentReplyText,
                 thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
                 // v1.2.1: persist the visible step trace on the reply so the

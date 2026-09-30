@@ -530,4 +530,80 @@ class HarnessLoopTest {
         assertEquals("WEB_SEARCH", events[0].first)
         assertTrue(events[0].second)
     }
+    // ── v1.3.0 surfaceAsks: the ask-and-resume contract ─────────────────
+
+    @Test
+    fun `surfaceAsks returns an ask-shaped result without executing the tool`() = runBlocking {
+        val askTool = Tool(
+            "ask_user", "ask the user",
+            """{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}"""
+        )
+        val provider = FakeProvider(
+            answer(
+                "",
+                toolCalls = listOf(
+                    LLMToolCall("ask_user", """{"question":"Which city?","options":["Pune","Mumbai"]}""")
+                )
+            )
+        )
+        val cfg = config(tool = askTool).copy(surfaceAsks = true)
+
+        val result = harness.runTurn(provider, cfg)
+
+        // The ask is surfaced, not executed.
+        assertEquals("Which city?", result!!.askQuestion)
+        assertEquals(listOf("Pune", "Mumbai"), result.askOptions)
+        // The resume payload carries the tool-round stub EXACTLY ONCE
+        // (critic round 2 caught a double-append: the stub is added before
+        // the tool loop, the surface path must not add it again). The stub is
+        // an AGENT message ("I used ask_user(...) to work on this.").
+        assertEquals(1, result.resumedMessages.count { it.text.contains("I used ") })
+        assertTrue(result.resumedMessages.last().text.contains("ask_user"))
+        // The original user query still leads the resume history.
+        assertEquals("user ask", result.resumedMessages.first().text)
+    }
+
+    @Test
+    fun `ask resume continues the turn with the user answer in context`() = runBlocking {
+        val askTool = Tool(
+            "ask_user", "ask the user",
+            """{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}"""
+        )
+        val provider = FakeProvider(
+            answer(
+                "",
+                toolCalls = listOf(
+                    LLMToolCall("ask_user", """{"question":"Which city?","options":["Pune","Mumbai"]}""")
+                )
+            ),
+            // The resumed call must SEE the user's answer and finish.
+            answer("The city you picked is Pune. Done.")
+        )
+        val cfg = config(tool = askTool).copy(surfaceAsks = true)
+
+        val first = harness.runTurn(provider, cfg)!!
+        assertEquals("Which city?", first.askQuestion)
+
+        // The caller parks (unbounded), collects, then resumes:
+        val resumeHistory = first.resumedMessages + ChatMessage(
+            id = "ans", text = HarnessLoop.askResultMessage("Which city?", "Pune"),
+            sender = ChatMessage.Sender.USER
+        )
+        val resumed = harness.runTurn(provider, cfg.copy(history = resumeHistory))!!
+
+        assertEquals("The city you picked is Pune. Done.", resumed.content)
+        assertEquals(2, provider.requests.size)
+        // The resumed request actually carried the answer.
+        assertTrue(provider.requests[1].messages.any { it.text.contains("The user answered: \"Pune\"") })
+    }
+
+    @Test
+    fun `parseAskUserArguments reads the question and options`() {
+        val (q, opts) = HarnessLoop.parseAskUserArguments(
+            """{"question":"Pick one","options":["A","B"]}"""
+        )
+        assertEquals("Pick one", q)
+        assertEquals(listOf("A", "B"), opts)
+    }
+
 }

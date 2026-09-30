@@ -43,9 +43,8 @@ data class ChatMessage(
     /**
      * v1.3.0 ask_user tool: JSON [AskOptions] payload for a question the
      * agent asked the user mid-turn (options they can tap + the live answer
-     * surface). Deliberately NOT persisted to Room — an ask is a live
-     * interaction; after a restart only the question text (this message's
-     * [text]) remains, which is the honest durable record.
+     * surface). Persisted to Room (v14) so the tappable chips survive
+     * process death and reload with the history.
      */
     val askOptionsJson: String? = null
 ) {

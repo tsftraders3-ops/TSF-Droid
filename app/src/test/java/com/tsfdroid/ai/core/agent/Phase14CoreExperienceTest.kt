@@ -63,6 +63,17 @@ class Phase14CoreExperienceTest {
     }
 
     @Test
+    fun `capitalized time words are not names`() {
+        // Critic round 2: "I'll call you Monday about the invoice" had named
+        // the assistant "Monday about the". Weekdays and clock words are
+        // stoplisted regardless of capitalization.
+        assertEquals(0, UserMemoryLearner.detectAssistantIdentity("I'll call you Monday about the invoice").size)
+        assertEquals(0, UserMemoryLearner.detectAssistantIdentity("I will call you Friday").size)
+        assertEquals(0, UserMemoryLearner.detectAssistantIdentity("Call you Noon, alright?").size)
+        assertEquals(0, UserMemoryLearner.detectAssistantIdentity("I'll call you ASAP once I land").size)
+    }
+
+    @Test
     fun `user's own name is NOT the assistant's name`() {
         // "my name is Aisha" says nothing about the assistant — the detector
         // must stay silent; the LLM extractor learns it as the USER's name.
@@ -236,8 +247,9 @@ class Phase14CoreExperienceTest {
         assertEquals(6_000, historyBudgetFor(small, false))
         // Big model: 200000 * 0.60 = 120000 → clamped to the 120k ceiling.
         assertEquals(120_000, historyBudgetFor(big, false))
-        // On-device models are hard-capped (4k-token windows must not overflow).
-        assertEquals(2_500, historyBudgetFor(big, true))
-        assertEquals(2_500, historyBudgetFor(unknown, true))
+        // On-device models are hard-capped (4k-token windows must not overflow:
+        // 4096 minus ~1.3k fixed prompt cost minus output headroom).
+        assertEquals(1_000, historyBudgetFor(big, true))
+        assertEquals(1_000, historyBudgetFor(unknown, true))
     }
 }
