@@ -42,7 +42,18 @@ The "learn and show your work" release on top of the v1.2.0 harness.
 - Room v13: per-message activity trace (+stepsJson, purely additive).
 - New emulator E2E bars: cross-chat memory recall, long-form output size,
   visible activity trace, live TODO checklist; +4 deterministic unit suites.
-- +37 unit tests (705 total green).
+- Free-tier trickling streams are bounded everywhere now: the streamed first
+  call idles out after 120s of delta silence, every harness model call
+  carries a 480s wall-clock bound (enforced per SSE line, so even a
+  one-token-per-minute trickle cannot outlast it), and the whole harness
+  fallback turn is capped at 900s — a turn ALWAYS completes instead of
+  hanging for a quarter hour on a stalled stream.
+- The activity trace persists on EVERY reply save path — including the
+  malformed-stream recovery path where tool-call-first research turns land —
+  so the ACTIVITY section on the answer can no longer be silently dropped
+  after the work was done on screen.
+- Unit tests 715 green; emulator E2E 20/20 in a single pass against the live
+  keyless Zen endpoint.
 
 ## v1.2.0 — The OpenCode-grade harness: multi-call loop, Chat/Agent modes, no output caps, uploads
 
