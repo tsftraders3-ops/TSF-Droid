@@ -259,6 +259,10 @@ class AgentLoop @Inject constructor(
     private suspend fun publishStep(step: ActivityStep) {
         activityStepsMutex.withLock {
             _activitySteps.value = _activitySteps.value + step
+            android.util.Log.i(
+                "AgentLoop",
+                "publishStep: ${step.kind}/${step.label} status=${step.status} total=${_activitySteps.value.size}"
+            )
         }
     }
 
@@ -950,11 +954,17 @@ class AgentLoop @Inject constructor(
                 // finishes the turn with the model's grounded final answer.
                 val harnessAnswer = harnessFallbackTurn(provider, turnConfig, lastMsgs)
                 if (!harnessAnswer.isNullOrBlank()) {
+                    val handoffSteps = currentStepsSnapshot()
+                    val handoffEncoded = com.tsfdroid.ai.core.harness.ActivitySteps.encode(handoffSteps)
+                    android.util.Log.i(
+                        "AgentLoop",
+                        "handoff reply save: steps=${handoffSteps.size} jsonLen=${handoffEncoded?.length ?: -1} id=$replyId"
+                    )
                     val loopMsg = replyMsg.copy(
                         text = harnessAnswer,
                         thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
                         // v1.2.1: persist the visible step trace on the reply.
-                        stepsJson = com.tsfdroid.ai.core.harness.ActivitySteps.encode(currentStepsSnapshot())
+                        stepsJson = handoffEncoded
                     )
                     conversationRepository.insertMessage(sessionId, loopMsg)
                     memoryManager.storeMessage(loopMsg, sessionId)
@@ -1095,12 +1105,18 @@ class AgentLoop @Inject constructor(
                 }
             }
 
+            val stepsSnapshot = currentStepsSnapshot()
+            val stepsEncoded = com.tsfdroid.ai.core.harness.ActivitySteps.encode(stepsSnapshot)
+            android.util.Log.i(
+                "AgentLoop",
+                "final reply save: steps=${stepsSnapshot.size} jsonLen=${stepsEncoded?.length ?: -1} id=$replyId"
+            )
             val finalReplyMsg = replyMsg.copy(
                 text = currentReplyText,
                 thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
                 // v1.2.1: persist the visible step trace on the reply so the
                 // ACTIVITY section survives app restarts.
-                stepsJson = com.tsfdroid.ai.core.harness.ActivitySteps.encode(currentStepsSnapshot())
+                stepsJson = stepsEncoded
             )
             conversationRepository.insertMessage(sessionId, finalReplyMsg)
             memoryManager.storeMessage(finalReplyMsg, sessionId)

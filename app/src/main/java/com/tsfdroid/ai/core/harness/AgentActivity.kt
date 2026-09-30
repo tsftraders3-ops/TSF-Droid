@@ -55,7 +55,14 @@ object ActivitySteps {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     fun encode(steps: List<ActivityStep>): String? =
-        if (steps.isEmpty()) null else runCatching { json.encodeToString(steps) }.getOrNull()
+        if (steps.isEmpty()) {
+            null
+        } else {
+            runCatching { json.encodeToString(steps) }.getOrElse { error ->
+                android.util.Log.w("ActivitySteps", "step trace encode failed: ${error.localizedMessage}")
+                null
+            }
+        }
 
     fun decode(encoded: String?): List<ActivityStep> {
         if (encoded.isNullOrBlank()) return emptyList()

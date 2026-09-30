@@ -205,6 +205,19 @@ fun ChatScreen(
             listState.animateScrollToItem(lastIndex)
         }
     }
+    // v1.2.1 round-13: the turn's visible-work trace GROWS the thinking
+    // bubble in place — reasoning text, then step rows as each tool runs —
+    // and none of the keys above change while that happens, so the growing
+    // rows sat BELOW THE FOLD, clipped out of the accessibility tree (the
+    // cap15 CI evidence: tools executed at 05:06:44 while the on-screen
+    // poll never saw a single step row). Re-anchor on every live-trace
+    // growth: the user watches the agent work, and the rows stay visible.
+    LaunchedEffect(liveActivity.size, liveThinking?.length) {
+        if (liveActivity.isNotEmpty() || !liveThinking.isNullOrBlank()) {
+            val lastIndex = listState.layoutInfo.totalItemsCount - 1
+            if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+        }
+    }
 
     val speechRecognizer = remember { SpeechRecognitionEngine(context) }
     
