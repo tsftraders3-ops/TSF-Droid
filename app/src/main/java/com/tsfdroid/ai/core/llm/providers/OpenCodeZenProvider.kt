@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -545,7 +547,20 @@ class OpenCodeZenProvider @Inject constructor(
             val toolCallFragments = mutableListOf<MutableList<Pair<Int, String>>>()
 
             BufferedReader(InputStreamReader(source.inputStream(), StandardCharsets.UTF_8)).useLines { lines ->
+                var sseLineCount = 0
                 for (line in lines) {
+                    // v1.2.1 round-12: the read loop is PURE BLOCKING IO — it
+                    // contains no suspension points, so a caller's withTimeout
+                    // (the harness's 480s per-call bound) fires but cannot be
+                    // OBSERVED until the stream ends. A free-tier model that
+                    // trickles one SSE line every few seconds blocks the turn
+                    // for 15+ minutes (cap15 field evidence across runs
+                    // 36629953091/36640751137/36650333639). Poll coroutine
+                    // activity regularly so cancellation lands within a few
+                    // lines of the deadline.
+                    if (++sseLineCount % 16 == 0) {
+                        currentCoroutineContext().ensureActive()
+                    }
                     if (!line.startsWith(SSE_DATA_PREFIX)) continue
                     val payload = line.removePrefix(SSE_DATA_PREFIX).trim()
                     if (payload == SSE_DONE) break
