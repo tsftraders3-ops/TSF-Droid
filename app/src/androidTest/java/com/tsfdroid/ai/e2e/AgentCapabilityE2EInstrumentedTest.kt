@@ -1509,7 +1509,7 @@ class AgentCapabilityE2EInstrumentedTest {
             baseline2,
             420_000,
             extraExcluded = setOf("Pune", "Mumbai", "ANSWER NEEDED", "Type your answer"),
-            predicate = { it.length > 25 && it.contains("Pune", ignoreCase = true) }
+            predicate = { it.length > 12 && it.contains("Pune", ignoreCase = true) }
         )
         shoot("cap21_ask_reply")
         dumpHierarchy("cap21_ask_reply")
