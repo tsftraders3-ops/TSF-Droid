@@ -1450,6 +1450,101 @@ class AgentCapabilityE2EInstrumentedTest {
     }
 
 
+
+    // ---------- v1.3.0: the ask_user round-trip and source chips ----------
+
+    /**
+     * v1.3.0 cap21: the ask_user tool end to end. The model must CALL the
+     * tool (not answer in prose), the app must park the turn on the visible
+     * ANSWER NEEDED surface, the typed answer must route to the parked
+     * question (not become a new query), and the resumed turn must deliver
+     * a final reply that acknowledges the answer — the full opencode
+     * question-tool contract on the live endpoint.
+     */
+    @Test(timeout = 1_500_000)
+    fun askUserTool_roundTripsAnswerIntoFinalReply() {
+        reachDashboard()
+        val baseline = sendTask(
+            "Use your ask_user tool right now to ask me which city I prefer between " +
+                "Pune and Mumbai. Do NOT answer in prose - you MUST call the ask_user tool " +
+                "with the options Pune and Mumbai. After I answer, finish with one short " +
+                "sentence confirming the city I chose.",
+            "cap21_ask"
+        )
+
+        // 1. The dedicated answer surface appears: the ANSWER NEEDED strip
+        //    (or the answer-mode placeholder) with the question.
+        val surfaceDeadline = System.currentTimeMillis() + 420_000
+        var sawAnswerSurface = false
+        while (System.currentTimeMillis() < surfaceDeadline) {
+            device.runWatchers()
+            if (device.findObject(By.textContains("ANSWER NEEDED")) != null ||
+                device.findObject(By.textContains("Type your answer")) != null
+            ) {
+                sawAnswerSurface = true
+                break
+            }
+            runCatching { Thread.sleep(2_000) }
+        }
+        shoot("cap21_ask_surface")
+        dumpHierarchy("cap21_ask_surface")
+        assertTrue(
+            "the ask_user surface never appeared - the model did not call ask_user " +
+                "or the ANSWER NEEDED strip failed to render",
+            sawAnswerSurface
+        )
+
+        // 2. Snapshot everything visible NOW (the question bubble, option
+        //    chips, the user's typed answer) so only the FINAL reply counts
+        //    as new text below.
+        val baseline2 = visibleTexts()
+        assertTrue("could not type the ask answer", typeChatMessage("Pune"))
+        shoot("cap21_ask_typed")
+        assertTrue("could not send the ask answer", tapSendAndVerify("Pune"))
+
+        // 3. The resumed turn lands a reply that references the chosen city.
+        //    Everything from before the answer is in baseline2; the answer
+        //    bubble itself is short, so the predicate needs length + Pune.
+        val reply = waitNewText(
+            baseline2,
+            420_000,
+            extraExcluded = setOf("Pune", "Mumbai", "ANSWER NEEDED", "Type your answer"),
+            predicate = { it.length > 25 && it.contains("Pune", ignoreCase = true) }
+        )
+        shoot("cap21_ask_reply")
+        dumpHierarchy("cap21_ask_reply")
+        assertNotNull(
+            "the turn never acknowledged the answered city - the answer did not " +
+                "round-trip back into the model's context",
+            reply
+        )
+    }
+
+    /**
+     * v1.3.0 cap22: a researched answer renders its sources as the SOURCES
+     * chip row (clickable citations), not raw text slop.
+     */
+    @Test(timeout = 1_500_000)
+    fun researchedAnswer_showsSourceChips() {
+        reachDashboard()
+        val baseline = sendTask(
+            "Search the web for the current Bitcoin price in USD and tell me the " +
+                "price with the source site you used.",
+            "cap22_sources"
+        )
+        val reply = waitNewText(baseline, 420_000)
+        shoot("cap22_sources_reply")
+        dumpHierarchy("cap22_sources_reply")
+        assertNotNull("no research reply arrived", reply)
+
+        val hasSourcesRow = device.findObject(By.textContains("SOURCES")) != null
+        assertTrue(
+            "a researched answer rendered without the SOURCES chip row - " +
+                "raw-URL text slop regression",
+            hasSourcesRow
+        )
+    }
+
     /** Latin-1 is byte-safe for scanning PDF markers without a charset lib. */
     private val LatinIsSafe = Charsets.ISO_8859_1
 }

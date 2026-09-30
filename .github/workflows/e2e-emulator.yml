@@ -21,7 +21,7 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    # v1.2.0: the suite grew to 12 capability tests (mode read-only proofs,
+    # v1.2.0: the suite grew to 22 capability tests (mode read-only proofs,
     # agent write proof, upload UI) — worst-case waits exceed 70 minutes.
     timeout-minutes: 240
 
