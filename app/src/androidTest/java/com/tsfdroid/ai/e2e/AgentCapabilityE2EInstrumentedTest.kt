@@ -1195,8 +1195,11 @@ class AgentCapabilityE2EInstrumentedTest {
                 20_000
             ) == true || device.hasObject(By.text("CHAT"))
         )
-        // Attach button opens the sheet with both sources.
-        assertTrue("attach button not found", clickDesc("Attach file", 15_000))
+        // Attach button opens the sheet with both sources. Round-102: the
+        // pass-2 run hit an a11y cold window right after heavy test churn and
+        // the desc node appeared only after the old 15s window expired —
+        // double the patience for a control that is always present.
+        assertTrue("attach button not found", clickDesc("Attach file", 30_000))
         assertTrue(
             "the Photos option never appeared in the attach sheet",
             device.wait(Until.hasObject(By.text("Photos")), 15_000) == true
@@ -1556,19 +1559,38 @@ class AgentCapabilityE2EInstrumentedTest {
         // The reply must be the GROUNDED answer, not the model's transient
         // monologue ("I don't have a dedicated web_search tool here..." -
         // round-100 evidence): it carries a price figure or a citation.
+        // Round-102: settle before deciding — the pass-2 failure asserted
+        // 380ms after the bubble insert, while the auto-scroll animation and
+        // the final rich re-render were still catching up.
         val reply = waitNewText(
             baseline,
             420_000,
             predicate = { t ->
                 (t.contains("USD", ignoreCase = true) || t.contains("$")) &&
                     t.length > 40
-            }
+            },
+            settleMs = 8_000
         )
         shoot("cap22_sources_reply")
         dumpHierarchy("cap22_sources_reply")
         assertNotNull("no grounded research reply arrived", reply)
 
-        val hasSourcesRow = device.findObject(By.textContains("SOURCES")) != null
+        // The chips row renders directly under the reply text; on a tall
+        // reply it can sit below the fold or behind the floating input bar
+        // (run-102 pass-2: composed but occluded, the a11y tree dropped the
+        // covered nodes). Give the settle+scroll a moment, nudge the list
+        // once, then poll for the row instead of a single instant lookup.
+        runCatching { Thread.sleep(2_000) }
+        device.runWatchers()
+        runCatching {
+            val w = device.displayWidth
+            val h = device.displayHeight
+            device.swipe(w / 2, (h * 0.80).toInt(), w / 2, (h * 0.55).toInt(), 24)
+        }
+        device.waitForIdle(1_500)
+        val hasSourcesRow = device.wait(
+            Until.hasObject(By.textContains("SOURCES")), 15_000
+        ) == true
         assertTrue(
             "a researched answer rendered without the SOURCES chip row - " +
                 "raw-URL text slop regression",

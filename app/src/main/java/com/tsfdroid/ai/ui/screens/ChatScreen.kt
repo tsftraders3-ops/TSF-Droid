@@ -207,11 +207,18 @@ fun ChatScreen(
     // tall approval card's BUTTONS below the fold when tall artifact cards
     // preceded it (the cap3 loop-19/20 evidence: card title visible, button
     // never in the a11y tree for 10 minutes).
+    // v1.3.0 round-7: the offset clamp had been LOST in a refactor (the code
+    // aligned tops again) — run-102 cap22 pass-2 proof: a 514-char researched
+    // reply rendered with its SOURCES chips and timestamp composed but fully
+    // OCCLUDED under the floating input bar (text bounds ended y=475, input
+    // row started y=419; the a11y tree dropped the covered nodes). Pinning
+    // the BOTTOM keeps the newest reply's chips/timestamp — and every tall
+    // approval card's buttons — inside the visible area, always.
     LaunchedEffect(currentSessionId, history.size, visibleAgentState) {
         if (history.isNotEmpty()) {
             val lastIndex = listState.layoutInfo.totalItemsCount
                 .coerceAtLeast(history.size) - 1
-            listState.animateScrollToItem(lastIndex)
+            listState.animateScrollToItem(lastIndex, Int.MAX_VALUE)
         }
     }
     // v1.2.1 round-13: the turn's visible-work trace GROWS the thinking
@@ -224,7 +231,7 @@ fun ChatScreen(
     LaunchedEffect(liveActivity.size, liveThinking?.length) {
         if (liveActivity.isNotEmpty() || !liveThinking.isNullOrBlank()) {
             val lastIndex = listState.layoutInfo.totalItemsCount - 1
-            if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+            if (lastIndex >= 0) listState.animateScrollToItem(lastIndex, Int.MAX_VALUE)
         }
     }
 

@@ -1,5 +1,7 @@
 package com.tsfdroid.ai.core.agent
 
+import com.tsfdroid.ai.data.models.PlanStep
+import com.tsfdroid.ai.data.models.StepStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -215,11 +217,24 @@ class PlanResponseSanitizerTest {
     }
 
     @Test
-    fun `substantive data answer to a data goal is not a deferral`() {
+    fun `substantive data answer to an explicit fetch command still defers to the search`() {
+        // v1.3.0 round-7 contract change: an explicit lookup command ("fetch
+        // the price of gold") IS the task — a memory answer, however
+        // substantive-looking, dodges it and can serve stale data (run-102
+        // cap22: "data I retrieved earlier in our conversation"). The
+        // corrective ladder synthesizes the real WEB_SEARCH step instead.
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(
+                "Gold is trading around \$4,284 per ounce today, up 0.4%.",
+                "csn u fetch the price of gold"
+            )
+        )
+        // A NON-commanded data goal keeps the old exemption: the model's
+        // substantive answer stands as delivered.
         assertTrue(
             !PlanResponseSanitizer.proseDeclinesAction(
-                "Gold is trading around $4,284 per ounce today, up 0.4%.",
-                "csn u fetch the price of gold"
+                "Gold is trading around \$4,284 per ounce today, up 0.4%.",
+                "what is gold trading at?"
             )
         )
     }
@@ -284,5 +299,175 @@ class PlanResponseSanitizerTest {
                 listOf("WRITE_FILE"), "can u create a award winning website in html"
             )
         )
+    }
+
+    // --- v1.3.0 round-7: the run-102 regressions ---
+
+    @Test
+    fun `a 10k-char essay about the website is still a deferral`() {
+        // Run-102, both passes: the corrective re-ask returned a 10,062-char
+        // design essay instead of the HTML file; the old 600-char guard let
+        // it through as a CHAT step and nothing was ever written.
+        val essay = "An award-winning website needs a strong visual identity. " +
+            "Let me walk you through the design. ".repeat(180)
+        assertTrue(essay.length > 600)
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(
+                essay, "can u create a award winning website in html"
+            )
+        )
+    }
+
+    @Test
+    fun `a long grounded memory answer against an explicit search command is a deferral`() {
+        // Run-102 cap22 pass-2: "data I retrieved earlier in our conversation"
+        // — the goal COMMANDS the search, so however good the remembered
+        // data is, the prose dodges the commanded action.
+        val memoryAnswer = "Bitcoin's current price is approximately \$83,476 USD. " +
+            "Sources: - coindesk.com — https://www.coindesk.com/price/bitcoin/ " +
+            "Note: This reflects the most recent data I retrieved earlier in our conversation."
+        assertTrue(
+            PlanResponseSanitizer.goalDemandsFreshData(
+                "Search the web for the current Bitcoin price in USD and tell me the " +
+                    "price, citing the exact source URL in your answer."
+            )
+        )
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(
+                memoryAnswer,
+                "Search the web for the current Bitcoin price in USD and tell me the " +
+                    "price, citing the exact source URL in your answer."
+            )
+        )
+    }
+
+    @Test
+    fun `long prose against a pdf goal is a deferral at any length`() {
+        val longProse = "Sure thing. ".repeat(150)
+        assertTrue(longProse.length > 600)
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(
+                longProse, "create a pdf report about solar energy"
+            )
+        )
+    }
+
+    @Test
+    fun `informational goals naming a format stay conversational`() {
+        // Critic round-1 MUST-FIX 1: "explain what json is" / "how does
+        // html work" are knowledge questions — the format word alone must
+        // never force a file write at any prose length; a creation signal
+        // is required for the concrete gate.
+        val longAnswer = "JSON is a lightweight, text-based data interchange format. ".repeat(20)
+        assertTrue(longAnswer.length > 600)
+        assertTrue(!PlanResponseSanitizer.proseDeclinesAction(longAnswer, "explain what json is"))
+        assertTrue(!PlanResponseSanitizer.proseDeclinesAction(longAnswer, "how does html work"))
+        // The same formats WITH a creation signal defer at any length.
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(longAnswer, "make me a powerpoint about cats")
+        )
+        assertTrue(
+            PlanResponseSanitizer.proseDeclinesAction(longAnswer, "can u create a website in html")
+        )
+    }
+
+    @Test
+    fun `lookup commands with trailing punctuation still demand fresh data`() {
+        // Critic round-1: the plain space-pad missed "search the web," and
+        // "look it up!" — punctuation is normalized to a word edge now.
+        assertTrue(
+            PlanResponseSanitizer.goalDemandsFreshData("search the web, find the bitcoin price")
+        )
+        assertTrue(PlanResponseSanitizer.goalDemandsFreshData("please look it up!"))
+    }
+
+    // --- goalDemandsFreshData (round-7) ---
+
+    @Test
+    fun `explicit lookup commands demand fresh data`() {
+        assertTrue(PlanResponseSanitizer.goalDemandsFreshData("Search the web for the Bitcoin price"))
+        assertTrue(PlanResponseSanitizer.goalDemandsFreshData("google the capital of France"))
+        assertTrue(PlanResponseSanitizer.goalDemandsFreshData("Can you look it up and tell me?"))
+        assertTrue(PlanResponseSanitizer.goalDemandsFreshData("please fetch the page and summarize it"))
+        assertTrue(PlanResponseSanitizer.goalDemandsFreshData("search online for cheap flights"))
+        assertTrue(PlanResponseSanitizer.goalDemandsFreshData("search for the best pizza recipe"))
+    }
+
+    @Test
+    fun `conversational and soft data goals do not demand a forced search`() {
+        assertTrue(!PlanResponseSanitizer.goalDemandsFreshData("how are you today?"))
+        assertTrue(!PlanResponseSanitizer.goalDemandsFreshData("what can you do?"))
+        assertTrue(!PlanResponseSanitizer.goalDemandsFreshData("tell me about the weather app you like"))
+        assertTrue(!PlanResponseSanitizer.goalDemandsFreshData("what is the current events quiz about"))
+        // Word edges matter: "researching" must not contain " google ",
+        // "bookmark" must not contain " look it up ".
+        assertTrue(!PlanResponseSanitizer.goalDemandsFreshData("I am researching a topic for school"))
+    }
+
+    @Test
+    fun `a chat-only plan defers an explicit google command`() {
+        // "google" is not in DATA_WORDS — before round-7 a CHAT plan against
+        // such a goal slipped past both deferral gates.
+        assertTrue(
+            PlanResponseSanitizer.planDefersGoal(
+                listOf("CHAT"), "google the capital of France for me"
+            )
+        )
+    }
+
+    // --- stepResultSummary (round-7 ask-answer round-trip) ---
+
+    @Test
+    fun `an ask_user step contributes the user's answer to the summary`() {
+        // Run-102 cap21: "Pune" (4 chars) was dropped by the length>5 filter
+        // and the summary collapsed to "All done!".
+        val ask = PlanStep(
+            stepId = "s1", order = 1,
+            description = "Ask user which city they prefer, Pune or Mumbai",
+            action = "ASK_USER",
+            status = StepStatus.COMPLETED,
+            result = "Pune"
+        )
+        val summary = PlanResponseSanitizer.stepResultSummary(listOf(ask))
+        assertTrue(summary != null && summary.contains("Pune"))
+    }
+
+    @Test
+    fun `chat steps stay out of the summary and short non-ask results stay out`() {
+        val chat = PlanStep(
+            stepId = "s1", order = 1, description = "Reply", action = "CHAT",
+            status = StepStatus.COMPLETED, result = "Here is a long conversational answer that was already delivered."
+        )
+        val shortResult = PlanStep(
+            stepId = "s2", order = 2, description = "Do the thing", action = "SET_ALARM",
+            status = StepStatus.COMPLETED, result = "7am" // 3 chars — dropped
+        )
+        assertNull(PlanResponseSanitizer.stepResultSummary(listOf(chat, shortResult)))
+    }
+
+    @Test
+    fun `regular step results join into the summary`() {
+        val search = PlanStep(
+            stepId = "s1", order = 1, description = "Search the web", action = "WEB_SEARCH",
+            status = StepStatus.COMPLETED,
+            result = "Bitcoin is trading at $83,476 according to CoinDesk."
+        )
+        val write = PlanStep(
+            stepId = "s2", order = 2, description = "Write the file", action = "WRITE_FILE",
+            status = StepStatus.COMPLETED, result = "Saved Documents/report.html (4 KB)"
+        )
+        val summary = PlanResponseSanitizer.stepResultSummary(listOf(search, write))
+        assertTrue(summary != null)
+        assertTrue(summary!!.contains("CoinDesk"))
+        assertTrue(summary.contains("report.html"))
+    }
+
+    @Test
+    fun `failed steps never contribute`() {
+        val failed = PlanStep(
+            stepId = "s1", order = 1, description = "Search", action = "WEB_SEARCH",
+            status = StepStatus.FAILED, result = "partial results should not leak into success"
+        )
+        assertNull(PlanResponseSanitizer.stepResultSummary(listOf(failed)))
     }
 }

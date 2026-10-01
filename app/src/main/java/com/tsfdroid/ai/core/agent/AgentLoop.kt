@@ -175,6 +175,13 @@ private const val STREAM_IDLE_TIMEOUT_MS = 120_000L
  */
 private const val HARNESS_TURN_TIMEOUT_MS = 900_000L
 /**
+ * v1.3.0 round-7: dedicated bound for the ask-confirmation summary call —
+ * a single 120-token sentence must never borrow the 15-minute turn budget;
+ * a stalling free tier degrades to the canned answer-summary instead of
+ * delaying the final bubble by minutes.
+ */
+private const val ASK_CONFIRM_TIMEOUT_MS = 30_000L
+/**
  * v1.2.0: bounded rounds for the chat-path tool loop now live in
  * [HarnessLoop] (OpenCode-style: tool rounds + continuation + doom guard).
  * The plan-path budget is unchanged.
@@ -411,6 +418,15 @@ class AgentLoop @Inject constructor(
     // still open - see processQuery.
     @Volatile private var waitingSessionId: String? = null
 
+    // v1.3.0 round-7: true from the moment a plan-path turn asks the user
+    // anything (ASK_USER action, or a NeedsInput re-ask) until the plan's
+    // summary is saved. speakAndSaveSummary consumes it to route the final
+    // reply through an LLM confirmation that QUOTES the user's answer —
+    // the opencode question-tool round-trip. Run-102 cap21 evidence: without
+    // it the plan's ask step completed, "Pune" sat in the step result, and
+    // humanizeGoalDone swallowed it into "All done!".
+    @Volatile private var askedUserDuringPlan = false
+
     // v1.3.0 ask_user: the LIVE question surface — the question the agent is
     // currently waiting on the user to answer (with tappable options), scoped
     // to the session whose task is parked inside awaitUserResponse(). Drives
@@ -485,6 +501,9 @@ class AgentLoop @Inject constructor(
         // the same value microseconds later, and its finally-clause clears
         // it again if the ask never reaches the park.
         waitingSessionId = sessionId
+        // v1.3.0 round-7: the plan-path variant of this ask must be answered
+        // in the plan's final summary — flag it for speakAndSaveSummary.
+        askedUserDuringPlan = true
         val askMsg = ChatMessage(
             id = UUID.randomUUID().toString(),
             text = question,
@@ -1607,8 +1626,12 @@ class AgentLoop @Inject constructor(
     private suspend fun synthesizeExecutablePlan(provider: LLMProvider, userGoal: String): Plan? {
         val goal = userGoal.lowercase()
 
-        // Data goal → executable search step right now.
-        if (PlanResponseSanitizer.goalWantsWebData(userGoal) && !PlanResponseSanitizer.goalWantsArtifact(userGoal)) {
+        // Data goal → executable search step right now. v1.3.0 round-7: an
+        // explicit lookup command ("google X", "look up X") counts as a data
+        // goal even when no DATA_WORD matches — the command IS the task.
+        val wantsFreshData = PlanResponseSanitizer.goalWantsWebData(userGoal) ||
+            PlanResponseSanitizer.goalDemandsFreshData(userGoal)
+        if (wantsFreshData && !PlanResponseSanitizer.goalWantsArtifact(userGoal)) {
             val url = Regex("https?://\\S+").find(userGoal)?.value
             return if (url != null) {
                 buildSingleStepPlan(userGoal, "FETCH_URL", mapOf("url" to url))
@@ -2350,6 +2373,9 @@ class AgentLoop @Inject constructor(
 
     private suspend fun executePlanLoop(plan: Plan, context: Context, sessionId: String, autoApproved: Boolean = false) {
         planManager.updatePlanStatus(PlanStatus.RUNNING)
+        // v1.3.0 round-7: fresh ask bookkeeping per plan run — a previous
+        // plan's ask must not leak its confirmation into this one.
+        askedUserDuringPlan = false
         var currentPlanState = planManager.currentPlan.value ?: return
 
         while (true) {
@@ -2914,6 +2940,9 @@ class AgentLoop @Inject constructor(
         // askUserQuestion — an answer typed against the freshly posted
         // question must never register as a new query).
         waitingSessionId = sessionId
+        // v1.3.0 round-7: a NeedsInput re-ask is still the plan asking the
+        // user — the final summary must acknowledge the answer.
+        askedUserDuringPlan = true
         val optionsText = if (needsInput.options.isNotEmpty()) {
             "\n\n" + needsInput.options.joinToString("\n") { "- $it" }
         } else {
@@ -3021,25 +3050,15 @@ class AgentLoop @Inject constructor(
 
     private suspend fun speakAndSaveSummary(plan: Plan, isSuccess: Boolean, sessionId: String) {
         val summaryText = if (isSuccess) {
-            // Build a natural, human-sounding summary from step results
-            val stepSummaries = plan.steps
-                .filter { it.status == StepStatus.COMPLETED && !it.result.isNullOrBlank() }
-                // CHAT steps were already delivered verbatim as chat bubbles
-                // during execution; repeating them inside the summary would
-                // duplicate the whole conversational answer.
-                .filter { it.action.trim().uppercase() != "CHAT" }
-                .mapNotNull { step ->
-                    val result = step.result ?: return@mapNotNull null
-                    when {
-                        result.length > 5 && !result.startsWith("{") -> result
-                        else -> null
-                    }
-                }
-            if (stepSummaries.isNotEmpty()) {
-                stepSummaries.joinToString(". ")
-            } else {
-                humanizeGoalDone(plan.goal)
-            }
+            // v1.3.0 round-7: when the plan asked the user something, the
+            // answer must round-trip back through the MODEL for the final
+            // reply (the opencode question-tool contract). Run-102 cap21
+            // evidence: the ask step completed with "Pune" in its result,
+            // then humanizeGoalDone rendered "All done!" — the user's answer
+            // was swallowed by string heuristics. Try the LLM confirmation
+            // first; any failure falls to the deterministic assembly, which
+            // now quotes the answers too.
+            askConfirmedSummary(plan) ?: cannedSuccessSummary(plan)
         } else {
             // Log the technical errors but DON'T show them to the user
             val failedSteps = plan.steps.filter { it.status == StepStatus.FAILED }
@@ -3075,6 +3094,9 @@ class AgentLoop @Inject constructor(
         )
         memoryManager.storeMessage(assistantMsg, sessionId)
         conversationRepository.insertMessage(sessionId, assistantMsg)
+        // v1.3.0 round-7: the ask bookkeeping is consumed with the summary —
+        // the NEXT plan (or chat turn) starts from a clean slate.
+        askedUserDuringPlan = false
 
         _agentState.value = AgentState.Speaking(summaryText)
         onSpeakCallback?.invoke(summaryText)
@@ -3082,6 +3104,92 @@ class AgentLoop @Inject constructor(
         // often carry durable facts ("my cat Luna...", "for my shop...").
         scope.launch {
             memoryLearner.learnFromExchange(plan.goal, summaryText)
+        }
+    }
+
+    /**
+     * v1.3.0 round-7: the deterministic success summary, extracted from
+     * speakAndSaveSummary into [PlanResponseSanitizer.stepResultSummary] for
+     * unit testing. Identical to the old assembly except ASK_USER steps now
+     * contribute their answer — the old `result.length > 5` filter dropped
+     * "Pune" (4 chars) and the summary collapsed to "All done!".
+     */
+    private fun cannedSuccessSummary(plan: Plan): String =
+        PlanResponseSanitizer.stepResultSummary(plan.steps) ?: humanizeGoalDone(plan.goal)
+
+    /**
+     * v1.3.0 round-7: the ask-answer round-trip contract (the opencode
+     * question tool): when a plan asked the user something and the answers
+     * landed in the step results, the FINAL reply is written by the model
+     * with the Q&A in context — "You prefer Pune — noted!" — never by a
+     * canned heuristic. One bounded non-streaming call; ANY failure (or the
+     * dedicated 30s bound — a stalling free tier must never delay the
+     * final bubble by minutes) returns null and the caller falls to
+     * [cannedSuccessSummary], which quotes the answers deterministically.
+     */
+    private suspend fun askConfirmedSummary(plan: Plan): String? {
+        if (!askedUserDuringPlan) return null
+        return try {
+            val qaLines = plan.steps
+                .filter { it.action.trim().uppercase() == "ASK_USER" && it.status == StepStatus.COMPLETED }
+                .mapIndexedNotNull { index, step ->
+                    val answer = step.result?.trim()?.take(300) ?: return@mapIndexedNotNull null
+                    val question = step.description.take(200).ifBlank { "your question" }
+                    "Q${index + 1}: $question\nUser answered: $answer"
+                }
+            // NeedsInput re-asks do NOT record the user's answer as an
+            // ASK_USER step (the answer is injected into the retried
+            // action's params and the step result is that action's own
+            // output) — those plans take the canned path; an empty Q&A list
+            // from a NeedsInput-only ask means exactly that.
+            if (qaLines.isEmpty()) return null
+            val stepLines = plan.steps.joinToString("\n") { step ->
+                val detail = (step.result ?: "").trim().take(160).ifBlank { "done" }
+                "- ${step.description.take(200).ifBlank { step.action }} -> $detail"
+            }
+            val provider = llmProviderFactory.getActiveProvider()
+            val response = withTimeout(ASK_CONFIRM_TIMEOUT_MS) {
+                provider.complete(
+                    LLMRequest(
+                        systemPrompt = "You are TSF Droid, an Android agent finishing a task. " +
+                            "The plan asked the user question(s) and the user answered. " +
+                            "Write ONE short natural sentence (max 30 words) that confirms the " +
+                            "completed task and mentions what the user answered or chose. " +
+                            "No preamble, no quotes around the sentence, no lists.",
+                        messages = listOf(
+                            ChatMessage(
+                                id = UUID.randomUUID().toString(),
+                                text = "Goal: ${plan.goal}\nSteps:\n$stepLines\n\n" +
+                                    "User answers:\n${qaLines.joinToString("\n")}\n\n" +
+                                    "Write the single confirmation sentence now.",
+                                sender = ChatMessage.Sender.USER
+                            )
+                        ),
+                        temperature = 0.3f,
+                        maxTokens = 120,
+                        responseFormat = ResponseFormat.TEXT
+                    )
+                )
+            }
+            val text = PlanResponseSanitizer.stripReasoningBlocks(response.content).trim()
+            text.takeIf { it.length in 4..400 }
+                ?.also {
+                    android.util.Log.i(
+                        "AgentLoop",
+                        "ask-confirmed summary: qa=${qaLines.size} len=${it.length}"
+                    )
+                }
+        } catch (tce: TimeoutCancellationException) {
+            // TimeoutCancellationException IS a CancellationException — it
+            // must be caught BEFORE the rethrow below or a slow confirmation
+            // would kill the whole summary save (the round-11 lesson).
+            android.util.Log.w("AgentLoop", "ask-confirmed summary timed out — canned fallback")
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("AgentLoop", "ask-confirmed summary failed: ${e.localizedMessage}")
+            null
         }
     }
 
@@ -3184,16 +3292,24 @@ class AgentLoop @Inject constructor(
         // Classified on [stripped] (fences already removed) so corrupt
         // fenced JSON still starts with "{" and is never mistaken for prose.
         PlanResponseSanitizer.classifyProseReply(stripped)?.let { (action, params) ->
-            // EXCEPT: a short prose commitment that defers an artifact task
-            // ("I am creating the HTML file for you." for a "create an HTML
-            // website" goal) is NOT a valid outcome — nothing would ever be
-            // written. Throw so the corrective re-ask (with the content-plan
-            // instruction) can turn it into a real WRITE_FILE plan.
+            // EXCEPT: a prose reply that defers the goal is NOT a valid
+            // outcome — nothing would ever be done. v1.0.5/v1.0.6: the
+            // short-commitment deferral ("I am creating the HTML file for
+            // you." against a "create an HTML website" goal). v1.3.0
+            // round-7, from run-102 evidence: (a) ANY prose against a
+            // CONCRETE artifact goal ("website"/"html") — the model returned
+            // a 10k-char essay ABOUT the site and no file was ever written;
+            // (b) ANY prose against an explicit lookup command ("Search the
+            // web for the current Bitcoin price…") — the model answered from
+            // its memory of an earlier turn with zero fresh search. Both now
+            // live inside proseDeclinesAction. Throw so the corrective
+            // re-ask / deterministic synthesis produces real executable
+            // steps.
             if (action == "CHAT" &&
                 PlanResponseSanitizer.proseDeclinesAction(params["response"], userGoal)
             ) {
                 throw IllegalArgumentException(
-                    "Prose reply deferred the artifact task instead of planning it"
+                    "Prose reply deferred the goal instead of planning it"
                 )
             }
             return buildSingleStepPlan(userGoal, action, params)

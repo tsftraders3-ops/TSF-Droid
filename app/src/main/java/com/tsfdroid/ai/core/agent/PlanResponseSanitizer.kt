@@ -1,5 +1,8 @@
 package com.tsfdroid.ai.core.agent
 
+import com.tsfdroid.ai.data.models.PlanStep
+import com.tsfdroid.ai.data.models.StepStatus
+
 /**
  * Pure text-shaping helpers for LLM plan answers, extracted from
  * [AgentLoop] for direct unit testing (v1.0.4).
@@ -112,8 +115,38 @@ internal object PlanResponseSanitizer {
 
     /** Words that mark an artifact-producing goal. */
     private val ARTIFACT_WORDS = listOf(
-        "file", "html", "website", "web page", "pdf", "document",
-        "report", "save", "write", "note", "csv", "json"
+        "file", "html", "website", "web page", "webpage", "pdf", "document",
+        "report", "save", "write", "note", "csv", "json", "spreadsheet",
+        "powerpoint", "slides"
+    )
+
+    /**
+     * Words naming a CONCRETE file format/type. A goal carrying one of
+     * these AND an artifact-creation signal (see [ARTIFACT_CREATE_SIGNALS])
+     * is an explicit file ask, so prose of any length defers it (see
+     * [proseDeclinesAction]). Softer artifact words ("report",
+     * "note", "save", "write") stay on the short-commitment rule only —
+     * "make a report of your capabilities" legitimately answers in
+     * conversational prose.
+     */
+    private val CONCRETE_ARTIFACT_WORDS = listOf(
+        "file", "html", "website", "web page", "webpage", "pdf",
+        "document", "csv", "json", "spreadsheet", "powerpoint", "slides"
+    )
+
+    /**
+     * Creation verbs that turn a format word into an artifact ASK. Without
+     * one, a goal naming a format is a KNOWLEDGE question ("explain what
+     * json is", "how does html work") and must keep the conversational
+     * path — the format word alone must never force a file write (critic
+     * round-1 MUST-FIX: informational goals force-routed to the planner
+     * were about to be converted into 8k-token document generations).
+     */
+    private val ARTIFACT_CREATE_SIGNALS = listOf(
+        "create", "make", "build", "write", "generate", "design", "produce",
+        "draft", "put together", "come up with", "export", "convert", "save",
+        "compose", "prepare", "give me", "want a", "want the", "need a",
+        "need the", "i want", "i need"
     )
 
     /**
@@ -136,13 +169,36 @@ internal object PlanResponseSanitizer {
      * "Let me check the current gold price for you." against "fetch the
      * price of gold". These replies are the v1.0.5/v1.0.6 field failures:
      * they executed as CHAT steps and nothing was ever done. The caller uses
-     * this to trigger the corrective re-ask. Long prose (over 600 chars) is
-     * a substantive answer, never a deferral.
+     * this to trigger the corrective re-ask. For artifact goals, prose of ANY
+     * length is a deferral (see the comment inside); for other goals, long
+     * prose (over 600 chars) is a substantive answer, never a deferral.
      */
     fun proseDeclinesAction(response: String?, userGoal: String): Boolean {
         val reply = response?.lowercase()?.trim() ?: return false
-        if (reply.isEmpty() || reply.length > 600) return false
+        if (reply.isEmpty()) return false
         val goal = userGoal.lowercase()
+        // Goals naming a CONCRETE file format ("website", "html", "pdf", ...):
+        // prose NEVER satisfies them, at ANY length. The old 600-char guard
+        // existed to protect "substantive answers", but when the user asked
+        // for a file, 10k characters ABOUT the website is still a deferral —
+        // nothing gets written (run-102 evidence: both vague-website passes
+        // leaked exactly this way; the model returned a 10,062-char design
+        // essay instead of the HTML file and the turn ended reply-only).
+        // Clarifying questions never reach this branch either (they end in
+        // "?" and classifyProseReply routes them to ASK_USER).
+        if (CONCRETE_ARTIFACT_WORDS.any { goal.contains(it) } &&
+            ARTIFACT_CREATE_SIGNALS.any { goal.contains(it) }) return true
+        // An explicit lookup command ("search the web for X", "google X")
+        // defers to NO prose answer, however confident and well-sourced the
+        // model's memory of earlier turns is — the commanded search IS the
+        // task (run-102 cap22 pass-2: "data I retrieved earlier in our
+        // conversation", zero fresh search).
+        if (goalDemandsFreshData(userGoal)) return true
+        if (reply.length > 600) return false
+        // Softer artifact asks ("make a report of your capabilities") keep
+        // the long-prose exemption — their answer is often legitimately
+        // conversational (the v1.0.5 capability-audit evidence) — but a
+        // SHORT commitment still defers the work.
         if (ARTIFACT_WORDS.any { goal.contains(it) }) return true
         if (DATA_WORDS.any { goal.contains(it) } && DECLINE_VERBS.any { reply.contains(it) }) return true
         // Artifact deferrals keep the original shape: commitment verb AND an
@@ -150,6 +206,39 @@ internal object PlanResponseSanitizer {
         return DECLINE_VERBS.any { reply.contains(it) } &&
             ARTIFACT_WORDS.any { reply.contains(it) }
     }
+
+    /**
+     * True when the goal EXPLICITLY commands a live web lookup — "search
+     * the web for X", "google X", "look up X", "fetch the page at X". The
+     * user is not asking whether the model happens to know; the search is
+     * the task. A prose answer to such a goal — however confident, however
+     * well-sourced from the model's memory of earlier turns — dodges the
+     * commanded action, so the planner fallback must synthesize the
+     * WEB_SEARCH/FETCH_URL step instead (run-102 cap22 pass-2 evidence: the
+     * model answered "data I retrieved earlier in our conversation" with
+     * zero fresh search). Deliberately narrow: general data-goal words
+     * ("current", "today") do NOT count — only an explicit lookup command
+     * does, so "how are you today" can never be forced into a search.
+     */
+    fun goalDemandsFreshData(goal: String): Boolean {
+        // Normalize every non-alphanumeric run to a single space so trailing
+        // punctuation cannot defeat the phrase edges: "search the web, find
+        // the price" and "please look it up!" must still match (critic
+        // round-1: the plain space-pad missed both).
+        val g = " ${goal.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()} "
+        return FRESH_DATA_COMMANDS.any { g.contains(it) }
+    }
+
+    /** Explicit lookup command phrases (space-padded to match word edges). */
+    private val FRESH_DATA_COMMANDS = listOf(
+        " search the web ", " search online ", " search the internet ",
+        " do a web search ", " do a quick search ", " run a search ",
+        " google ", " look it up ", " look up the ", " look that up ",
+        " fetch the ", " fetch and ", " browse the web ",
+        " check the latest ", " check the current ", " find the current ",
+        " find the latest ", " search for the ", " search for a ",
+        " search for latest ", " search for current ", " search news "
+    )
 
     /**
      * True when the goal itself asks for live internet data (search/fetch
@@ -191,8 +280,38 @@ internal object PlanResponseSanitizer {
         if (actions.isEmpty()) return false
         val canonical = actions.map { it.trim().uppercase() }
         if (goalWantsArtifact(userGoal) && canonical.none { it in ARTIFACT_ACTIONS }) return true
-        if (goalWantsWebData(userGoal) && !goalWantsArtifact(userGoal) &&
+        if ((goalWantsWebData(userGoal) || goalDemandsFreshData(userGoal)) &&
+            !goalWantsArtifact(userGoal) &&
             canonical.none { it in DATA_ACTIONS }) return true
         return false
+    }
+
+    /**
+     * v1.3.0 round-7: the deterministic success summary for a completed plan,
+     * extracted from AgentLoop for unit testing. CHAT steps are excluded
+     * (already delivered verbatim during execution); every other completed
+     * step contributes its readable result. ASK_USER steps contribute the
+     * user's ANSWER as a quoted phrase — the old `result.length > 5` filter
+     * dropped "Pune" (4 chars) and the summary collapsed to "All done!"
+     * (run-102 cap21 evidence). Returns null when nothing qualifies; the
+     * caller then falls back to its goal-shape heuristics.
+     */
+    fun stepResultSummary(steps: List<PlanStep>): String? {
+        val summaries = steps
+            .filter { it.status == StepStatus.COMPLETED && !it.result.isNullOrBlank() }
+            .filter { it.action.trim().uppercase() != "CHAT" }
+            .mapNotNull { step ->
+                val result = step.result ?: return@mapNotNull null
+                when {
+                    // Capitalized so it reads as a standalone sentence on
+                    // ask-only plans ("You answered \"Pune\"." is the whole
+                    // bubble when the LLM confirmation is unavailable).
+                    step.action.trim().uppercase() == "ASK_USER" ->
+                        "You answered \"${result.trim().take(120)}\""
+                    result.length > 5 && !result.startsWith("{") -> result
+                    else -> null
+                }
+            }
+        return if (summaries.isEmpty()) null else summaries.joinToString(". ")
     }
 }
