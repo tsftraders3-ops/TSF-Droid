@@ -97,7 +97,7 @@ class CopilotProvider @Inject constructor(
     }
 
     /** The chat/completions body shared by [complete] and [streamComplete]. */
-    private fun buildRequestBody(
+    private suspend fun buildRequestBody(
         request: LLMRequest,
         selectedModel: String
     ): MutableMap<String, Any> {
