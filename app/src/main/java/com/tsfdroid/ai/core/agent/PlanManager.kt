@@ -132,6 +132,28 @@ class PlanManager @Inject constructor(
     }
 
     /**
+     * v1.3.0 round 16 (the gold-turn wedge): a WATCHDOG-only mutator that
+     * terminal-marks the current plan WITHOUT taking [mutex]. Rationale: the
+     * exact failure mode this exists for is a plan coroutine that suspended
+     * and never resumed — it may be suspended INSIDE a `withLock` body
+     * (e.g. mid `saveCurrentPlanLocked`), holding the mutex forever. A
+     * watchdog that takes the mutex to update the status would wedge on the
+     * very lock it is trying to recover from. Racing a mutator here can at
+     * worst lose one in-flight step-status write — a strictly better outcome
+     * than an eternal "Executing" plan. Idempotent: terminal plans never
+     * change status again (see [PlanStatus.isTerminal] usage below).
+     */
+    fun forceStatusFromWatchdog(status: PlanStatus) {
+        val current = _currentPlan.value ?: return
+        if (current.status == PlanStatus.COMPLETED ||
+            current.status == PlanStatus.FAILED ||
+            current.status == PlanStatus.CANCELLED
+        ) return
+        _currentPlan.value = current.copy(status = status)
+        workingMemory.activePlan = _currentPlan.value
+    }
+
+    /**
      * Marks the current plan (if any) as cancelled and clears it from working
      * memory. Safe to call when there is no active plan, and a no-op when the
      * plan sitting in [_currentPlan] has already reached a terminal status

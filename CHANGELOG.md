@@ -108,10 +108,40 @@ actually works end to end, verified feature by feature.
   15-minute periodic worker is now scheduled at app start (network-gated,
   and the in-worker approval gate still honors the automation level, default
   APPROVAL — nothing publishes silently).
+- The macro cron consumer is real too: SCHEDULE_MACRO has written `cron:`
+  triggers since v1.0 with nothing to execute them. MacroSchedulerWorker now
+  evaluates every enabled macro's 5-field Vixie-cron trigger (ranges, steps,
+  lists, named months/weekdays, the day-of-month/day-of-week OR rule) on a
+  15-minute cadence, at-most-once (the watermark advances before execution —
+  a macro that posts publicly must never replay after a mid-run crash), with
+  malformed triggers logged and skipped, never crashing the run.
+- The last fabricated UI numbers are gone: the More sheet's "3 detected /
+  2 pending" was hardcoded — routine and notification counts now come from
+  the database (zero pending renders "All clear"). Sync All in the Social
+  dashboard actually syncs every connected account now instead of returning
+  success without touching one, and the empty-chat greeting follows the wall
+  clock instead of saying "Good morning" at 23:00.
+- Fractional durations parse correctly: "2m59.56s" is 180 seconds now, not
+  176 (the integer-only regex dropped the fractional part ahead of the unit;
+  upstream ticket #30).
+- The plan-stall watchdog: the gold-price turn taught us a third lesson —
+  after the search step and its advisor both returned within seconds, the
+  plan coroutine still went silent forever in both E2E passes, with every
+  segment-level bound (per-fetch, per-step 180s, advisory 120s, memory 60s)
+  never firing and no log from any catch. Whatever the exact suspension
+  point is, the class is "a continuation that never resumes," and no
+  withTimeout can catch that. A progress-based watchdog now runs beside
+  every plan turn on its own coroutine: no loop progress for 7 minutes
+  (ASK parking exempt — user thinking time stays unbounded) and the turn is
+  salvaged — the plan is terminal-marked through a mutex-free path and a
+  deterministic reply quoting the completed steps' real results is saved,
+  so the user gets the substance the turn already gathered instead of a
+  silent wedge. A late-resuming superseded loop exits harmlessly via an
+  epoch check.
 - Brand cleanup: user-facing OpenDroid remnants replaced (Settings
   about/privacy/terms/storage lines, social report header/disclaimer,
   social actor labels, OpenRouter attribution headers).
-- Room v13 → v14 (ask options column, migration tested), 791 unit tests
+- Room v13 → v14 (ask options column, migration tested), 791+ unit tests
   green (was 715 at v1.2.1), E2E suite extended and green.
 
 ## v1.2.1 — Hermes loop: personal memory, context compaction, visible work & todo list
