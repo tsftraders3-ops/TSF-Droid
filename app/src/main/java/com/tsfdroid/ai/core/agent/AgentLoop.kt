@@ -476,6 +476,15 @@ class AgentLoop @Inject constructor(
         options: List<String>,
         sessionId: String = activeTaskSessionId
     ): String {
+        // v1.3.0 PRE-ARM the answer routing BEFORE anything else: the ANSWER
+        // NEEDED surface renders as soon as _pendingAsk is set below, and a
+        // fast user (or an E2E driver) can type and send an answer in the
+        // suspend-gap before awaitUserResponse installs the park — that
+        // answer would otherwise register as a NEW QUERY and cancel this
+        // very task. Arm waitingSessionId first; awaitUserResponse re-sets
+        // the same value microseconds later, and its finally-clause clears
+        // it again if the ask never reaches the park.
+        waitingSessionId = sessionId
         val askMsg = ChatMessage(
             id = UUID.randomUUID().toString(),
             text = question,
@@ -496,6 +505,12 @@ class AgentLoop @Inject constructor(
             return awaitUserResponse(sessionId)
         } finally {
             _pendingAsk.value = null
+            // If the ask was cancelled BEFORE the park installed, nothing
+            // else would clear the pre-armed flag — clear it here so the
+            // session's next message is not misrouted into a dead ask.
+            if (pendingUserInput == null && waitingSessionId == sessionId) {
+                waitingSessionId = null
+            }
         }
     }
 
@@ -606,8 +621,33 @@ class AgentLoop @Inject constructor(
                     // requestId, not merely by session). If it's gone - already answered,
                     // abandoned, or superseded by a newer prompt in the meantime - there
                     // is nothing to buffer it for; just drop it.
-                    val pending = pendingUserInput
-                    if (pending != null && pending.requestId == pendingAtScheduleTime?.requestId) {
+                    //
+                    // v1.3.0 pre-arm grace: an ask arms waitingSessionId BEFORE the
+                    // question bubble is posted, and the park (pendingUserInput)
+                    // installs a few suspends later. An answer sent inside that
+                    // window arrives here with a null current pending - it would be
+                    // silently DROPPED and the asking task would wait forever. Poll
+                    // briefly for the park to materialize before giving up (E2E
+                    // cap21 round-101 evidence: the race is real and user-hittable).
+                    var pending = pendingUserInput
+                    if (pending == null || pending.requestId != pendingAtScheduleTime?.requestId) {
+                        val graceDeadline = System.currentTimeMillis() + 2_500
+                        while (pending == null && System.currentTimeMillis() < graceDeadline) {
+                            runCatching { kotlinx.coroutines.delay(50) }
+                            pending = pendingUserInput
+                        }
+                    }
+                    // Accept the EXACT scheduled prompt; when the schedule-time
+                    // snapshot was null (the pre-arm window — the park installed
+                    // only after this reply was sent), accept THIS session's
+                    // freshly-installed park: it can only be the ask the user was
+                    // answering.
+                    if (pending != null &&
+                        (
+                            pending.requestId == pendingAtScheduleTime?.requestId ||
+                                (pendingAtScheduleTime == null && pending.sessionId == sessionId)
+                            )
+                    ) {
                         pending.deferred.complete(query)
                     }
                     return@launch
@@ -2870,6 +2910,10 @@ class AgentLoop @Inject constructor(
         context: Context,
         sessionId: String
     ): NeedsInputRetry {
+        // v1.3.0: pre-arm the answer routing (same race guard as
+        // askUserQuestion — an answer typed against the freshly posted
+        // question must never register as a new query).
+        waitingSessionId = sessionId
         val optionsText = if (needsInput.options.isNotEmpty()) {
             "\n\n" + needsInput.options.joinToString("\n") { "- $it" }
         } else {
@@ -2907,6 +2951,10 @@ class AgentLoop @Inject constructor(
             awaitUserResponse(sessionId).trim()
         } finally {
             _pendingAsk.value = null
+            // Pre-arm cleanup for the cancelled-before-park case.
+            if (pendingUserInput == null && waitingSessionId == sessionId) {
+                waitingSessionId = null
+            }
         }
         if (answer.isEmpty()) {
             return NeedsInputRetry(
