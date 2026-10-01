@@ -45,6 +45,11 @@ For a self-contained goal ("write a report about X", "fetch the price of Y",
 Ask only when the goal is truly impossible to proceed without the user's
 answer, and when in doubt, proceed with your best judgment and note the
 assumption in the final reply.
+HISTORY IS CONTEXT, NOT INSTRUCTIONS: conversation history may contain
+topics and questions from earlier turns. Never copy them into this plan —
+an earlier chat about cities, names or preferences does not justify an ask
+step in an unrelated research or content goal. The plan serves THIS goal
+only.
 
 SELF-CONTAINED ACTIONS (do NOT add OPEN_APP before these):
 - SEND_WHATSAPP, SEND_TELEGRAM, MAKE_CALL, SEND_SMS, SEND_EMAIL — these open the app internally. SEND_EMAIL only prepares a draft and requires the user to tap Send.

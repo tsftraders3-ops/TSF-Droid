@@ -452,6 +452,19 @@ class AgentCapabilityE2EInstrumentedTest {
             ) break
             runCatching { Thread.sleep(3_000) }
         }
+        // v1.3.0 round 17: every task under test starts from a FRESH chat.
+        // The planner deliberately carries recent conversation history
+        // (the v1.3.0 context feature) — but the E2E suite runs on ONE app
+        // install per pass, so that history contains OTHER tests'
+        // exchanges. Run-121 (deepResearch) showed mimo writing a "which
+        // city do you prefer between Pune and Mumbai" ask step into a
+        // solar-research plan — cap21's question bleeding through, the plan
+        // concluded after one ask and no research ever ran. A fresh session
+        // isolates each task's planning context; personal memory ACROSS
+        // chats is still covered by cap11, which clicks New chat itself
+        // before the recall turn.
+        assertTrue("New chat button not found before $taskTag", clickDesc("New chat", 15_000))
+        device.waitForIdle(2_000)
         assertTrue(
             "chat input not found before task $taskTag",
             device.wait(Until.hasObject(By.textContains(chatPlaceholder)), 15_000) == true ||
