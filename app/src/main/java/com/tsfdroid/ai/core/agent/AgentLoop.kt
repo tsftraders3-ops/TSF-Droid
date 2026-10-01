@@ -35,9 +35,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,8 +47,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.timeout
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.sync.Mutex
@@ -174,6 +174,18 @@ private const val STREAM_IDLE_TIMEOUT_MS = 120_000L
  * and, above all, never hangs a user's chat indefinitely again.
  */
 private const val HARNESS_TURN_TIMEOUT_MS = 900_000L
+
+/**
+ * v1.3.0 (run-107): the plan-step hard wall clock. A single action's
+ * dispatch may never run unbounded — the gold-price WEB_SEARCH step sat
+ * silent for 10 minutes in BOTH E2E passes (network-path stall; the HTTP
+ * fetch now has its own hard bound too, see InformationActions.httpGetText).
+ * ASK_USER steps are EXCLUDED: user thinking time is deliberately unbounded
+ * (the round-6 ask-parking contract). 3 minutes is generous for every
+ * machine action (searches, file writes, app automation) while turning a
+ * pathological stall into an honest step failure the plan can recover from.
+ */
+private const val ACTION_STEP_TIMEOUT_MS = 180_000L
 /**
  * v1.3.0 round-7: dedicated bound for the ask-confirmation summary call —
  * a single 120-token sentence must never borrow the 15-minute turn budget;
@@ -2505,10 +2517,37 @@ class AgentLoop @Inject constructor(
             )
 
             // Execute the action dispatcher
+            // v1.3.0 (run-107): every non-interactive step is bounded by a hard
+            // wall clock — a stalled network path fails the step honestly
+            // instead of holding the turn (and the E2E driver) hostage for
+            // minutes. ASK_USER parks on user response BY DESIGN (round-6)
+            // and must stay unbounded.
+            val isUserInteractionStep =
+                stepToExecute.action.trim().uppercase() == "ASK_USER"
             var actionResult = try {
-                var result = actionSequenceExecutor.dispatch(stepToExecute.action, resolvedParams, context)
+                var result = if (isUserInteractionStep) {
+                    actionSequenceExecutor.dispatch(stepToExecute.action, resolvedParams, context)
+                } else {
+                    withTimeout(ACTION_STEP_TIMEOUT_MS) {
+                        actionSequenceExecutor.dispatch(stepToExecute.action, resolvedParams, context)
+                    }
+                }
 
                 resolveNeedsInput(result, stepToExecute.action, resolvedParams, context, sessionId)
+            } catch (e: TimeoutCancellationException) {
+                // OUR step bound fired (the only withTimeout in this scope):
+                // convert to an honest step failure, not a turn cancellation.
+                android.util.Log.w(
+                    "AgentLoop",
+                    "step '${stepToExecute.action}' exceeded ${ACTION_STEP_TIMEOUT_MS / 1000}s — abandoning it"
+                )
+                ActionResult(
+                    false,
+                    null,
+                    "The ${stepToExecute.action} step did not finish within " +
+                        "${ACTION_STEP_TIMEOUT_MS / 1000} seconds — the network path may be stalled. " +
+                        "The step was abandoned so the plan can continue."
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

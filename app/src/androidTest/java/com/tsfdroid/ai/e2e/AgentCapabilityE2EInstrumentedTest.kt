@@ -1184,9 +1184,32 @@ class AgentCapabilityE2EInstrumentedTest {
      * Files), the mode chip is present, and the effort chip appears when the
      * active model advertises reasoning levels. Fast, model-independent.
      */
-    @Test(timeout = 240_000)
+    @Test(timeout = 420_000)
     fun uploadAndHarnessControls_arePresentAndResponsive() {
         reachDashboard()
+        // v1.3.0 (run-107): a PREVIOUS test's turn can still be alive when this
+        // one starts — a stalled gold-price turn once parked on an ASK_USER
+        // question, the ANSWER NEEDED surface replaced the input bar, and the
+        // attach button was "not found". Resolve any parked ask first, then
+        // wait out a still-busy agent; both are bounded so a healthy flow pays
+        // at most a few seconds.
+        val parkedAskDeadline = System.currentTimeMillis() + 60_000
+        while (System.currentTimeMillis() < parkedAskDeadline) {
+            device.runWatchers()
+            val askUp = runCatching {
+                device.findObject(By.textContains("ANSWER NEEDED")) != null
+            }.getOrDefault(false)
+            if (!askUp) break
+            if (typeChatMessage("n/a") && tapSendAndVerify("n/a")) {
+                runCatching { Thread.sleep(3_000) }
+            } else {
+                runCatching { Thread.sleep(2_000) }
+            }
+        }
+        val idleDeadline = System.currentTimeMillis() + 90_000
+        while (System.currentTimeMillis() < idleDeadline && agentBusyOnScreen()) {
+            runCatching { Thread.sleep(3_000) }
+        }
         // Mode chip: AGENT by default on a fresh install.
         assertTrue(
             "the CHAT/AGENT mode chip is missing from the chat top bar",

@@ -70,7 +70,6 @@ object ConnectionTestPlanner {
                 }
             }
             else -> if (ProviderCatalog.requiresApiKey(provider) &&
-                !(provider == "Google Gemini" && model == "gemini-nano") &&
                 config.apiKeys[provider].isNullOrBlank()
             ) {
                 return ConnectionTestState.ConfigMissing(provider, LLMError.AuthMissing, 0L)

@@ -8,7 +8,7 @@ import com.tsfdroid.ai.core.llm.error.toSafeProviderException
 import com.tsfdroid.ai.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -48,34 +48,19 @@ class OpenRouterProvider @Inject constructor(
 
         val startTime = System.currentTimeMillis()
 
-        val messagesList = request.messages.toOpenAIMessages(request.systemPrompt)
-
         val selectedModel = request.model?.takeIf { it.isNotBlank() } ?: "google/gemini-2.0-flash-exp:free"
 
-        val requestBodyMap = mutableMapOf<String, Any>(
-            "model" to selectedModel,
-            "messages" to messagesList,
-            "temperature" to request.temperature,
-            "max_tokens" to request.maxTokens
-        )
-        if (request.responseFormat == ResponseFormat.JSON) {
-            requestBodyMap["response_format"] = mapOf("type" to "json_object")
-        }
-
-        // v1.3.0 (Phase 14 WAVE C): the reasoning-effort selection reaches
-        // the wire for this OpenAI-compatible provider too, not just Zen.
-        // Spec-gated exactly like OpenCodeZenProvider — the field is sent only
-        // when the user picked a level AND the model's models.dev registry
-        // entry lists it. With no selection the registry is never consulted,
-        // so the request stays byte-identical to v1.2.x.
-        ReasoningEffort.applyToBody(requestBodyMap, request, selectedModel, registry)
+        val requestBodyMap = buildRequestBody(request, selectedModel)
 
         val bodyJson = gson.toJson(requestBodyMap)
         val httpRequest = Request.Builder()
             .url(endpoint)
             .header("Authorization", "Bearer $apiKey")
-            .header("HTTP-Referer", "https://opendroid.ai")
-            .header("X-Title", "OpenDroid")
+            // v1.3.0 brand cleanup: OpenRouter attributes traffic by these
+            // headers on their dashboard — the app's real identity, not the
+            // upstream fork's.
+            .header("HTTP-Referer", "https://github.com/tsftraders3-ops/TSF-Droid")
+            .header("X-Title", "TSF Droid")
             .post(bodyJson.toRequestBody(mediaType))
             .build()
 
@@ -109,13 +94,61 @@ class OpenRouterProvider @Inject constructor(
         } // withContext
     }
 
-    override fun streamComplete(request: LLMRequest): Flow<String> = flow {
-        val response = complete(request)
-        val words = response.content.split(" ")
-        for (word in words) {
-            emit("$word ")
-            kotlinx.coroutines.delay(50)
+    /** The chat/completions body shared by [complete] and [streamComplete]. */
+    private fun buildRequestBody(
+        request: LLMRequest,
+        selectedModel: String
+    ): MutableMap<String, Any> {
+        val messagesList = request.messages.toOpenAIMessages(request.systemPrompt)
+
+        val requestBodyMap = mutableMapOf<String, Any>(
+            "model" to selectedModel,
+            "messages" to messagesList,
+            "temperature" to request.temperature,
+            "max_tokens" to request.maxTokens
+        )
+        if (request.responseFormat == ResponseFormat.JSON) {
+            requestBodyMap["response_format"] = mapOf("type" to "json_object")
         }
+
+        // v1.3.0 (Phase 14 WAVE C): the reasoning-effort selection reaches
+        // the wire for this OpenAI-compatible provider too, not just Zen.
+        // Spec-gated exactly like OpenCodeZenProvider — the field is sent only
+        // when the user picked a level AND the model's models.dev registry
+        // entry lists it. With no selection the registry is never consulted,
+        // so the request stays byte-identical to v1.2.x.
+        ReasoningEffort.applyToBody(requestBodyMap, request, selectedModel, registry)
+        return requestBodyMap
+    }
+
+    // v1.3.0: REAL SSE streaming (OpenAICompatSSE) — the old implementation
+    // replayed a finished complete() word-by-word after the full model
+    // latency had already elapsed.
+    override fun streamComplete(request: LLMRequest): Flow<String> = channelFlow {
+        val selectedModel = request.model?.takeIf { it.isNotBlank() } ?: "google/gemini-2.0-flash-exp:free"
+        val apiKey = resolveApiKey(request)
+        OpenAICompatSSE.pump(
+            client = client,
+            url = endpoint,
+            bodyMap = buildRequestBody(request, selectedModel),
+            gson = gson,
+            mediaType = mediaType,
+            provider = ProviderErrorDetail.Provider.OPENROUTER,
+            request = request,
+            model = selectedModel,
+            apiKey = apiKey,
+            extraHeaders = mapOf(
+                "HTTP-Referer" to "https://github.com/tsftraders3-ops/TSF-Droid",
+                "X-Title" to "TSF Droid"
+            ),
+            onDelta = { delta -> send(delta) }
+        )
+    }
+
+    private suspend fun resolveApiKey(request: LLMRequest): String? {
+        val config = settingsRepository.llmConfig.first()
+        return request.providerConfig?.apiKey?.takeIf { it.isNotBlank() }
+            ?: config.apiKeys[name]
     }
 
     override suspend fun isAvailable(): Boolean {

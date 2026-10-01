@@ -9,7 +9,7 @@ import com.tsfdroid.ai.core.util.UrlUtils
 import com.tsfdroid.ai.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -43,27 +43,7 @@ class CustomOpenAIProvider @Inject constructor(
         val startTime = System.currentTimeMillis()
         val selectedModel = request.model?.takeIf { it.isNotBlank() } ?: "gpt-4o"
 
-        // Build messages payload
-        val messagesList = request.messages.toOpenAIMessages(request.systemPrompt)
-
-        val requestBodyMap = mutableMapOf<String, Any>(
-            "model" to selectedModel,
-            "messages" to messagesList,
-            "temperature" to request.temperature,
-            "max_tokens" to request.maxTokens
-        )
-
-        if (request.responseFormat == ResponseFormat.JSON) {
-            requestBodyMap["response_format"] = mapOf("type" to "json_object")
-        }
-
-        // v1.3.0 (Phase 14 WAVE C): the reasoning-effort selection reaches
-        // the wire for this OpenAI-compatible provider too, not just Zen.
-        // Spec-gated exactly like OpenCodeZenProvider — the field is sent only
-        // when the user picked a level AND the model's models.dev registry
-        // entry lists it. With no selection the registry is never consulted,
-        // so the request stays byte-identical to v1.2.x.
-        ReasoningEffort.applyToBody(requestBodyMap, request, selectedModel, registry)
+        val requestBodyMap = buildRequestBody(request, selectedModel)
 
         val bodyJson = gson.toJson(requestBodyMap)
         val httpRequest = Request.Builder()
@@ -104,13 +84,60 @@ class CustomOpenAIProvider @Inject constructor(
         } // withContext
     }
 
-    override fun streamComplete(request: LLMRequest): Flow<String> = flow {
-        val response = complete(request)
-        val words = response.content.split(" ")
-        for (word in words) {
-            emit("$word ")
-            kotlinx.coroutines.delay(50)
+    /** The chat/completions body shared by [complete] and [streamComplete]. */
+    private fun buildRequestBody(
+        request: LLMRequest,
+        selectedModel: String
+    ): MutableMap<String, Any> {
+        // Build messages payload
+        val messagesList = request.messages.toOpenAIMessages(request.systemPrompt)
+
+        val requestBodyMap = mutableMapOf<String, Any>(
+            "model" to selectedModel,
+            "messages" to messagesList,
+            "temperature" to request.temperature,
+            "max_tokens" to request.maxTokens
+        )
+
+        if (request.responseFormat == ResponseFormat.JSON) {
+            requestBodyMap["response_format"] = mapOf("type" to "json_object")
         }
+
+        // v1.3.0 (Phase 14 WAVE C): the reasoning-effort selection reaches
+        // the wire for this OpenAI-compatible provider too, not just Zen.
+        // Spec-gated exactly like OpenCodeZenProvider — the field is sent only
+        // when the user picked a level AND the model's models.dev registry
+        // entry lists it. With no selection the registry is never consulted,
+        // so the request stays byte-identical to v1.2.x.
+        ReasoningEffort.applyToBody(requestBodyMap, request, selectedModel, registry)
+        return requestBodyMap
+    }
+
+    // v1.3.0: REAL SSE streaming (OpenAICompatSSE) — the old implementation
+    // replayed a finished complete() word-by-word after the full model
+    // latency had already elapsed. Some custom OpenAI-compatible servers do
+    // not support `stream: true`; when the endpoint answers non-2xx the
+    // sanitized provider error surfaces exactly like complete() would.
+    override fun streamComplete(request: LLMRequest): Flow<String> = channelFlow {
+        val config = settingsRepository.llmConfig.first()
+        val apiKey = request.providerConfig?.apiKey?.takeIf { it.isNotBlank() }
+            ?: config.apiKeys[name] ?: ""
+        val baseUrl = request.providerConfig?.endpoint?.takeIf { it.isNotBlank() }
+            ?.let { UrlUtils.formatBaseUrl(it, "https://api.openai.com/v1") }
+            ?: UrlUtils.formatBaseUrl(config.customEndpoints[name] ?: "", "https://api.openai.com/v1")
+        val selectedModel = request.model?.takeIf { it.isNotBlank() } ?: "gpt-4o"
+        OpenAICompatSSE.pump(
+            client = client,
+            url = "$baseUrl/chat/completions",
+            bodyMap = buildRequestBody(request, selectedModel),
+            gson = gson,
+            mediaType = mediaType,
+            provider = ProviderErrorDetail.Provider.CUSTOM_OPENAI,
+            request = request,
+            model = selectedModel,
+            apiKey = apiKey.takeIf { it.isNotBlank() },
+            onDelta = { delta -> send(delta) }
+        )
     }
 
     override suspend fun isAvailable(): Boolean {

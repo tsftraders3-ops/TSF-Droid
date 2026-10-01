@@ -145,7 +145,7 @@ data class SocialAutomationRule(
 data class SocialAuditEntry(
     val id: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val actor: String, // OPENDROID_AI, USER, AUTO_RULE
+    val actor: String, // TSF_DROID_AI, USER, AUTO_RULE
     val action: String, // DRAFTED_POST, APPROVED_POST, PUBLISHED_POST, SCHEDULED_POST, CLASSIFIED_INBOX, SUGGESTED_REPLY, SENT_REPLY, CONNECTED_ACCOUNT, REVOKED_ACCOUNT
     val platform: SocialPlatform,
     val targetId: String? = null,

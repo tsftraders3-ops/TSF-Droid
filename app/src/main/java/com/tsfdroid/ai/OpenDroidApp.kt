@@ -8,6 +8,7 @@ import com.tsfdroid.ai.core.crash.OpenDroidCrashHandler
 import com.tsfdroid.ai.core.memory.MemoryManager
 import com.tsfdroid.ai.core.security.LegacyPreferenceMigration
 import com.tsfdroid.ai.data.crash.CrashLogRepository
+import com.tsfdroid.ai.social.core.worker.SocialScheduleWorker
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +49,19 @@ class OpenDroidApp : Application() {
             } catch (e: Exception) {
                 // Silently ignore cleanup errors to not block app startup
             }
+        }
+
+        // v1.3.0: the social schedule consumer is REAL now — the worker existed
+        // since v1.0 but NOTHING ever enqueued it, so scheduled posts sat in
+        // the DB forever and the scheduler UI was a promise the app never
+        // kept. The periodic worker (15 min, network-required) publishes due
+        // posts; the approval gate inside the worker still honors the user's
+        // automation level (default APPROVAL — nothing publishes silently).
+        try {
+            SocialScheduleWorker.enqueuePeriodicWork(this)
+        } catch (e: Exception) {
+            // WorkManager init failures must never block app startup.
+            Log.e(TAG, "Failed to schedule the social worker", e)
         }
     }
 

@@ -9,7 +9,7 @@ import com.tsfdroid.ai.core.util.UrlUtils
 import com.tsfdroid.ai.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -52,27 +52,7 @@ class CopilotProvider @Inject constructor(
 
         val selectedModel = request.model?.takeIf { it.isNotBlank() } ?: "gpt-4o"
 
-        // Build messages payload
-        val messagesList = request.messages.toOpenAIMessages(request.systemPrompt)
-
-        val requestBodyMap = mutableMapOf<String, Any>(
-            "model" to selectedModel,
-            "messages" to messagesList,
-            "temperature" to request.temperature,
-            "max_tokens" to request.maxTokens
-        )
-
-        if (request.responseFormat == ResponseFormat.JSON) {
-            requestBodyMap["response_format"] = mapOf("type" to "json_object")
-        }
-
-        // v1.3.0 (Phase 14 WAVE C): the reasoning-effort selection reaches
-        // the wire for this OpenAI-compatible provider too, not just Zen.
-        // Spec-gated exactly like OpenCodeZenProvider — the field is sent only
-        // when the user picked a level AND the model's models.dev registry
-        // entry lists it. With no selection the registry is never consulted,
-        // so the request stays byte-identical to v1.2.x.
-        ReasoningEffort.applyToBody(requestBodyMap, request, selectedModel, registry)
+        val requestBodyMap = buildRequestBody(request, selectedModel)
 
         val bodyJson = gson.toJson(requestBodyMap)
         val requestBuilder = Request.Builder()
@@ -116,13 +96,67 @@ class CopilotProvider @Inject constructor(
         } // withContext
     }
 
-    override fun streamComplete(request: LLMRequest): Flow<String> = flow {
-        val response = complete(request)
-        val words = response.content.split(" ")
-        for (word in words) {
-            emit("$word ")
-            kotlinx.coroutines.delay(50)
+    /** The chat/completions body shared by [complete] and [streamComplete]. */
+    private fun buildRequestBody(
+        request: LLMRequest,
+        selectedModel: String
+    ): MutableMap<String, Any> {
+        // Build messages payload
+        val messagesList = request.messages.toOpenAIMessages(request.systemPrompt)
+
+        val requestBodyMap = mutableMapOf<String, Any>(
+            "model" to selectedModel,
+            "messages" to messagesList,
+            "temperature" to request.temperature,
+            "max_tokens" to request.maxTokens
+        )
+
+        if (request.responseFormat == ResponseFormat.JSON) {
+            requestBodyMap["response_format"] = mapOf("type" to "json_object")
         }
+
+        // v1.3.0 (Phase 14 WAVE C): the reasoning-effort selection reaches
+        // the wire for this OpenAI-compatible provider too, not just Zen.
+        // Spec-gated exactly like OpenCodeZenProvider — the field is sent only
+        // when the user picked a level AND the model's models.dev registry
+        // entry lists it. With no selection the registry is never consulted,
+        // so the request stays byte-identical to v1.2.x.
+        ReasoningEffort.applyToBody(requestBodyMap, request, selectedModel, registry)
+        return requestBodyMap
+    }
+
+    // v1.3.0: REAL SSE streaming (OpenAICompatSSE) — the old implementation
+    // replayed a finished complete() word-by-word after the full model
+    // latency had already elapsed. Auth stays optional: a local Copilot
+    // proxy accepts keyless calls.
+    override fun streamComplete(request: LLMRequest): Flow<String> = channelFlow {
+        val config = settingsRepository.llmConfig.first()
+        val baseUrl = UrlUtils.formatBaseUrl(
+            request.providerConfig?.endpoint?.takeIf { it.isNotBlank() } ?: config.copilotUrl,
+            ""
+        )
+        if (baseUrl.isEmpty()) {
+            throw IllegalStateException("Copilot server URL is not configured. Set it in Settings.")
+        }
+        val endpoint = when {
+            baseUrl.endsWith("/v1/chat/completions") || baseUrl.endsWith("/chat/completions") -> baseUrl
+            baseUrl.endsWith("/v1") -> "$baseUrl/chat/completions"
+            else -> "$baseUrl/v1/chat/completions"
+        }
+        val selectedModel = request.model?.takeIf { it.isNotBlank() } ?: "gpt-4o"
+        val apiKey = request.providerConfig?.apiKey?.takeIf { it.isNotBlank() } ?: config.apiKeys[name]
+        OpenAICompatSSE.pump(
+            client = client,
+            url = endpoint,
+            bodyMap = buildRequestBody(request, selectedModel),
+            gson = gson,
+            mediaType = mediaType,
+            provider = ProviderErrorDetail.Provider.COPILOT,
+            request = request,
+            model = selectedModel,
+            apiKey = apiKey?.takeIf { it.isNotBlank() },
+            onDelta = { delta -> send(delta) }
+        )
     }
 
     override suspend fun isAvailable(): Boolean {

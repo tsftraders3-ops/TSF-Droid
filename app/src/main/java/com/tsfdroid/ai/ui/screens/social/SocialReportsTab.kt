@@ -46,7 +46,7 @@ fun SocialReportsTab(
     }
 
     val reportText = buildString {
-        appendLine("📊 OPENDROID SOCIAL EXECUTIVE REPORT")
+        appendLine("📊 TSF DROID SOCIAL EXECUTIVE REPORT")
         appendLine("Period: $dateRange")
         appendLine("──────────────────────────────────────────")
         weeklyReport?.let { r ->
@@ -223,7 +223,7 @@ fun SocialReportsTab(
                     Text("Grounded Insights Verification", color = theme.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "OpenDroid strictly distinguishes between Observed Metrics, Calculated Insights, and Strategic Suggestions to eliminate hallucinations.",
+                        "TSF Droid strictly distinguishes between Observed Metrics, Calculated Insights, and Strategic Suggestions to eliminate hallucinations.",
                         color = theme.textSecondary,
                         fontSize = 11.sp,
                         lineHeight = 15.sp

@@ -34,7 +34,7 @@ class SocialScheduleWorker(
 
     companion object {
         private const val TAG = "SocialScheduleWorker"
-        const val WORK_NAME = "opendroid_social_schedule_worker"
+        const val WORK_NAME = "tsf_social_schedule_worker"
 
         fun enqueuePeriodicWork(context: Context) {
             val constraints = Constraints.Builder()

@@ -77,6 +77,34 @@ actually works end to end, verified feature by feature.
 - No tool-call caps: 10 harness rounds each batching multiple tool calls,
   32k output ceiling with automatic continuation, doom-loop guard — the old
   4-call limit is long gone and stays gone.
+- REAL streaming everywhere: every cloud provider now pumps actual SSE
+  deltas (OpenAI, Groq, Mistral, OpenRouter, DeepSeek, Together, Copilot
+  and custom endpoints via one shared OpenAI-compatible pump; Claude
+  content_block_delta; Gemini streamGenerateContent; Cohere v2 chat). The
+  old word-by-word replay of a FINISHED completion — full latency staring
+  at an empty bubble, then a fake typewriter — is gone, with the Zen
+  transport discipline (per-line cancellation checks, sanitized error
+  boundary, bounded bodies) applied to every pump.
+- Hard wall clocks where stalls could hang a turn: every in-app HTTP fetch
+  is abandoned after its timeout (HttpURLConnection's connect/read
+  timeouts did not bound DNS or black-holed endpoints — a gold-price
+  WEB_SEARCH step once sat silent for 10 minutes), and every non-interactive
+  plan step is bounded at 3 minutes and fails honestly instead of holding
+  the turn hostage. ASK_USER stays unbounded by design — user thinking
+  time must never trip a timer.
+- The Gemini "gemini-nano" mock is gone: it answered with fabricated data
+  (including a hardcoded "mock completed successfully" string) while
+  presenting itself as a real model. The model entry is removed; a saved
+  config still pinned to it now gets the honest ModelUnavailable
+  classification from the real endpoint.
+- The social scheduler is real: SocialScheduleWorker existed since v1.0 but
+  nothing ever enqueued it — scheduled posts sat in the DB forever. The
+  15-minute periodic worker is now scheduled at app start (network-gated,
+  and the in-worker approval gate still honors the automation level, default
+  APPROVAL — nothing publishes silently).
+- Brand cleanup: user-facing OpenDroid remnants replaced (Settings
+  about/privacy/terms/storage lines, social report header/disclaimer,
+  social actor labels, OpenRouter attribution headers).
 - Room v13 → v14 (ask options column, migration tested), 791 unit tests
   green (was 715 at v1.2.1), E2E suite extended and green.
 

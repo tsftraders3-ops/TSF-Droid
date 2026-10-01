@@ -1,14 +1,14 @@
-# 🚀 OpenDroid Product Hunt Launch & Community Kit
+# 🚀 TSF Droid Product Hunt Launch & Community Kit
 
-> **Product Hunt Listing**: [OpenDroid on Product Hunt](https://www.producthunt.com/products/opendroid?utm_source=other&utm_medium=social)  
-> **GitHub Repository**: [yashab-cyber/OpenDroid](https://github.com/yashab-cyber/OpenDroid)  
-> **Official Website**: [yashab-cyber.github.io/opendroid](https://yashab-cyber.github.io/opendroid/)
+> **Product Hunt Listing**: [TSF Droid on Product Hunt](https://www.producthunt.com/products/tsf-droid?utm_source=other&utm_medium=social)  
+> **GitHub Repository**: [yashab-cyber/TSF Droid](https://github.com/yashab-cyber/TSF Droid)  
+> **Fork attribution**: TSF Droid is a fork of [OpenDroid](https://github.com/yashab-cyber/opendroid) by Yashab Alam — all credit for the original architecture goes to them.
 
 ---
 
 ## 📌 Executive Summary
 
-OpenDroid has officially launched on Product Hunt! This document serves as the comprehensive Launch & Community Kit for maintainers, contributors, and advocates. It contains verified launch assets, maker comment templates, social announcement copy, and conversion optimization strategies.
+TSF Droid has officially launched on Product Hunt! This document serves as the comprehensive Launch & Community Kit for maintainers, contributors, and advocates. It contains verified launch assets, maker comment templates, social announcement copy, and conversion optimization strategies.
 
 ---
 
@@ -19,14 +19,14 @@ OpenDroid has officially launched on Product Hunt! This document serves as the c
 ```markdown
 👋 Hi Product Hunt community! 
 
-I'm Yashab, creator of **OpenDroid** — an open-source, fully autonomous AI agent that runs on your Android device.
+I'm Yashab, creator of **TSF Droid** — an open-source, fully autonomous AI agent that runs on your Android device.
 
-### ❓ Why OpenDroid?
+### ❓ Why TSF Droid?
 Most mobile AI apps today are glorified chatbots — you type a question, and they return text. But smartphones are meant for action. We wanted an agent that could handle multi-step real-world workflows on your phone, like:
 
 > *"Check if it's going to rain, text my partner if so, and set a reminder to pack an umbrella at 7 AM."*
 
-OpenDroid breaks down complex multi-step tasks, executes them via accessibility-driven screen automation or direct system APIs, verifies results, and dynamically re-plans if a step fails.
+TSF Droid breaks down complex multi-step tasks, executes them via accessibility-driven screen automation or direct system APIs, verifies results, and dynamically re-plans if a step fails.
 
 ### ✨ Key Highlights:
 - 📱 **On-Device LLM Support**: Download and run LiteRT models locally for 100% offline privacy, zero API costs, and instant responses.
@@ -35,7 +35,7 @@ OpenDroid breaks down complex multi-step tasks, executes them via accessibility-
 - 🛡️ **Privacy & Intent Safeguards**: Encrypted key storage, schema-enforced actions, and strict permission controls.
 - 📂 **100% Open Source**: Built with Kotlin and Jetpack Compose under the Apache 2.0 license.
 
-We’d love to hear your thoughts, test cases, feature requests, and honest feedback! What automations would you like OpenDroid to perform next?
+We’d love to hear your thoughts, test cases, feature requests, and honest feedback! What automations would you like TSF Droid to perform next?
 
 Thank you for your support! 🚀
 ```
@@ -51,9 +51,9 @@ Thank you for your support! 🚀
 
 ### 2. Primary Description
 ```markdown
-OpenDroid is an open-source autonomous AI assistant for Android that plans and executes complex multi-step tasks across your apps and system settings. 
+TSF Droid is an open-source autonomous AI assistant for Android that plans and executes complex multi-step tasks across your apps and system settings. 
 
-Powered by local LiteRT models or 11+ cloud LLM providers (DeepSeek, Claude, OpenAI, Ollama), OpenDroid combines accessibility automation, screen vision, voice control, and multi-tier memory to give you total control over your phone.
+Powered by local LiteRT models or 11+ cloud LLM providers (DeepSeek, Claude, OpenAI, Ollama), TSF Droid combines accessibility automation, screen vision, voice control, and multi-tier memory to give you total control over your phone.
 
 Key Features:
 - Autonomous Multi-Step Planning & Dynamic Re-evaluation
@@ -64,11 +64,11 @@ Key Features:
 ```
 
 ### 3. Recommended FAQs for Product Hunt Page
-1. **Is OpenDroid completely free and open-source?**
-   - Yes! OpenDroid is 100% open-source (Apache 2.0). You can run local models for free or bring your own API keys.
-2. **Does OpenDroid send my personal data to external servers?**
+1. **Is TSF Droid completely free and open-source?**
+   - Yes! TSF Droid is 100% open-source (Apache 2.0). You can run local models for free or bring your own API keys.
+2. **Does TSF Droid send my personal data to external servers?**
    - No. When using on-device models (LiteRT), zero data leaves your phone. When using cloud providers, API calls go directly to the provider of your choice using your encrypted API keys.
-3. **How does OpenDroid execute actions on my phone?**
+3. **How does TSF Droid execute actions on my phone?**
    - It uses Android's Accessibility API, intent dispatchers, and system services with multi-tier error fallback.
 4. **What Android versions are supported?**
    - Android 8.0 (API level 26) and higher.
@@ -78,21 +78,21 @@ Key Features:
 ## 📢 Community Announcement Templates
 
 ### A. GitHub Discussion (Announcements Category)
-**Title**: 🚀 OpenDroid is live on Product Hunt! We'd love your support & feedback!
+**Title**: 🚀 TSF Droid is live on Product Hunt! We'd love your support & feedback!
 **Body**:
 ```markdown
-Hey OpenDroid Community! 👋
+Hey TSF Droid Community! 👋
 
-We are thrilled to announce that **OpenDroid is officially live on Product Hunt!** 
+We are thrilled to announce that **TSF Droid is officially live on Product Hunt!** 
 
-👉 **[Check out OpenDroid on Product Hunt](https://www.producthunt.com/products/opendroid?utm_source=other&utm_medium=social)**
+👉 **[Check out TSF Droid on Product Hunt](https://www.producthunt.com/products/tsf-droid?utm_source=other&utm_medium=social)**
 
 ### 🤖 Why this matters
-OpenDroid started with a vision: giving everyone a privacy-preserving, autonomous AI agent on Android. Thanks to your feedback, contributions, and support, we've built a multi-provider, on-device model manager with screen vision and autonomous planning.
+TSF Droid started with a vision: giving everyone a privacy-preserving, autonomous AI agent on Android. Thanks to your feedback, contributions, and support, we've built a multi-provider, on-device model manager with screen vision and autonomous planning.
 
 ### 💬 How you can help:
-1. Visit our [Product Hunt listing](https://www.producthunt.com/products/opendroid?utm_source=other&utm_medium=social).
-2. Leave an **honest review, comment, or question** about your experience with OpenDroid.
+1. Visit our [Product Hunt listing](https://www.producthunt.com/products/tsf-droid?utm_source=other&utm_medium=social).
+2. Leave an **honest review, comment, or question** about your experience with TSF Droid.
 3. Share what features or automations you'd like to see next!
 4. Help spread the word with fellow Android power users and open-source enthusiasts!
 
@@ -103,14 +103,14 @@ Thank you all for being part of this journey! 💚
 
 ### B. Social Media (X / Twitter & LinkedIn)
 ```text
-🚀 Big news: OpenDroid is officially live on @ProductHunt!
+🚀 Big news: TSF Droid is officially live on @ProductHunt!
 
 Your phone. Your rules. Your AI. 🤖
 
-OpenDroid is an open-source autonomous agent for Android that plans & executes real multi-step workflows using local (LiteRT/Ollama) or cloud (DeepSeek/Claude/OpenAI) LLMs.
+TSF Droid is an open-source autonomous agent for Android that plans & executes real multi-step workflows using local (LiteRT/Ollama) or cloud (DeepSeek/Claude/OpenAI) LLMs.
 
 Check it out and leave your feedback 👇
-https://www.producthunt.com/products/opendroid?utm_source=other&utm_medium=social
+https://www.producthunt.com/products/tsf-droid?utm_source=other&utm_medium=social
 
 #OpenSource #Android #AIAgent #ProductHunt #DeepSeek #Ollama #Kotlin
 ```

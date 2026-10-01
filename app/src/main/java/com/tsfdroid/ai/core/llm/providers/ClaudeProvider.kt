@@ -10,15 +10,20 @@ import com.tsfdroid.ai.data.models.resolveClaudeModelOrNull
 import com.tsfdroid.ai.data.repository.SettingsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.BufferedReader
 import java.io.IOException
+import java.io.InputStreamReader
+import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -131,13 +136,106 @@ class ClaudeProvider @Inject constructor(
         } // withContext
     }
 
-    override fun streamComplete(request: LLMRequest): Flow<String> = flow {
+    // v1.3.0: REAL SSE streaming via /v1/messages with stream:true — the old
+    // implementation replayed a finished complete() word-by-word after the
+    // full model latency had already elapsed. Claude's SSE events carry
+    // content_block_delta frames whose data lines are self-describing JSON
+    // (only `data:` lines need parsing). Same per-line ensureActive discipline
+    // as the Zen pump so caller timeouts land within one inter-line gap.
+    override fun streamComplete(request: LLMRequest): Flow<String> = channelFlow {
         try {
-            val response = complete(request)
-            val words = response.content.split(" ")
-            for (word in words) {
-                emit("$word ")
-                kotlinx.coroutines.delay(50)
+            val config = settingsRepository.llmConfig.first()
+            val apiKey = request.providerConfig?.apiKey?.takeIf { it.isNotBlank() }
+                ?: config.apiKeys[name]
+                ?: throw IllegalStateException("API Key for $name is not set.")
+
+            val requestedModel = request.model?.takeIf { it.isNotBlank() }
+            val selectedModel = if (requestedModel == null) {
+                ClaudeModelCatalog.defaultModelId
+            } else {
+                config.resolveClaudeModelOrNull(requestedModel)
+                    ?: throw IllegalStateException(
+                        "The selected Claude model \"$requestedModel\" is no longer supported. " +
+                            "Please pick another model in Settings."
+                    )
+            }
+
+            val messagesList = mutableListOf<Map<String, Any>>()
+            request.messages.forEach { msg ->
+                val role = if (msg.sender == com.tsfdroid.ai.data.models.ChatMessage.Sender.USER) "user" else "assistant"
+                if (msg.imageBase64 != null && role == "user") {
+                    messagesList.add(
+                        mapOf(
+                            "role" to role,
+                            "content" to listOf(
+                                mapOf("type" to "text", "text" to msg.text),
+                                mapOf(
+                                    "type" to "image",
+                                    "source" to mapOf(
+                                        "type" to "base64",
+                                        "media_type" to "image/jpeg",
+                                        "data" to msg.imageBase64
+                                    )
+                                )
+                            )
+                        )
+                    )
+                } else {
+                    messagesList.add(mapOf("role" to role, "content" to msg.text))
+                }
+            }
+
+            val requestBodyMap = mutableMapOf<String, Any>(
+                "model" to selectedModel,
+                "system" to request.systemPrompt,
+                "messages" to messagesList,
+                "max_tokens" to request.maxTokens,
+                "stream" to true
+            )
+            if (ClaudeModelCatalog.acceptsSamplingParameters(selectedModel)) {
+                requestBodyMap["temperature"] = request.temperature
+            }
+
+            val httpRequest = Request.Builder()
+                .url("https://api.anthropic.com/v1/messages")
+                .header("x-api-key", apiKey)
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .post(gson.toJson(requestBodyMap).toRequestBody(mediaType))
+                .build()
+
+            withContext(Dispatchers.IO) {
+                client.newCall(httpRequest).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw response.toSafeProviderException(
+                            provider = ProviderErrorDetail.Provider.CLAUDE,
+                            request = request,
+                            knownSecrets = listOf(apiKey)
+                        )
+                    }
+                    val pumpContext = currentCoroutineContext()
+                    val source = response.body.source()
+                    BufferedReader(
+                        InputStreamReader(source.inputStream(), StandardCharsets.UTF_8)
+                    ).useLines { lines ->
+                        for (line in lines) {
+                            pumpContext.ensureActive()
+                            if (!line.startsWith("data:")) continue
+                            val payload = line.removePrefix("data:").trim()
+                            if (payload.isEmpty()) continue
+                            val chunk = runCatching {
+                                gson.fromJson(payload, JsonObject::class.java)
+                            }.getOrNull() ?: continue
+                            if (chunk.get("type")?.takeIf { it.isJsonPrimitive }?.asString
+                                != "content_block_delta"
+                            ) continue
+                            val text = chunk.getAsJsonObject("delta")
+                                ?.get("text")?.takeIf { it.isJsonPrimitive }?.asString
+                                ?: continue
+                            if (text.isNotEmpty()) send(text)
+                        }
+                    }
+                }
             }
         } catch (e: CancellationException) {
             // Never convert cancellation into a failure: it must propagate so the

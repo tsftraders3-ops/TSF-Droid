@@ -125,9 +125,10 @@ class LLMProviderFactory @Inject constructor(
                 config.customEndpoints[provider].orEmpty().isNotBlank() &&
                     config.apiKeys[provider].orEmpty().isNotBlank()
             else -> {
-                val model = config.selectedModelFor(provider)
+                // v1.3.0: the gemini-nano no-key exemption is gone with the
+                // model itself — a config still pinned to it is not usable
+                // until the user picks a real model and key.
                 !ProviderCatalog.requiresApiKey(provider) ||
-                    (provider == "Google Gemini" && model == "gemini-nano") ||
                     config.apiKeys[provider].orEmpty().isNotBlank()
             }
         }
@@ -304,7 +305,6 @@ class WrappedLLMProvider(
         val apiKey = config.apiKeys[provider].orEmpty()
 
         if (ProviderCatalog.requiresApiKey(provider) &&
-            !(provider == "Google Gemini" && model == "gemini-nano") &&
             apiKey.isBlank()
         ) {
             throw LLMErrorMapper.authMissing(provider, model)

@@ -10,6 +10,12 @@ import java.net.URL
 import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Singleton
 class InformationActions @Inject constructor() {
@@ -39,21 +45,57 @@ class InformationActions @Inject constructor() {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
         /**
+         * v1.3.0 (run-107): dedicated scope for the abandon-on-timeout fetch
+         * pattern below. SupervisorJob so one pathological fetch never cancels
+         * the others.
+         */
+        private val boundedFetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        /**
          * In-app HTTP GET used by the real web capability: WEB_SEARCH,
          * GET_NEWS, SUMMARIZE_URL, FETCH_URL and the rest of the information
          * actions fetch live data over the network WITHOUT opening a browser.
          * Returns null on any failure — callers walk their own backend chain.
+         *
+         * v1.3.0 (run-107 evidence, BOTH E2E passes): HttpURLConnection's
+         * connect/read timeouts do NOT bound the whole exchange — DNS
+         * resolution, redirect chains, and trickle-fed reads can each stall
+         * a "12-second" fetch for many minutes (the gold-price WEB_SEARCH
+         * plan step went silent 09:51:45 -> 10:02 with zero activity). This
+         * is now a HARD wall clock: the blocking fetch runs on its own
+         * worker and is ABANDONED after [timeoutMs] — a zombie thread may
+         * linger on its own socket timeouts, but it can never hold the turn
+         * hostage. Callers walk their backend chain as before.
          */
-        fun httpGetText(
+        suspend fun httpGetText(
             url: String,
             maxBytes: Int = MAX_FETCH_BYTES,
             userAgent: String = USER_AGENT,
             timeoutMs: Int = FETCH_TIMEOUT_MS
         ): String? {
+            val deferred = boundedFetchScope.async {
+                blockingGetText(url, maxBytes, userAgent)
+            }
+            val result = try {
+                withTimeoutOrNull(timeoutMs.toLong()) { deferred.await() }
+            } catch (e: CancellationException) {
+                // The CALLER (turn cancel/user stop) was cancelled — not our
+                // timeout. Never swallow that.
+                deferred.cancel()
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (result == null) deferred.cancel()
+            return result
+        }
+
+        /** The raw blocking fetch — only ever called on [boundedFetchScope]. */
+        private fun blockingGetText(url: String, maxBytes: Int, userAgent: String): String? {
             return try {
                 val connection = URL(url).openConnection() as HttpURLConnection
-                connection.connectTimeout = timeoutMs
-                connection.readTimeout = timeoutMs
+                connection.connectTimeout = 12_000
+                connection.readTimeout = 12_000
                 connection.instanceFollowRedirects = true
                 connection.setRequestProperty("User-Agent", userAgent)
                 connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -87,7 +129,7 @@ class InformationActions @Inject constructor() {
          * Every data action walks this before admitting failure; none of
          * them open a browser.
          */
-        fun fetchPageText(url: String, maxChars: Int): String? {
+        suspend fun fetchPageText(url: String, maxChars: Int): String? {
             val direct = httpGetText(url)?.let { WebContentParsers.htmlToText(it, maxChars) }
             if (!direct.isNullOrBlank()) return direct
             val desktop = httpGetText(url, userAgent = USER_AGENT_DESKTOP)
@@ -110,7 +152,7 @@ class InformationActions @Inject constructor() {
          * nothing to downstream plan steps and the user explicitly asked
          * for no-browser operation.
          */
-        fun searchWeb(query: String): String? {
+        suspend fun searchWeb(query: String): String? {
             val encQuery = URLEncoder.encode(query, "UTF-8")
 
             val lite = httpGetText("https://lite.duckduckgo.com/lite/?q=$encQuery")
@@ -150,7 +192,7 @@ class InformationActions @Inject constructor() {
          * fallback) used by CURRENCY_CONVERT and unit-conversion currency
          * codes. Companion-scoped so nested action classes can call it.
          */
-        fun currencyConvert(amount: Double, from: String, to: String): ActionResult {
+        suspend fun currencyConvert(amount: Double, from: String, to: String): ActionResult {
             try {
                 val body = httpGetText("https://open.er-api.com/v6/latest/${from.uppercase()}", timeoutMs = 8_000)
                 val rate = body?.let { b ->
