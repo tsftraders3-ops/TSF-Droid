@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
@@ -359,14 +360,38 @@ class SocialManager @Inject constructor(
         Result.success(Unit)
     }
 
+    /**
+     * v1.3.0: real implementation. The previous body fetched flows it never
+     * used and returned success without touching a single account — the Sync
+     * All button in the Social dashboard was pure theatre. Now it syncs every
+     * connected account through the same [syncAccount] path the per-account
+     * button uses, and reports an honest failure when any account failed.
+     */
     suspend fun syncAllAccounts(): Result<Unit> = withContext(Dispatchers.IO) {
-        val accounts = socialRepository.getAllAccountsFlow()
-        // Run sync for each connected account
-        val connected = socialRepository.getConnectedAccountsFlow()
-        // We'll trigger sync for each account
         try {
-            val accountsList = socialRepository.getAccountByPlatform(SocialPlatform.TELEGRAM)?.let { listOf(it) } ?: emptyList()
-            Result.success(Unit)
+            val accounts = socialRepository.getConnectedAccountsFlow().first()
+            if (accounts.isEmpty()) {
+                return@withContext Result.success(Unit)
+            }
+
+            var failures = 0
+            for (account in accounts) {
+                val result = syncAccount(account.id)
+                if (result.isFailure) {
+                    failures++
+                    Log.e(
+                        "SocialManager",
+                        "syncAllAccounts: ${account.platform} account ${account.id} failed: " +
+                            "${result.exceptionOrNull()?.message}"
+                    )
+                }
+            }
+
+            if (failures == 0) {
+                Result.success(Unit)
+            } else {
+                Result.failure(IllegalStateException("$failures of ${accounts.size} account syncs failed"))
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }

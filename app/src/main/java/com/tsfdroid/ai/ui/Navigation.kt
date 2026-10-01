@@ -433,7 +433,7 @@ private fun AuroraMoreSheet(
         ) {
             MoreSheetItem(Icons.Default.AutoAwesome, "Routines", "$routineCount detected") { onNavigateToRoutines() }
             MoreSheetItem(Icons.Default.Share, "Social", "7 platforms") { onNavigate(Screen.Social) }
-            MoreSheetItem(Icons.Default.Notifications, "Notifications", "$pendingCount pending") { onNavigateToNotificationHistory() }
+            MoreSheetItem(Icons.Default.Notifications, "Notifications", if (pendingCount > 0) "$pendingCount pending" else "All clear") { onNavigateToNotificationHistory() }
             MoreSheetItem(Icons.Default.Lock, "Permissions", null) { onNavigateToPermissions() }
             MoreSheetItem(Icons.Default.History, "Logs", null) { onNavigate(Screen.History) }
             MoreSheetItem(Icons.Default.Settings, "Settings", null) { onNavigate(Screen.Settings) }
@@ -516,6 +516,18 @@ fun MainDashboard(
     val historyViewModel: HistoryViewModel = hiltViewModel()
     val settingsViewModel: SettingsViewModel = hiltViewModel()
 
+    // v1.3.0: the More sheet shows REAL database counts. Before this it was
+    // hardcoded "3 detected / 2 pending" — fabricated numbers presented as
+    // if they were state, the same honesty class as the removed nano mock.
+    val routineViewModel: RoutineViewModel = hiltViewModel()
+    val notificationHistoryViewModel: NotificationHistoryViewModel = hiltViewModel()
+    val routines by routineViewModel.allRoutines.collectAsState()
+    val notifications by notificationHistoryViewModel.notificationDao
+        .getAllNotificationsFlow()
+        .collectAsState(initial = emptyList())
+    val realRoutineCount = routines.size
+    val realPendingCount = notifications.count { !it.isAutoReplied }
+
     Scaffold(
         bottomBar = {
             AuroraBottomNav(
@@ -589,7 +601,7 @@ fun MainDashboard(
             moreSheetVisible = false
             onNavigateToNotificationHistory()
         },
-        routineCount = 3,
-        pendingCount = 2
+        routineCount = realRoutineCount,
+        pendingCount = realPendingCount
     )
 }

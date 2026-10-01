@@ -1,5 +1,14 @@
 # System Architecture & Solution Design - OpenDroid
 
+> **STATUS NOTE (v1.3.0, 2026-10-01):** This is the upstream-era architecture
+> document (pre-Aurora UI, Room v8, no harness). Kept for background. The
+> current architecture's source of truth is the code map in `README.md`, the
+> release-by-release facts in `CHANGELOG.md`, and the state table in
+> `ROADMAP.md`. Biggest drift: the agent core is now the multi-call tool
+> harness (`core/agent/HarnessLoop.kt`, `AgentLoop.kt`) with Chat/Agent mode
+> separation, the DB is Room v14, and the UI is the Aurora design system.
+
+
 This document provides a comprehensive architectural breakdown, solution design, infrastructure scaling strategy, technical stack specification, data flows, and API contracts for **OpenDroid** — a production-ready, autonomous, self-planning AI agent for Android devices.
 
 ---

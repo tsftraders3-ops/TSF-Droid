@@ -1,5 +1,15 @@
 # Technical Requirement Document (TRD) - OpenDroid
 
+> **STATUS NOTE (v1.3.0, 2026-10-01):** This is the upstream-era design document
+> written against the pre-Aurora UI and Room schema v8. It is kept for design
+> archaeology, NOT as a description of the current app. For what actually
+> ships, read `CHANGELOG.md` (per-release facts), `ROADMAP.md` (current
+> state table), and `docs/architecture.md`. Known drift: the DB is now Room
+> v14, the UI is the Aurora design system, and the agent runs the OpenCode-
+> style multi-call harness described in `docs/architecture.md`.
+
+
+
 ## Document Control
 * **Document Version:** v1.2.0
 * **Last Updated:** August 20, 2026

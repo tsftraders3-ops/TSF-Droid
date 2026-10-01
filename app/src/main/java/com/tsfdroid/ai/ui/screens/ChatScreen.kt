@@ -88,6 +88,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -519,6 +520,17 @@ fun ChatScreen(
                     // the greeting avatar above the first exchange.
                     if (history.isEmpty() && visibleAgentState !is AgentState.Thinking) {
                         item(key = "aurora-greeting") {
+                            // v1.3.0: greeting follows the wall clock (same
+                            // thresholds as HabitRoutineEngine) instead of a
+                            // hardcoded "Good morning" at 23:00.
+                            val greeting = remember {
+                                val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                                when {
+                                    hour < 12 -> "Good morning"
+                                    hour < 17 -> "Good afternoon"
+                                    else -> "Good evening"
+                                }
+                            }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -529,7 +541,7 @@ fun ChatScreen(
                                 com.tsfdroid.ai.ui.components.AuroraBlob(size = 64.dp, iconSize = 32.dp)
                                 Column {
                                     Text(
-                                        text = "Good morning",
+                                        text = greeting,
                                         style = MaterialTheme.typography.displayMedium,
                                         color = TextPrimary
                                     )

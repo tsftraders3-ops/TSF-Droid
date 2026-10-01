@@ -1,4 +1,12 @@
 # System & Function Prompts Directory - OpenDroid
+> **STATUS NOTE (v1.3.0, 2026-10-01):** The prompt inventory below predates the
+> v1.2.0 harness. The live system prompts now live in
+> `app/src/main/java/com/tsfdroid/ai/core/llm/prompts/SystemPrompts.kt`
+> (agent + chat mode separation), `HarnessPrompts.kt` (the OpenCode-style
+> multi-call tool loop, ask_user, citation discipline), `PlanningPrompts.kt`
+> (plan discipline incl. ASK_USER rules), and the memory extractor prompts
+> under `core/memory/`. Treat this page as history, not a map.
+
 
 This document provides a comprehensive repository of all system prompts, function calling prompts, safety critic templates, and prompt-injection guardrails powering **OpenDroid**.
 

@@ -21,8 +21,13 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    # v1.2.0: the suite grew to 22 capability tests (mode read-only proofs,
-    # agent write proof, upload UI) — worst-case waits exceed 70 minutes.
+    # v1.3.0: the suite is 40 tests across 10 classes — the 22 capability
+    # suite of v1.2.0 plus the 14 formerly-orphaned instrumented tests wired
+    # in round 9 (a11y targeting, screen scrape, service readiness, keystore
+    # AEAD, credential store) and the v1.3.0 additions (ask round-trip,
+    # bounded fetch, SSE streaming). Worst-case waits exceed 70 minutes;
+    # a failing first pass triggers one clean retry (free-tier latency
+    # flakes move between runs).
     timeout-minutes: 240
 
     steps:

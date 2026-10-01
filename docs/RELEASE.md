@@ -1,5 +1,11 @@
 # OpenDroid Releases
 
+> **STATUS NOTE (v1.3.0, 2026-10-01):** The live release process is
+> `RELEASE.md` at the repo root (signed APKs via the `release.yml` workflow on
+> tag push, SHA-256 checksums, 4 signing secrets). This page is the upstream's
+> historical release log. Current releases: https://github.com/tsftraders3-ops/TSF-Droid/releases
+
+
 This document tracks release updates, changelogs, and binary verification checksums for the OpenDroid project.
 
 ---

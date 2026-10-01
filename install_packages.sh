@@ -55,12 +55,15 @@ export ANDROID_HOME
 export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
 
 # 3. Accept Licenses & install target SDK platforms
-echo "[3/5] Installing Android SDK platforms & build-tools (API 35)..."
+echo "[3/5] Installing Android SDK platforms & build-tools (API 36)..."
 # Accept all SDK licenses automatically
 yes | sdkmanager --licenses
 
 # Install platforms, build-tools, and platform-tools
-sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+# v1.3.0: the project compiles against API 36 (app/build.gradle compileSdk 36
+# and the E2E emulator boots API 34) — API 35 was a drift from before the
+# v1.2.0 toolchain bump.
+sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
 # 4. Configure environment variables in .bashrc if not already present
 echo "[4/5] Configuring environment variables..."
@@ -104,8 +107,11 @@ fi
 
 # 5. Bootstrap Gradle Wrapper
 echo "[5/5] Bootstrapping Gradle Wrapper..."
-GRADLE_VERSION="8.10.2"
-GRADLE_SHA256="31c55713e40233a8303827ceb42ca48a47267a0ad4bab9177123121e71524c26"
+# v1.3.0: match gradle/wrapper/gradle-wrapper.properties (9.7.0). The old
+# 8.10.2 bootstrap disagreed with the wrapper and regenerated a downgraded
+# one when gradlew was missing.
+GRADLE_VERSION="9.7.0"
+GRADLE_SHA256="84fbba45c7f4c64abc77460e1c00f541e9f960e3c7ed2538f1ede19eacd873ae"
 if [ ! -f "gradlew" ]; then
     echo "Gradle wrapper not found in project root. Downloading temporary Gradle distribution to bootstrap..."
     TEMP_DIR=$(mktemp -d)

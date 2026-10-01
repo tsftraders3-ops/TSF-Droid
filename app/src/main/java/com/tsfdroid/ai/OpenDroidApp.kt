@@ -63,6 +63,17 @@ class OpenDroidApp : Application() {
             // WorkManager init failures must never block app startup.
             Log.e(TAG, "Failed to schedule the social worker", e)
         }
+
+        // v1.3.0: the macro cron consumer. SCHEDULE_MACRO has been writing
+        // `cron:` triggers since v1.0 but nothing ever executed them — scheduled
+        // macros were a promise the app never kept. The periodic worker
+        // (15 min) evaluates each enabled macro's cron trigger and runs its
+        // steps when due; at-most-once semantics (see MacroSchedulerWorker).
+        try {
+            com.tsfdroid.ai.core.agent.MacroSchedulerWorker.enqueuePeriodicWork(this)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to schedule the macro worker", e)
+        }
     }
 
     private fun installCrashHandler() {
