@@ -101,7 +101,7 @@ fun AboutScreen(
                             // transparent padding overflows into the Box's circle clip.
                             Image(
                                 painter = painterResource(id = R.drawable.bot),
-                                contentDescription = "OpenDroid app icon",
+                                contentDescription = "TSF Droid app icon",
                                 modifier = Modifier.requiredSize(150.dp)
                             )
                         }
@@ -109,7 +109,7 @@ fun AboutScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            text = "OpenDroid",
+                            text = "TSF Droid",
                             fontSize = 28.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = TextPrimary,
@@ -147,7 +147,7 @@ fun AboutScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "WHAT IS OPENDROID?",
+                            text = "WHAT IS TSF DROID?",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
@@ -155,12 +155,12 @@ fun AboutScreen(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "OpenDroid is an advanced autonomous AI assistant that runs directly on your Android device. " +
+                            text = "TSF Droid is an advanced autonomous AI assistant that runs directly on your Android device. " +
                                     "It can understand natural language commands, create multi-step execution plans, and automate " +
                                     "virtually any task on your phone — from sending messages and making calls to controlling " +
                                     "system settings and managing files.\n\n" +
                                     "Powered by your choice of LLM provider (Gemini, OpenAI, Claude, Groq, local Ollama, and more), " +
-                                    "OpenDroid combines intelligent planning with real device automation through Android's Accessibility framework.",
+                                    "TSF Droid combines intelligent planning with real device automation through Android's Accessibility framework.",
                             fontSize = 13.sp,
                             color = TextPrimary,
                             lineHeight = 20.sp
@@ -298,7 +298,7 @@ fun AboutScreen(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "OpenDroid is open source software. Contributions, bug reports, and feature requests are welcome.",
+                            text = "TSF Droid is open source software. Contributions, bug reports, and feature requests are welcome.",
                             fontSize = 13.sp,
                             color = TextPrimary,
                             textAlign = TextAlign.Center,
@@ -306,7 +306,7 @@ fun AboutScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "github.com/yashab-cyber/opendroid",
+                            text = "github.com/tsftraders3-ops/TSF-Droid",
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.SemiBold,

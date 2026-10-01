@@ -521,7 +521,24 @@ class AgentLoop @Inject constructor(
         memoryManager.storeMessage(askMsg, sessionId)
         _pendingAsk.value = PendingAsk(sessionId, question, options)
         try {
-            return awaitUserResponse(sessionId)
+            val answer = awaitUserResponse(sessionId)
+            // v1.3.0 round-8: the ask answer is often a durable preference
+            // ("Which city do you prefer?" -> "Pune") — exactly what the
+            // Hermes memory is for. The normal learnFromExchange hook fires
+            // at the end of a chat turn, but the answer path returns before
+            // it, so ask answers were never learned. Background, never
+            // blocks, never fails the ask.
+            if (answer.isNotBlank()) {
+                scope.launch {
+                    runCatching {
+                        memoryLearner.learnFromExchange(
+                            userText = "The assistant asked me: \"$question\"\nMy answer: $answer",
+                            assistantText = question
+                        )
+                    }
+                }
+            }
+            return answer
         } finally {
             _pendingAsk.value = null
             // If the ask was cancelled BEFORE the park installed, nothing
@@ -1258,7 +1275,13 @@ class AgentLoop @Inject constructor(
 
             // v1.3.0: the measured thinking phase of this turn, rendered as a
             // leading "Thought for X" step (Claude-style) on every save path.
-            val thinkingDurationMs = if (firstReasoningAt > 0L) {
+            // v1.3.0 round-8: var — the harness-fallback phases (tool loop,
+            // forced search) extend it below, so those bubbles render
+            // "THOUGHT FOR Xs" too instead of a bare THINKING header (the
+            // round-3 critic's also-noted: harness-path duration was
+            // unmeasured because firstReasoningAt/firstContentAt only move
+            // in the stream collector).
+            var thinkingDurationMs = if (firstReasoningAt > 0L) {
                 (if (firstContentAt > 0L) firstContentAt else System.currentTimeMillis()) - firstReasoningAt
             } else {
                 0L
@@ -1286,9 +1309,14 @@ class AgentLoop @Inject constructor(
                     "AgentLoop",
                     "blank/monologue streamed reply (len=${currentReplyText.length}) — handing the turn to the harness"
                 )
+                val harnessStartAt = System.currentTimeMillis()
                 val harnessAnswer = harnessFallbackTurn(provider, turnConfig, lastMsgs)
                 if (!harnessAnswer.isNullOrBlank()) {
-                    val handoffSteps = stepsSnapshotWithThinking()
+                    // v1.3.0 round-8: the harness tool phase counts toward the
+                    // thinking duration — Claude-style, tool time included.
+                    val handoffSteps = currentStepsWithThinking(
+                        thinkingDurationMs + (System.currentTimeMillis() - harnessStartAt)
+                    )
                     val handoffEncoded = com.tsfdroid.ai.core.harness.ActivitySteps.encode(handoffSteps)
                     android.util.Log.i(
                         "AgentLoop",
@@ -1339,6 +1367,7 @@ class AgentLoop @Inject constructor(
                 requiresFreshData(userMsg.text)
             ) {
                 android.util.Log.i("AgentLoop", "research guarantee: fresh-data ask answered with zero tool events — running the harness search")
+                val researchStartAt = System.currentTimeMillis()
                 val grounded = harnessFallbackTurn(provider, turnConfig, lastMsgs)
                 // v1.2.1 round-6 fix (cap15 failed both CI passes): the model
                 // can DODGE the re-ask and answer from memory again (zero tool
@@ -1360,6 +1389,10 @@ class AgentLoop @Inject constructor(
                 } else {
                     grounded
                 }
+                // v1.3.0 round-8: the harness research phase counts toward the
+                // thinking duration so the final bubble's header reads
+                // "THOUGHT FOR Xs" on this path too.
+                thinkingDurationMs += System.currentTimeMillis() - researchStartAt
                 if (!groundedFinal.isNullOrBlank()) {
                     currentReplyText = groundedFinal
                     persistReply(force = true)
@@ -2993,6 +3026,21 @@ class AgentLoop @Inject constructor(
                 ),
                 originalParams
             )
+        }
+
+        // v1.3.0 round-8: an ask answer is often a durable preference
+        // ("Which city do you prefer?" -> "Pune") — exactly what the Hermes
+        // memory is for. The normal learnFromExchange hook lives at the end
+        // of a chat turn, and the answer path returns BEFORE it, so ask
+        // answers were never learned. Feed the Q&A pair to the learner in
+        // the background (never blocks, never fails the ask).
+        scope.launch {
+            runCatching {
+                memoryLearner.learnFromExchange(
+                    userText = "The assistant asked me: \"${needsInput.question}\"\nMy answer: $answer",
+                    assistantText = needsInput.question
+                )
+            }
         }
 
         val userEcho = ChatMessage(
