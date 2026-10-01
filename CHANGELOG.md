@@ -145,6 +145,23 @@ actually works end to end, verified feature by feature.
   history is context, not instructions, and topics from earlier turns never
   justify ask steps in an unrelated goal; the E2E driver also starts every
   task under test from a fresh chat.
+- Degenerate search queries are repaired: a planner once wrote
+  WEB_SEARCH {query: "current"} for "Fetch the current gold price" and the
+  honest turn then delivered a fintech's marketing page as its price data
+  (verified against the live backend). SearchQueryQuality now detects a
+  query that degenerated to a lone generic word and derives a real phrase
+  from the goal ("current gold price"), applied by the plan validator with
+  a log line; the planner prompt demands complete noun-phrase queries.
+- Search results are region-pinned: the E2E backends served
+  locale-poisoned results for English queries (Chinese dictionary entries
+  for a gold-price search). Both DuckDuckGo endpoints carry kl=us-en, Bing
+  setlang=en, Google News the US edition — and every search now logs its
+  query, each backend attempt's result count and first title, so the
+  evidence trail is in logcat, not screenshots.
+- The full forensic loop that closed the gold test: plan params, dispatched
+  params, per-backend search results, watchdog heartbeats and plan
+  lifecycle are all logged now — 10+ rounds of "why did the turn die"
+  ended with the reply "GC=F is at 4209.3 USD" on the green run.
 - Brand cleanup: user-facing OpenDroid remnants replaced (Settings
   about/privacy/terms/storage lines, social report header/disclaimer,
   social actor labels, OpenRouter attribution headers).
