@@ -1,5 +1,20 @@
 # Ticket sweep handoff — 2026-07-29
 
+
+> **STATUS NOTE (v1.3.0, 2026-10-01, TSF-Droid fork):** This handoff was
+> written against the upstream `JMAN730/opendroid` tracker and predates the
+> TSF fork's v1.0–v1.3.0 development. Most of it landed in the fork, via
+> different code than the ticket proposed: #46 (raw 401 bodies) is fixed by
+> `toSafeProviderException` with known-secrets scrubbing in every provider
+> (tested in `ProviderErrorDetailTest`); #33/#28 (fake streaming, dead
+> safety net) were fixed by the real SSE rewrite — every provider pumps real
+> deltas now; #31 (chat error surfacing) landed as `ChatErrorUiState`
+> (tested); #30 (fractional durations) is fixed in `DurationParser` with
+> regression tests; #32 (connection testing) no longer leans on
+> `isAvailable()`; #42 (CI gaps) — unit tests + lint gate every push and the
+> E2E suite runs on an API-34 emulator. Upstream-process tickets (#24, #34,
+> PR #36/#38 merge order) are moot in the fork. Treat anything unmentioned
+> here as history.
 Session goal: close every open ticket on the fork (`JMAN730/opendroid`), one fresh agent
 session per ticket, grilling tickets self-grilled, PRs opened at the end.
 

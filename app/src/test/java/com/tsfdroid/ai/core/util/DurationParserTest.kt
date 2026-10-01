@@ -49,4 +49,25 @@ class DurationParserTest {
         assertNull(DurationParser.parseToSeconds(""))
         assertNull(DurationParser.parseToSeconds("   "))
     }
+
+    // v1.3.0 (upstream ticket #30): fractional amounts used to be silently
+    // truncated — "2m59.56s" parsed as 176s because the integer-only capture
+    // dropped the "59." ahead of the "s" and matched only "56s".
+    @Test
+    fun `parses fractional seconds in compact forms`() {
+        assertEquals(180, DurationParser.parseToSeconds("2m59.56s"))
+        assertEquals(181, DurationParser.parseToSeconds("3m0.9s"))
+    }
+
+    @Test
+    fun `parses fractional hour and minute amounts`() {
+        assertEquals(5400, DurationParser.parseToSeconds("1.5h"))
+        assertEquals(90, DurationParser.parseToSeconds("1.5 minutes"))
+    }
+
+    @Test
+    fun `fractional results round to nearest second and never reach zero`() {
+        assertEquals(1, DurationParser.parseToSeconds("0.4s"))
+        assertEquals(90, DurationParser.parseToSeconds("1.4999m"))
+    }
 }
