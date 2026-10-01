@@ -138,6 +138,13 @@ actually works end to end, verified feature by feature.
   so the user gets the substance the turn already gathered instead of a
   silent wedge. A late-resuming superseded loop exits harmlessly via an
   epoch check.
+- Planner history-bleed hardening: the E2E suite's shared conversation
+  history (one app install per pass) once produced a solar-research plan
+  whose only step asked which city the user prefers — a question copied
+  from an earlier chat. The ASK_USER discipline now states explicitly that
+  history is context, not instructions, and topics from earlier turns never
+  justify ask steps in an unrelated goal; the E2E driver also starts every
+  task under test from a fresh chat.
 - Brand cleanup: user-facing OpenDroid remnants replaced (Settings
   about/privacy/terms/storage lines, social report header/disclaimer,
   social actor labels, OpenRouter attribution headers).

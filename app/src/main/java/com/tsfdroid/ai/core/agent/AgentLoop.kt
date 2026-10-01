@@ -39,7 +39,6 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -351,6 +350,18 @@ class AgentLoop @Inject constructor(
      * resume must not fight the salvage).
      */
     private val planExecutionEpoch = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
+     * v1.3.0 round 18: the stall watchdog runs on its OWN thread. Run-122
+     * evidence: the watchdog armed at plan start never logged a single line
+     * while the plan coroutine sat wedged for 10 minutes — so round 16's
+     * version either died with the plan coroutine (its finally-cancel!) or
+     * starved on Dispatchers.Default. A dedicated single thread answers
+     * neither to the plan coroutine's lifetime nor to any pool's health.
+     */
+    private val planWatchdogScope by lazy {
+        CoroutineScope(kotlinx.coroutines.newSingleThreadContext("plan-stall-watchdog"))
+    }
 
     // The currently in-flight processQuery/approveProposedPlan job, if any. Tracked so a
     // fresh query (or an explicit cancel) can stop whatever the agent is doing right now.
@@ -2475,30 +2486,53 @@ class AgentLoop @Inject constructor(
         askedUserDuringPlan = false
         var currentPlanState = planManager.currentPlan.value ?: return
 
-        // v1.3.0 round 16: the plan-stall watchdog. Progress is "any loop
-        // iteration or step completion" — see PLAN_STALL_WATCHDOG_MS for why
-        // this exists (the never-resuming-continuation wedge class that no
-        // segment-level withTimeout can catch). The epoch guards against a
-        // late-resuming superseded loop fighting the salvage; ASK parking is
-        // exempt (user thinking time is unbounded by design).
+        // v1.3.0 round 18: the plan-stall watchdog, DECOUPLED from the plan
+        // coroutine's lifetime. Round 16 cancelled it in a finally — which
+        // meant any silent coroutine death (the observed wedge!) took the
+        // watchdog down with it before the 7-minute threshold. Now the
+        // watchdog self-terminates on its own observations only: the plan
+        // went terminal, or a newer epoch superseded it. It polls on a
+        // dedicated single thread (immune to pool exhaustion) and logs a
+        // heartbeat every cycle so the next run's evidence shows exactly
+        // what it saw. ASK parking is exempt (user thinking time is
+        // unbounded by design).
         val myEpoch = planExecutionEpoch.incrementAndGet()
         val lastProgressAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
-        val stallWatchdog = scope.launch {
-            while (isActive) {
+        val armedAt = System.currentTimeMillis()
+        planWatchdogScope.launch {
+            android.util.Log.i("PlanStallWatchdog", "armed: epoch=$myEpoch goal='${plan.goal.take(48)}'")
+            while (true) {
                 delay(PLAN_STALL_CHECK_INTERVAL_MS)
-                val parkedOnAsk = waitingSessionId != null || _pendingAsk.value != null
-                if (parkedOnAsk) {
-                    lastProgressAt.set(System.currentTimeMillis())
-                    continue
+                // Retire after 30 minutes — an indefinitely parked ask (the
+                // user walked away) must not heartbeat forever.
+                if (System.currentTimeMillis() - armedAt > 1_800_000L) {
+                    android.util.Log.i("PlanStallWatchdog", "retiring after 30min (epoch=$myEpoch)")
+                    break
                 }
-                if (System.currentTimeMillis() - lastProgressAt.get() > PLAN_STALL_WATCHDOG_MS) {
+                val current = planManager.currentPlan.value
+                if (planExecutionEpoch.get() != myEpoch || current == null ||
+                    current.status != PlanStatus.RUNNING
+                ) {
+                    android.util.Log.i(
+                        "PlanStallWatchdog",
+                        "exiting: epoch=${planExecutionEpoch.get()}/$myEpoch status=${current?.status}"
+                    )
+                    break
+                }
+                val parkedOnAsk = waitingSessionId != null || _pendingAsk.value != null
+                val ageMs = System.currentTimeMillis() - lastProgressAt.get()
+                android.util.Log.i(
+                    "PlanStallWatchdog",
+                    "alive: epoch=$myEpoch ageMs=$ageMs parked=$parkedOnAsk"
+                )
+                if (parkedOnAsk) continue
+                if (ageMs > PLAN_STALL_WATCHDOG_MS) {
                     salvageStalledPlan(sessionId, myEpoch, lastProgressAt.get())
                     break
                 }
             }
         }
 
-        try {
         while (true) {
             // v1.3.0 round 16: a superseded loop (stall-watchdog salvage, or a
             // newer plan) must exit silently the moment it regains control.
@@ -2939,18 +2973,12 @@ class AgentLoop @Inject constructor(
                 }
             }
         }
-        } finally {
-            // v1.3.0 round 16: the loop exited on its own — the stall
-            // watchdog is no longer needed. (The ABANDON `return` above also
-            // lands here; `break` paths too. Cancellation of a completed
-            // coroutine is a no-op.)
-            stallWatchdog.cancel()
-        }
     }
 
     /**
-     * v1.3.0 round 16: the plan-stall salvage. Runs on [scope] — a coroutine
-     * INDEPENDENT of the (possibly never-resuming) plan coroutine — so it
+     * v1.3.0 round 16/18: the plan-stall salvage. Runs on the watchdog's
+     * dedicated thread — fully INDEPENDENT of the (possibly never-resuming)
+     * plan coroutine and of every dispatcher pool — so it
      * works no matter where the wedge sits. Everything it does is bounded,
      * mutex-free, and deterministic (no LLM call: a stalling free tier must
      * not delay the salvage too). The reply quotes the completed steps'
