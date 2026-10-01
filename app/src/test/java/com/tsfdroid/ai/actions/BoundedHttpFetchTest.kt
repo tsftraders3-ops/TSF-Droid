@@ -3,7 +3,11 @@ package com.tsfdroid.ai.actions
 import java.net.InetAddress
 import java.net.ServerSocket
 import kotlin.concurrent.thread
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -64,7 +68,7 @@ class BoundedHttpFetchTest {
 
         try {
             // A generous wall clock, but the CALLER cancels long before it.
-            val job = kotlinx.coroutines.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val job: Job = launch(Dispatchers.IO) {
                 InformationActions.httpGetText(
                     url = "http://127.0.0.1:${server.localPort}/cancel",
                     timeoutMs = 20_000
@@ -74,7 +78,7 @@ class BoundedHttpFetchTest {
             job.cancel()
             // If cancellation were swallowed, join would hang until the
             // 20s wall clock; the test timeout would catch it.
-            kotlinx.coroutines.withTimeout(5_000) { job.join() }
+            withTimeout(5_000) { job.join() }
             assertTrue("job joined after cancel", job.isCompleted)
         } finally {
             runCatching { server.close() }
