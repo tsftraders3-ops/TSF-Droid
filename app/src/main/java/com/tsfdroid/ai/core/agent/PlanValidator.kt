@@ -93,6 +93,29 @@ class PlanValidator @Inject constructor(
                 }
             }
 
+            // v1.3.0 round 19 (the gold-query lesson): a WEB_SEARCH whose
+            // query degenerated to a lone generic word ("current" for the
+            // goal "Fetch the current gold price") is repaired here — the
+            // honest turn would otherwise deliver whatever the backend
+            // returns for the torn-out adjective (a fintech's marketing
+            // page as its "price data"). The replacement is derived
+            // deterministically from the goal, which is always about the
+            // substance of the ask.
+            if (updatedStep.action.uppercase() == "WEB_SEARCH") {
+                val query = updatedStep.params["query"]?.trim().orEmpty()
+                if (SearchQueryQuality.isDegenerate(query)) {
+                    val derived = SearchQueryQuality.fromGoal(plan.goal)
+                    if (derived.isNotBlank() && derived.length >= query.length) {
+                        android.util.Log.w(
+                            "PlanValidator",
+                            "degenerate WEB_SEARCH query '$query' replaced with '$derived' (goal='${plan.goal.take(60)}')"
+                        )
+                        val fixedParams = updatedStep.params.toMutableMap().apply { put("query", derived) }
+                        updatedStep = updatedStep.copy(params = fixedParams)
+                    }
+                }
+            }
+
             val commActions = listOf("SEND_WHATSAPP", "SEND_TELEGRAM", "MAKE_CALL", "SEND_SMS", "MAKE_VIDEO_CALL")
             if (commActions.contains(updatedStep.action.uppercase()) && updatedStep.params.containsKey("contact")) {
                 val contactName = updatedStep.params["contact"] ?: ""

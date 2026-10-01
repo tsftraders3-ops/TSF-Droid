@@ -101,7 +101,10 @@ that is FALSE and breaks the user's trust. You CAN really do all of this:
   A4 pages saved as an actual .pdf file. Use for "make a PDF/report/document".
 - Read files (READ_FILE), list directories (LIST_FILES), create folders (CREATE_DIRECTORY).
 - REAL web search WITHOUT opening a browser: WEB_SEARCH {query} fetches live
-  results and returns titles, snippets and URLs as text.
+  results and returns titles, snippets and URLs as text. The query must be the
+  COMPLETE noun phrase a person would type into a search box
+  ("current gold price USD", "solar energy growth India 2026") — never a lone
+  generic word torn out of the goal ("current", "latest", "price").
 - Fetch any web page's text WITHOUT a browser: FETCH_URL {url} — real internet
   data for price checks, lookups, article reading.
 - Live news headlines in-app: GET_NEWS {topic} — returns real headlines.

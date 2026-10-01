@@ -2496,6 +2496,16 @@ class AgentLoop @Inject constructor(
         // heartbeat every cycle so the next run's evidence shows exactly
         // what it saw. ASK parking is exempt (user thinking time is
         // unbounded by design).
+        // v1.3.0 round 19: the plan's params on the record at execution
+        // start — run-123's degenerate WEB_SEARCH query could only be read
+        // off a screenshot because nothing logged the params the planner
+        // actually wrote.
+        android.util.Log.i(
+            "AgentLoop",
+            "plan start: goal='${plan.goal.take(60)}' steps=" + plan.steps.joinToString("; ") { st ->
+                "${st.action}(" + st.params.entries.joinToString(",") { "${it.key}=${it.value.take(40)}" } + ")"
+            }.take(900)
+        )
         val myEpoch = planExecutionEpoch.incrementAndGet()
         val lastProgressAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
         val armedAt = System.currentTimeMillis()
