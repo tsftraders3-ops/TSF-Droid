@@ -186,6 +186,19 @@ private const val HARNESS_TURN_TIMEOUT_MS = 900_000L
  * pathological stall into an honest step failure the plan can recover from.
  */
 private const val ACTION_STEP_TIMEOUT_MS = 180_000L
+
+/**
+ * v1.3.0 (run-113): the post-step advisory machinery is bounded too — the
+ * evaluator/replan LLM calls and the memory bookkeeping. Run-113 evidence
+ * (gold turn, both passes): the evaluator's Zen call returned a 2-char
+ * reply, and the turn then went SILENT forever — no advisory-failure log,
+ * no step completion, no summary; the coroutine wedged somewhere in the
+ * post-call tail. Every segment of that tail is now individually bounded:
+ * a wedged call degrades to the same honest paths the existing catches
+ * already handle (advisory CONTINUE / null replan / skipped logging).
+ */
+private const val ADVISORY_CALL_TIMEOUT_MS = 120_000L
+private const val MEMORY_LOG_TIMEOUT_MS = 60_000L
 /**
  * v1.3.0 round-7: dedicated bound for the ask-confirmation summary call —
  * a single 120-token sentence must never borrow the 15-minute turn budget;
@@ -2572,19 +2585,21 @@ class AgentLoop @Inject constructor(
             val canonicalActionName = actionDispatcher.canonicalActionName(stepToExecute.action)
 
             try {
-                memoryManager.logTaskExecution(
-                    stepId = stepToExecute.stepId,
-                    planId = currentPlanState.planId,
-                    description = ExecutionHistoryPrivacy.sanitizeDescription(
-                        canonicalActionName,
-                        stepToExecute.description
-                    ),
-                    actionType = stepToExecute.action,
-                    params = ExecutionHistoryPrivacy.sanitizeParams(canonicalActionName, resolvedParams),
-                    success = actionResult.success,
-                    resultData = actionResult.data?.let(com.tsfdroid.ai.core.crash.CrashLogRedactor::redact),
-                    errorMessage = actionResult.error?.let(com.tsfdroid.ai.core.crash.CrashLogRedactor::redact)
-                )
+                withTimeout(MEMORY_LOG_TIMEOUT_MS) {
+                    memoryManager.logTaskExecution(
+                        stepId = stepToExecute.stepId,
+                        planId = currentPlanState.planId,
+                        description = ExecutionHistoryPrivacy.sanitizeDescription(
+                            canonicalActionName,
+                            stepToExecute.description
+                        ),
+                        actionType = stepToExecute.action,
+                        params = ExecutionHistoryPrivacy.sanitizeParams(canonicalActionName, resolvedParams),
+                        success = actionResult.success,
+                        resultData = actionResult.data?.let(com.tsfdroid.ai.core.crash.CrashLogRedactor::redact),
+                        errorMessage = actionResult.error?.let(com.tsfdroid.ai.core.crash.CrashLogRedactor::redact)
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2647,13 +2662,23 @@ class AgentLoop @Inject constructor(
                 val remaining = currentPlanState.steps.filter { it.status == StepStatus.PENDING }
 
                 val replan = try {
-                    reEvalEngine.get().replanAfterUnknownAction(
-                        originalGoal = currentPlanState.goal,
-                        failedStep = stepToExecute,
-                        completedSteps = completed,
-                        remainingSteps = remaining,
-                        planId = currentPlanState.planId
+                    withTimeout(ADVISORY_CALL_TIMEOUT_MS) {
+                        reEvalEngine.get().replanAfterUnknownAction(
+                            originalGoal = currentPlanState.goal,
+                            failedStep = stepToExecute,
+                            completedSteps = completed,
+                            remainingSteps = remaining,
+                            planId = currentPlanState.planId
+                        )
+                    }
+                } catch (e: TimeoutCancellationException) {
+                    // v1.3.0 run-113: a wedged replan call degrades to null —
+                    // the same honest path as the LLMException catch below.
+                    android.util.Log.w(
+                        "AgentLoop",
+                        "Replan after unknown action exceeded ${ADVISORY_CALL_TIMEOUT_MS / 1000}s — continuing"
                     )
+                    null
                 } catch (e: LLMException) {
                     // v1.0.6: a failed REPLANNER must not kill the plan — the
                     // failed step is already FAILED; remaining steps are still
@@ -2756,7 +2781,13 @@ class AgentLoop @Inject constructor(
             }
 
             // Refresh current state of plan
-            currentPlanState = planManager.currentPlan.value ?: break
+            // v1.3.0 run-113 forensic: a NULL plan state here ends the turn
+            // SILENTLY (no summary, no reply — the gold-test symptom). Log it
+            // so the next run's evidence distinguishes this from a wedge.
+            currentPlanState = planManager.currentPlan.value ?: run {
+                android.util.Log.w("AgentLoop", "plan state vanished after step '${stepToExecute.action}' — ending plan silently")
+                break
+            }
 
             // Re-evaluate Plan Loop
             val completed = currentPlanState.steps.filter { it.status == StepStatus.COMPLETED }
@@ -2768,13 +2799,27 @@ class AgentLoop @Inject constructor(
             }
 
             val reEval = try {
-                reEvalEngine.get().evaluateStepResult(
-                    originalGoal = currentPlanState.goal,
-                    completedSteps = completed,
-                    failedSteps = failed,
-                    remainingSteps = remaining,
-                    planId = currentPlanState.planId
+                withTimeout(ADVISORY_CALL_TIMEOUT_MS) {
+                    reEvalEngine.get().evaluateStepResult(
+                        originalGoal = currentPlanState.goal,
+                        completedSteps = completed,
+                        failedSteps = failed,
+                        remainingSteps = remaining,
+                        planId = currentPlanState.planId
+                    )
+                }
+            } catch (e: TimeoutCancellationException) {
+                // v1.3.0 run-113 (gold turn, both passes): the evaluator's
+                // reply came back 2-chars-with-heavy-reasoning, the
+                // post-call tail then wedged the plan coroutine SILENTLY for
+                // 10 minutes — no advisory-failure log ever fired. A wedged
+                // evaluator now degrades to the exact same advisory-CONTINUE
+                // path a malformed reply takes: the plan marches on.
+                android.util.Log.w(
+                    "AgentLoop",
+                    "Step re-evaluation exceeded ${ADVISORY_CALL_TIMEOUT_MS / 1000}s — treating as CONTINUE"
                 )
+                null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2789,7 +2834,13 @@ class AgentLoop @Inject constructor(
             }
 
             if (reEval == null) {
-                currentPlanState = planManager.currentPlan.value ?: break
+                currentPlanState = planManager.currentPlan.value ?: run {
+                    android.util.Log.w(
+                        "AgentLoop",
+                        "plan state vanished after null re-eval — ending plan silently"
+                    )
+                    break
+                }
                 continue
             }
 
