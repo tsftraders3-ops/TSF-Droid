@@ -154,23 +154,36 @@ class InformationActions @Inject constructor() {
          */
         suspend fun searchWeb(query: String): String? {
             val encQuery = URLEncoder.encode(query, "UTF-8")
+            // v1.3.0 round 20: the gold-query forensics trail — run-124's
+            // plan carried a GOOD query but the reply contained dictionary
+            // garbage, and nothing logged WHICH backend answered with WHAT.
+            // Each attempt now states the query, backend, count and first
+            // title, so the artifacts show the divergence directly.
+            // kl=us-en pins DDG to the US-English region: an egress IP in
+            // another region serves locale-poisoned results (the observed
+            // Chinese-dictionary entries for an English price query).
+            Log.i(TAG, "searchWeb query='$query'")
 
-            val lite = httpGetText("https://lite.duckduckgo.com/lite/?q=$encQuery")
+            val lite = httpGetText("https://lite.duckduckgo.com/lite/?q=$encQuery&kl=us-en")
                 ?.let { WebContentParsers.parseDuckDuckGoLite(it) }.orEmpty()
+            Log.i(TAG, "backend=lite results=${lite.size} first='${lite.firstOrNull()?.title?.take(60)}'")
             if (lite.isNotEmpty()) return renderResults(query, lite)
 
-            val html = httpGetText("https://html.duckduckgo.com/html/?q=$encQuery")
+            val html = httpGetText("https://html.duckduckgo.com/html/?q=$encQuery&kl=us-en")
                 ?.let { WebContentParsers.parseDuckDuckGoHtml(it) }.orEmpty()
+            Log.i(TAG, "backend=html results=${html.size} first='${html.firstOrNull()?.title?.take(60)}'")
             if (html.isNotEmpty()) return renderResults(query, html)
 
-            val bing = httpGetText("https://www.bing.com/search?q=$encQuery", userAgent = USER_AGENT_DESKTOP)
+            val bing = httpGetText("https://www.bing.com/search?q=$encQuery&setlang=en", userAgent = USER_AGENT_DESKTOP)
                 ?.let { WebContentParsers.parseBingResults(it) }.orEmpty()
+            Log.i(TAG, "backend=bing results=${bing.size} first='${bing.firstOrNull()?.title?.take(60)}'")
             if (bing.isNotEmpty()) return renderResults(query, bing)
 
             // Last real backend: Google News RSS answers almost any query
             // with live headlines — real data, no browser.
-            val news = httpGetText("https://news.google.com/rss/search?q=$encQuery")
+            val news = httpGetText("https://news.google.com/rss/search?q=$encQuery&hl=en-US&gl=US&ceid=US:en")
                 ?.let { WebContentParsers.parseRssHeadlines(it, limit = 5) }.orEmpty()
+            Log.i(TAG, "backend=news results=${news.size} first='${news.firstOrNull()?.take(60)}'")
             if (news.isNotEmpty()) {
                 return "Top web results for '$query':\n" + news.mapIndexed { i, t -> "${i + 1}. $t" }
                     .joinToString("\n")

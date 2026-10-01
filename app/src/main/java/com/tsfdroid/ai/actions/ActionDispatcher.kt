@@ -124,6 +124,9 @@ class ActionDispatcher @Inject constructor(
 
         Log.d(TAG, "╔══ Action Execution Pipeline ══════════")
         Log.d(TAG, "║ Raw input:    $actionName")
+        // v1.3.0 round 20: the dispatched params on the record — run-124
+        // needed a screenshot to learn what the search actually received.
+        Log.i(TAG, "dispatch $actionName params=" + params.entries.joinToString(",") { "${it.key}=${it.value.take(60)}" }.take(400))
         Log.d(TAG, "║ Normalized:   $normalized")
 
         // ── STEP 1: Internet pre-check ──
