@@ -1372,16 +1372,48 @@ class AgentCapabilityE2EInstrumentedTest {
         // the reasoning-body text node matched the length predicate and the
         // marker poll started/expired mid-loop. No reply race anymore: poll
         // the markers themselves for the full window.
+        //
+        // Round-9 (run-105) OCCLUSION: the final bubble is TALLER than the
+        // viewport once the grounded answer + SOURCES chips land — the
+        // auto-scroll pins the BOTTOM (streaming text) and the ACTIVITY
+        // header at the bubble's TOP scrolls above the fold, where
+        // uiautomator's visible-only tree can't see it (the exact cap22
+        // round-7 chips-occlusion class). Every ~5th poll cycle, drag the
+        // list UP one screen so a clipped header enters the viewport.
         val activityDeadline = System.currentTimeMillis() + 900_000
         var hasActivity = false
+        var pollCycle = 0
         while (System.currentTimeMillis() < activityDeadline && !hasActivity) {
             device.runWatchers()
             hasActivity = visibleTexts().any {
                 it.startsWith("ACTIVITY") || it.startsWith("WEB_SEARCH") ||
                     it.startsWith("web_search")
             }
-            if (!hasActivity) runCatching { Thread.sleep(2_500) }
+            if (!hasActivity) {
+                if (pollCycle % 5 == 4) {
+                    // Finger top→bottom: content drags DOWN, revealing what is
+                    // ABOVE the fold (the bubble's header sections).
+                    runCatching {
+                        val w = device.displayWidth
+                        val h = device.displayHeight
+                        device.swipe(w / 2, (h * 0.30).toInt(), w / 2, (h * 0.75).toInt(), 24)
+                    }
+                    device.waitForIdle(1_000)
+                } else {
+                    runCatching { Thread.sleep(2_500) }
+                }
+                pollCycle++
+            }
         }
+        // Return to the conversation tail before the reply scan — the
+        // grounded answer (and its SOURCES row) live at the bottom, and the
+        // up-nudges may have left them disposed above the fold.
+        runCatching {
+            val w = device.displayWidth
+            val h = device.displayHeight
+            device.swipe(w / 2, (h * 0.75).toInt(), w / 2, (h * 0.30).toInt(), 24)
+        }
+        device.waitForIdle(1_500)
         // The grounded reply for the ask (secondary bar): settled capture,
         // bounded window — it has usually already landed with the marker.
         val reply = waitNewText(
@@ -1502,6 +1534,16 @@ class AgentCapabilityE2EInstrumentedTest {
         )
 
         // 2. Answer every question the turn asks (the plan can re-ask).
+        //
+        // Round-9 (run-105) BASELINE RACE: the final reply landed WHILE the
+        // 120s resolution wait polled (TTS keeps the turn busy until the
+        // speak finishes — reply saved 04:11:27, loop still waiting) — the
+        // baseline captured AFTER that wait swallowed the deliverable into
+        // "old" text, and the 420s reply window then starved against a
+        // bubble it had already marked as seen. Snapshot BEFORE the first
+        // answer: everything the turn renders after the user's answer is
+        // "new"; the user's exact-"Pune" bubbles are extraExcluded, and the
+        // '?' guard keeps a re-ask question from posing as the reply.
         var answered = 0
         var baseline2 = visibleTexts()
         while (answered < 3) {
@@ -1521,18 +1563,24 @@ class AgentCapabilityE2EInstrumentedTest {
                 if (!busy && !askUp) break
                 runCatching { Thread.sleep(2_000) }
             }
-            baseline2 = visibleTexts()
             if (!askedAgain) break
+            // A re-ask question really did appear — it is part of the old
+            // world now; refresh so the reply AFTER the next answer is the
+            // "new" deliverable again.
+            baseline2 = visibleTexts()
         }
 
         // 3. The resumed turn lands a reply that references the chosen city.
         //    Everything from before the answer is in baseline2; the answer
         //    bubble itself is short, so the predicate needs length + Pune.
+        //    Round-9: '?' guard — a re-ask ("...Pune or Mumbai?") contains
+        //    "Pune" too and must not satisfy the reply bar.
         val reply = waitNewText(
             baseline2,
             420_000,
             extraExcluded = setOf("Pune", "Mumbai", "ANSWER NEEDED", "Type your answer"),
-            predicate = { it.length > 12 && it.contains("Pune", ignoreCase = true) }
+            predicate = { it.length > 12 && it.contains("Pune", ignoreCase = true) &&
+                !it.trim().endsWith("?") }
         )
         shoot("cap21_ask_reply")
         dumpHierarchy("cap21_ask_reply")

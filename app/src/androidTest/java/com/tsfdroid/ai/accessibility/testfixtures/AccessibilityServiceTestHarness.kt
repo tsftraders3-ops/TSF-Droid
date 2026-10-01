@@ -77,6 +77,35 @@ object AccessibilityServiceTestHarness {
         ).any { it.id == serviceComponent }
     }
 
+    /**
+     * Round-9 (run-105): the enabled-service list is an eventually-consistent
+     * VIEW of the secure setting — the OS binds the service (the singleton is
+     * set, `onServiceConnected` runs, the floating button coroutine fires)
+     * measurably BEFORE the client-side manager query reflects it. The
+     * single-shot check raced that propagation twice in a row. Poll the
+     * public API with a deadline; if the cached view still lags, fall back to
+     * the authoritative OS state itself — the secure setting the Settings
+     * app writes and reads — which is the same source the binding came from.
+     */
+    fun awaitServiceReportedEnabled(timeoutMs: Long = 10_000): Boolean {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (isServiceReportedEnabled()) return true
+            SystemClock.sleep(200)
+        }
+        if (isServiceReportedEnabled()) return true
+        // Ground truth fallback: the setting itself (shell-readable via the
+        // UiAutomation identity) plus a live connected instance.
+        val settingEnabled = runCatching {
+            val pfd = uiAutomation.executeShellCommand(
+                "settings get secure enabled_accessibility_services"
+            )
+            ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() }
+                .toString(Charsets.UTF_8).contains(serviceComponent)
+        }.getOrDefault(false)
+        return settingEnabled && OpenDroidAccessibilityService.getInstance() != null
+    }
+
     fun shell(command: String) {
         val pfd = uiAutomation.executeShellCommand(command)
         // Drain so the command actually completes before we return.

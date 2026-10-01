@@ -37,7 +37,7 @@ class ServiceReadinessInstrumentationTest {
         assertNotNull(service)
         assertTrue(
             "AccessibilityManager should report the service enabled",
-            AccessibilityServiceTestHarness.isServiceReportedEnabled()
+            AccessibilityServiceTestHarness.awaitServiceReportedEnabled()
         )
 
         AccessibilityServiceTestHarness.disableService()

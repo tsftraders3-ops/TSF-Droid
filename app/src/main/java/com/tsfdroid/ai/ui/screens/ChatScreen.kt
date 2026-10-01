@@ -1384,7 +1384,19 @@ fun ChatBubble(
                 // compactions, plan steps). Same collapsible grammar as
                 // THINKING; auto-expanded while the reply body is still empty.
                 if (isAgent && message.stepsJson != null) {
-                    val steps = remember(message.id) { message.activitySteps() }
+                    // v1.3.0 round-9: stepsJson joins the remember key. The row
+                    // first composes DURING streaming (persistReply writes it
+                    // before any Content delta lands), i.e. with stepsJson ==
+                    // null — a pure id key then caches the empty decode forever,
+                    // and when the final save REPLACEs the row with the step
+                    // trace (all three harness handoff saves), the ACTIVITY
+                    // header never renders even though the DB row carries it
+                    // (run-105 cap15 evidence: steps=2 jsonLen=1746 saved, no
+                    // header on the bubble). Same class as the thoughtForLabel
+                    // key fixed in round 8.
+                    val steps = remember(message.id, message.stepsJson) {
+                        message.activitySteps()
+                    }
                     if (steps.isNotEmpty()) {
                         var activityExpanded by remember(message.id) {
                             mutableStateOf(message.text.isBlank())
