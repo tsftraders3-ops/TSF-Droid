@@ -92,6 +92,12 @@ actually works end to end, verified feature by feature.
   plan step is bounded at 3 minutes and fails honestly instead of holding
   the turn hostage. ASK_USER stays unbounded by design — user thinking
   time must never trip a timer.
+- ASK_USER discipline in the planner: the model only asks when the goal is
+  truly impossible without the user's answer (required personal detail,
+  genuine ambiguity, materially different outcomes) — never for
+  permission-seeking or data it can look up itself. Self-contained goals
+  ("write a report about X", "fetch the price of Y") execute autonomously;
+  a parked question used to stall a plan indefinitely.
 - The Gemini "gemini-nano" mock is gone: it answered with fabricated data
   (including a hardcoded "mock completed successfully" string) while
   presenting itself as a real model. The model entry is removed; a saved

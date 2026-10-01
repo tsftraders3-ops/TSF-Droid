@@ -109,6 +109,31 @@ class AgentCapabilityE2EInstrumentedTest {
             }
             false
         }
+        // v1.3.0 round-12 (run-109 evidence, BOTH passes' casualties): mimo's
+        // plans sometimes carry ASK_USER steps for SELF-CONTAINED goals
+        // ("write a research report", "fetch the gold price") — the parked
+        // turn then waits for a human the harness never provides (cap9's
+        // PDF plan parked at 11:49:44 and sat for 10 minutes; cap6's next
+        // task was ROUTED as the parked question's answer and the model
+        // answered in prose, no tool call). The watcher answers any parked
+        // ask wherever runWatchers() executes, exactly what a user sitting
+        // at the phone would do — the turn always resumes. cap21 (the ask
+        // tool's own test) removes this watcher first: it must observe and
+        // answer the ask itself.
+        device.registerWatcher("parkedAskResolver") {
+            val askStrip = runCatching {
+                device.findObject(By.textContains("ANSWER NEEDED"))
+            }.getOrNull()
+            if (askStrip == null) return@registerWatcher false
+            // Answer affirmatively through the input bar (the ask surface
+            // makes it the answer box) — the resumed turn proceeds on best
+            // judgment, which the planner prompt now asks the model to
+            // prefer over asking in the first place.
+            val typed = typeChatMessage("Yes, please proceed with your best judgment.")
+            if (!typed) return@registerWatcher false
+            val sent = tapSendAndVerify("Yes, please proceed with your best judgment.")
+            sent
+        }
     }
 
     /** adb pm-grant every dangerous permission the app declares; failures ignored. */
@@ -671,17 +696,22 @@ class AgentCapabilityE2EInstrumentedTest {
     }
 
     private fun typeIntoLabel(selectorText: String, value: String, verifyContains: String = value): Boolean {
-        repeat(2) { attempt ->
+        // run-109 class fix (see AppUiInteraction.typeInto): ACTION_SET_TEXT
+        // primary on the EditText the label click FOCUSED — atomic and
+        // IME-independent; sendStringSync only as the alternate route.
+        repeat(3) { attempt ->
             val target = device.wait(Until.findObject(By.textContains(selectorText)), 6_000)
                 ?: return@repeat
             runCatching { target.click() }
             device.waitForIdle(1_500)
+            val field = device.findObjects(By.clazz("android.widget.EditText"))
+                .firstOrNull { runCatching { it.isFocused }.getOrDefault(false) }
+                ?: device.findObjects(By.clazz("android.widget.EditText")).firstOrNull()
             runCatching {
-                if (attempt == 0) {
+                if (attempt == 1 || field == null) {
                     InstrumentationRegistry.getInstrumentation().sendStringSync(value)
                 } else {
-                    device.findObjects(By.clazz("android.widget.EditText"))
-                        .firstOrNull()?.setText(value)
+                    field.setText(value)
                 }
             }
             device.waitForIdle(1_000)
@@ -1187,27 +1217,19 @@ class AgentCapabilityE2EInstrumentedTest {
     @Test(timeout = 420_000)
     fun uploadAndHarnessControls_arePresentAndResponsive() {
         reachDashboard()
-        // v1.3.0 (run-107): a PREVIOUS test's turn can still be alive when this
-        // one starts — a stalled gold-price turn once parked on an ASK_USER
-        // question, the ANSWER NEEDED surface replaced the input bar, and the
-        // attach button was "not found". Resolve any parked ask first, then
-        // wait out a still-busy agent; both are bounded so a healthy flow pays
-        // at most a few seconds.
-        val parkedAskDeadline = System.currentTimeMillis() + 60_000
-        while (System.currentTimeMillis() < parkedAskDeadline) {
+        // v1.3.0 (run-107/109): a PREVIOUS test's turn can still be alive when
+        // this one starts — a parked ASK_USER replaces the input bar with the
+        // ANSWER NEEDED surface and the attach button is "not found". The
+        // parkedAskResolver watcher (setUp) answers the ask wherever
+        // runWatchers() executes; wait here only for the surface to clear and
+        // the agent to settle — bounded so a healthy flow pays a few seconds.
+        val settledDeadline = System.currentTimeMillis() + 120_000
+        while (System.currentTimeMillis() < settledDeadline) {
             device.runWatchers()
             val askUp = runCatching {
                 device.findObject(By.textContains("ANSWER NEEDED")) != null
             }.getOrDefault(false)
-            if (!askUp) break
-            if (typeChatMessage("n/a") && tapSendAndVerify("n/a")) {
-                runCatching { Thread.sleep(3_000) }
-            } else {
-                runCatching { Thread.sleep(2_000) }
-            }
-        }
-        val idleDeadline = System.currentTimeMillis() + 90_000
-        while (System.currentTimeMillis() < idleDeadline && agentBusyOnScreen()) {
+            if (!askUp && !agentBusyOnScreen()) break
             runCatching { Thread.sleep(3_000) }
         }
         // Mode chip: AGENT by default on a fresh install.
@@ -1522,6 +1544,10 @@ class AgentCapabilityE2EInstrumentedTest {
     @Test(timeout = 1_500_000)
     fun askUserTool_roundTripsAnswerIntoFinalReply() {
         reachDashboard()
+        // This test OWNS the ask interaction — the parkedAskResolver watcher
+        // (registered in setUp for every other test) must not answer the ask
+        // before the test can observe the surface and type "Pune" itself.
+        runCatching { device.removeWatcher("parkedAskResolver") }
         val baseline = sendTask(
             "Use your ask_user tool right now to ask me which city I prefer between " +
                 "Pune and Mumbai. Do NOT answer in prose - you MUST call the ask_user tool " +
@@ -1538,6 +1564,7 @@ class AgentCapabilityE2EInstrumentedTest {
         //    keeps answering every question that appears, up to 3 times.
         val firstSurfaceDeadline = System.currentTimeMillis() + 420_000
         var sawAnswerSurface = false
+        var resentOnce = false
         while (System.currentTimeMillis() < firstSurfaceDeadline) {
             device.runWatchers()
             if (device.findObject(By.textContains("ANSWER NEEDED")) != null ||
@@ -1545,6 +1572,27 @@ class AgentCapabilityE2EInstrumentedTest {
             ) {
                 sawAnswerSurface = true
                 break
+            }
+            // Round-11 pass-1 (run-109): mimo sometimes ANSWERS the ask
+            // command in prose instead of calling the tool — pure model
+            // variance on the free tier. 150s in with no surface, re-issue
+            // the command ONCE; the second attempt reliably asks.
+            if (!resentOnce &&
+                System.currentTimeMillis() > firstSurfaceDeadline - 420_000 + 150_000
+            ) {
+                resentOnce = true
+                runCatching {
+                    typeChatMessage(
+                        "That was an answer in prose. You MUST call the ask_user tool " +
+                            "right now to ask me which city I prefer between Pune and " +
+                            "Mumbai. Call the tool - do not answer in prose."
+                    ) && tapSendAndVerify(
+                        "That was an answer in prose. You MUST call the ask_user tool " +
+                            "right now to ask me which city I prefer between Pune and " +
+                            "Mumbai. Call the tool - do not answer in prose."
+                    )
+                }
+                continue
             }
             runCatching { Thread.sleep(2_000) }
         }

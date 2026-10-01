@@ -220,16 +220,29 @@ class AppUiInteractionInstrumentedTest {
      * One retry falls back to ACTION_SET_TEXT on the EditText node.
      */
     private fun typeInto(selectorText: String, value: String, verifyContains: String = value): Boolean {
-        repeat(2) { attempt ->
+        // Loop-12/run-109 class fix (birthday field, retry pass): sendStringSync
+        // races the cold Gboard and sometimes delivers NOTHING (the run-109
+        // retry pass typed "01/15/2000" into an empty field, the journey
+        // aborted mid-onboarding, and the half-onboarded app broke the next
+        // three tests). ACTION_SET_TEXT is now PRIMARY — atomic,
+        // IME-independent — targeting the EditText the label click just
+        // FOCUSED (not "the first EditText on screen", which is order-luck).
+        // Typed input stays as the alternate route; every attempt ends in a
+        // verified full-text check.
+        repeat(3) { attempt ->
             val target = device.wait(Until.findObject(By.textContains(selectorText)), 6_000)
                 ?: return@repeat
             runCatching { target.click() }
             device.waitForIdle(1_500)
+            val field = editTextNodes().firstOrNull {
+                runCatching { it.isFocused }.getOrDefault(false)
+            } ?: editTextNodes().firstOrNull()
             runCatching {
-                if (attempt == 0) {
+                if (attempt == 1 || field == null) {
+                    // Alternate delivery route through the real IME.
                     InstrumentationRegistry.getInstrumentation().sendStringSync(value)
                 } else {
-                    editTextNodes().firstOrNull()?.setText(value)
+                    field.setText(value)
                 }
             }
             device.waitForIdle(1_000)
