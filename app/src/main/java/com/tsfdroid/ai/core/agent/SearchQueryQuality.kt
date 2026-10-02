@@ -36,6 +36,27 @@ object SearchQueryQuality {
     }
 
     /**
+     * v1.3.1 round 3 (the second gold lesson): a datacenter egress IP can
+     * poison ANY search backend — DDG serves its anomaly page (zero results,
+     * fine, the chain just continues) but Bing still "answers" with an
+     * off-market result set (current.com and a Chinese dictionary for
+     * "current gold price today per gram"). A result set is only relevant
+     * when at least one result carries one of the query's NON-GENERIC
+     * tokens — degenerate words ("current", "latest", "today") are ignored
+     * by design, so a domain that merely echoes the torn-out adjective
+     * (current.com) never passes the gate.
+     */
+    fun resultsAreRelevant(query: String, resultTexts: List<String>): Boolean {
+        val tokens = query.lowercase().split(Regex("[^a-z0-9]+"))
+            .filter { it.length >= 3 && it !in DEGENERATE_QUERY_WORDS }
+        if (tokens.isEmpty()) return true // nothing decisive to gate on
+        return resultTexts.any { text ->
+            val t = text.lowercase()
+            tokens.any { t.contains(it) }
+        }
+    }
+
+    /**
      * Derives a search phrase from a goal by stripping the request framing
      * users (and planners) write around the substance:
      * "Fetch the current gold price" -> "current gold price"

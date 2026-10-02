@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.tsfdroid.ai.actions.base.Action
 import com.tsfdroid.ai.actions.base.ActionResult
+import com.tsfdroid.ai.core.agent.SearchQueryQuality
 import com.tsfdroid.ai.core.web.WebContentParsers
 import java.net.HttpURLConnection
 import java.net.URL
@@ -167,17 +168,36 @@ class InformationActions @Inject constructor() {
             val lite = httpGetText("https://lite.duckduckgo.com/lite/?q=$encQuery&kl=us-en")
                 ?.let { WebContentParsers.parseDuckDuckGoLite(it) }.orEmpty()
             Log.i(TAG, "backend=lite results=${lite.size} first='${lite.firstOrNull()?.title?.take(60)}'")
-            if (lite.isNotEmpty()) return renderResults(query, lite)
+            // v1.3.1 round 3: the relevance gate — a poisoned backend that
+            // returns off-topic results (datacenter-IP market garbage) is
+            // rejected and the chain continues instead of delivering slop.
+            if (lite.isNotEmpty() && SearchQueryQuality.resultsAreRelevant(query, lite.map { "${it.title} ${it.url}" })) {
+                return renderResults(query, lite)
+            } else if (lite.isNotEmpty()) {
+                Log.w(TAG, "backend=lite results=${lite.size} REJECTED as off-topic — continuing the chain")
+            }
 
             val html = httpGetText("https://html.duckduckgo.com/html/?q=$encQuery&kl=us-en")
                 ?.let { WebContentParsers.parseDuckDuckGoHtml(it) }.orEmpty()
             Log.i(TAG, "backend=html results=${html.size} first='${html.firstOrNull()?.title?.take(60)}'")
-            if (html.isNotEmpty()) return renderResults(query, html)
+            if (html.isNotEmpty() && SearchQueryQuality.resultsAreRelevant(query, html.map { "${it.title} ${it.url}" })) {
+                return renderResults(query, html)
+            } else if (html.isNotEmpty()) {
+                Log.w(TAG, "backend=html results=${html.size} REJECTED as off-topic — continuing the chain")
+            }
 
-            val bing = httpGetText("https://www.bing.com/search?q=$encQuery&setlang=en", userAgent = USER_AGENT_DESKTOP)
+            // v1.3.1 round 3: mkt pins Bing's RESULT market (setlang only
+            // pins its UI strings) — and the relevance gate still stands
+            // guard behind it, because no parameter reliably fixes a
+            // datacenter egress IP.
+            val bing = httpGetText("https://www.bing.com/search?q=$encQuery&setlang=en&mkt=en-US", userAgent = USER_AGENT_DESKTOP)
                 ?.let { WebContentParsers.parseBingResults(it) }.orEmpty()
             Log.i(TAG, "backend=bing results=${bing.size} first='${bing.firstOrNull()?.title?.take(60)}'")
-            if (bing.isNotEmpty()) return renderResults(query, bing)
+            if (bing.isNotEmpty() && SearchQueryQuality.resultsAreRelevant(query, bing.map { "${it.title} ${it.url}" })) {
+                return renderResults(query, bing)
+            } else if (bing.isNotEmpty()) {
+                Log.w(TAG, "backend=bing results=${bing.size} REJECTED as off-topic — continuing the chain")
+            }
 
             // Last real backend: Google News RSS answers almost any query
             // with live headlines — real data, no browser.

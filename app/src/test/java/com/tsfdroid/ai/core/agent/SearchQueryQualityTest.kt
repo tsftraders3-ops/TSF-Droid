@@ -114,4 +114,54 @@ class SearchQueryQualityTest {
             SearchQueryQuality.fromGoal("websearch the current gold price USD")
         )
     }
+
+    // v1.3.1 round 3 (the second gold lesson): the backend relevance gate.
+
+    @Test
+    fun `off-topic result sets are rejected`() {
+        // The CI runner's Bing answered "current gold price today per gram"
+        // with current.com + a Chinese dictionary (run 36978408264) —
+        // the torn-out degenerate adjective echoing back is NOT relevance.
+        assertFalse(
+            SearchQueryQuality.resultsAreRelevant(
+                "current gold price today per gram",
+                listOf(
+                    "current.com https://current.com",
+                    "iciba.com https://www.iciba.com/word?w=current",
+                    "YouTube https://youtube.com"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `on-topic result sets pass`() {
+        assertTrue(
+            SearchQueryQuality.resultsAreRelevant(
+                "current gold price today per gram",
+                listOf(
+                    "Live Price of Gold - 24-hour live gold rates https://livepriceofgold.com/",
+                    "US Gold Price per Gram: \$134.55 USD Today https://www.livepriceofgold.com/usa-gold-price-per-gram.html"
+                )
+            )
+        )
+        // The CBSE test's query and its gov.in answer.
+        assertTrue(
+            SearchQueryQuality.resultsAreRelevant(
+                "CBSE class 10 board exam dates 2026",
+                listOf("CBSE Date Sheet 2026 cbse.gov.in")
+            )
+        )
+    }
+
+    @Test
+    fun `queries with only generic tokens are ungated`() {
+        // Nothing decisive to gate on — accept rather than over-reject.
+        assertTrue(
+            SearchQueryQuality.resultsAreRelevant(
+                "current",
+                listOf("anything at all https://example.com")
+            )
+        )
+    }
 }

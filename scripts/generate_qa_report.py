@@ -61,13 +61,19 @@ def parse_instrument(out: str) -> dict:
     m = re.search(r"Tests run: (\d+),\s*Failures: (\d+)", out)
     if m:
         info["tests"] = int(m.group(1))
-    # junit4 text: "1) testName(className)" under "There were N failures:"
-    block = re.search(r"There were \d+ failures?:(.*?)(?=\n\n|\Z)", out, re.S)
+    # junit4 text: "1) testName(className)" under "There was/were N
+    # failure(s):" — v1.3.1 round 3: the SINGULAR form ("There was 1
+    # failure:") escaped the first release of this parser and the report
+    # claimed "0 failures" on a 1-failure run (36978408264).
+    block = re.search(r"There (?:was|were) \d+ failures?:", out)
     if block:
-        for line in block.group(1).splitlines():
+        start = block.end()
+        for line in out[start:].splitlines():
             m = re.match(r"\s*\d+\)\s+(\S+)\((\S+)\)", line)
             if m:
                 info["failures"].append(f"{m.group(1)} ({m.group(2)})")
+            elif line.strip() == "" and info["failures"]:
+                break
     return info
 
 
