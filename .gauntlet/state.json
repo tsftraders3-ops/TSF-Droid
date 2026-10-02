@@ -25,10 +25,11 @@
     "PHASE_12_OPENCODE_GRADE_HARNESS_V1.2.0",
     "PHASE_13_HERMES_LOOP_V1.2.1",
     "PHASE_14_HONESTY_SWEEP_V1.3.0",
-    "PHASE_15_FIELD_REPORT_V1.3.1"
+    "PHASE_15_FIELD_REPORT_V1.3.1",
+    "PHASE_15_FIELD_REPORT_V1.3.1_COMPLETE"
   ],
-  "active_step": "PHASE_15_ROUND5_STOCK_VARIANTS_PUSHED",
-  "last_ci_run_id": "36935515330",
+  "active_step": "PHASE_15_COMPLETE_E2E_GREEN",
+  "last_ci_run_id": "37012639752",
   "last_ci_status": "success",
   "notes": [
     "Run 36008132141: compile PASS after rename; only OpenDroidDatabaseMigrationTest failed (FileNotFound) because app/schemas/com.opendroid.ai... dir was not renamed. Fixed via git mv.",
@@ -64,7 +65,8 @@
     "v1.3.1 round 2 \u2014 E2E run 36966099119 forensics (pass 1 AND retry both 41/4): NONE of the 4 failures were app regressions. (1) askUserTool: the approval card WAS proposed but an open Gboard (320x640 screen) froze the a11y tree and kept Approve & Run uncomposed under it \u2014 the twice-only back-press was eaten by the suggestion strip; fixed with package-evidence IME dismissal (dismissImeIfUp, By.pkg inputmethod check, up to 3 presses, zero when down). (2) goldPriceAsk: the reply WAS on screen (\"per oz 4,177.04 United States dollars\" + SOURCES chips) for 10 minutes while the predicate polled past it \u2014 no $, no \"Top web results\" prefix; predicate extended with price-context patterns. (3) longFormAsk: free-tier 15-min stream stall, reply landed 30s after the 900s window (the classic moving flake; suite retry covers it). (4) createPdf: pure CASCADE \u2014 longForm aborting left CHAT mode on, cap4 write task ran in CHAT mode, the model HONESTLY asked to switch modes, no PDF; fixed with longForm finally-restore + write tests own their mode (ensureMode AGENT in cap2/4/5/9). The v1.3.1 app fixes themselves: cap22 xauusd PASSED first try (real Google Finance URL planned, turn completed <4 min), gold turn delivered grounded data, longform delivered researched essay with sources. QA_REPORT.md worked exactly as designed on its first live run.",
     "v1.3.1 round 3 \u2014 run 36978408264: retry pass 41/1 (askUser/longForm/createPdf all FIXED by round 2). goldPriceAsk failed again: the turn dispatched a GOOD query but BOTH DDG backends returned 0 from the CI datacenter IP and Bing answered with off-market garbage (current.com + Chinese dictionary for \"current gold price today per gram\") \u2014 verified live from this sandbox: Bing RSS serves unrelated content from datacenter IPs regardless of setlang/mkt. FIX: the relevance gate \u2014 SearchQueryQuality.resultsAreRelevant (query tokens minus degenerate words must appear in at least one result) wired into all three web-search backends; a rejected set continues the chain to Google News. mkt=en-US added to Bing (pins the result market, setlang only pins UI strings). QA report parser bug fixed: junit singular \"There was 1 failure:\" escaped the plural regex \u2014 the report claimed 0 failures on a 1-failure run. 50/50 rig tests green (3 new relevance-gate tests).",
     "v1.3.1 round 4 \u2014 run 36987915019: retry pass 41/1, goldPriceAsk again but a THIRD distinct cause: the relevance gate WORKED (bing garbage REJECTED 5x, chain reached Google News, the CBSE test got real date-sheet headlines and PASSED) \u2014 but the gold turn never searched at all: the free-tier planner wrote a single defeatist ASK_USER step (\"I am not able to pull live market data in this session\") and the turn ended with a 54-char apology. FIX: StepRepair.defeatistAskToSearch \u2014 a single-step ASK_USER whose question matches the defeatism vocabulary (not able to / cannot / unable to / no access / ...) is rewritten into WEB_SEARCH with the goal-derived query; legitimate asks (cap21) and multi-step plans are never touched. Rig: 54/54 green (4 new tests incl. the exact failure replay: \"cna u fetch the price of gold now\" -> WEB_SEARCH \"price of gold\").",
-    "v1.3.1 round 5 \u2014 runs 36996686968 (runner killed mid-retry by infra shutdown, pass 1 41/3, evidence lost) then re-dispatch 37002302339 (pass 1 41/2, retry 41/1, gold only \u2014 askUser now GREEN). The fourth gold cause: the planner wrote CHECK_STOCK(XAUUSD) (prompt guidance landed), Yahoo 404d XAUUSD=X (regional), searchWeb(\"XAUUSD price\") returned RELEVANT chart pages (tradingview/prorealtime) whose snippets carry NO price figure \u2014 the reply was grounded but numberless. FIX: the Yahoo variant chain \u2014 XAUUSD=X then GC=F (COMEX futures alias Yahoo itself serves; verified live: GC=F $4232.9, SI=F $61.86, PL=F $1740.5) plus XAG->SI=F, XPT->PL=F, XPD->PA=F; and the metals search fallback queries the METAL NAME (\"gold price\" \u2014 the snippet class that carries the number) instead of the symbol."
+    "v1.3.1 round 5 \u2014 runs 36996686968 (runner killed mid-retry by infra shutdown, pass 1 41/3, evidence lost) then re-dispatch 37002302339 (pass 1 41/2, retry 41/1, gold only \u2014 askUser now GREEN). The fourth gold cause: the planner wrote CHECK_STOCK(XAUUSD) (prompt guidance landed), Yahoo 404d XAUUSD=X (regional), searchWeb(\"XAUUSD price\") returned RELEVANT chart pages (tradingview/prorealtime) whose snippets carry NO price figure \u2014 the reply was grounded but numberless. FIX: the Yahoo variant chain \u2014 XAUUSD=X then GC=F (COMEX futures alias Yahoo itself serves; verified live: GC=F $4232.9, SI=F $61.86, PL=F $1740.5) plus XAG->SI=F, XPT->PL=F, XPD->PA=F; and the metals search fallback queries the METAL NAME (\"gold price\" \u2014 the snippet class that carries the number) instead of the symbol.",
+    "PHASE 15 CLOSED \u2014 v1.3.1. E2E run 37012639752 on 0b88f9e: OK (41 tests) ON THE FIRST PASS, no retry needed. QA report verdict GREEN generated on the run page. Five rounds total: r1 the three-layer dead-end fix + thinking flicker + QA reports; r2 IME cover + predicate + mode-cascade; r3 the relevance gate + QA parser; r4 the defeatist-ask repair; r5 the Yahoo alias chain + metal-name search. Rig: 54/54 pure-JVM tests. The user field report became 6 new unit-test classes of coverage and one E2E replay of the exact sentence."
   ],
   "release": {
     "workflow": ".github/workflows/release.yml",
@@ -86,10 +88,10 @@
     "size_bytes": 73805147
   },
   "last_release": {
-    "tag": "v1.3.0",
-    "version_code": 12,
-    "date": "2026-10-01",
-    "e2e_emulator_run": "36935515267",
-    "note": "Honesty release \u2014 ask_user, effort levels, real streaming, every fake surface made real. 40-test E2E suite green."
+    "tag": "v1.3.1",
+    "version_code": 13,
+    "date": "2026-10-02",
+    "e2e_emulator_run": "37012639752",
+    "note": "The xauusd field-report release: no more dead ends, no more thinking flicker, the relevance gate, the defeatist-ask repair, the Yahoo alias chain. 41-test E2E suite green on the first pass."
   }
 }

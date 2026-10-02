@@ -66,6 +66,51 @@ deterministic, faster and burns zero tokens): every E2E run now ends with
 into QA_REPORT.md — verdict, failure stacks, and the agent-loop evidence
 (plan repairs, watchdog lines, search chain) — attached to the run's step
 summary and artifacts, so forensics never starts from a 17MB logcat again.
+First live release of the report directly drove four forensic rounds (see
+below); its own parser bug (junit's singular "There was 1 failure:") was
+found and fixed in round 3.
+
+### The forensic rounds — four gold-test failures, four root causes, all deterministic
+
+The release gate was chased through five E2E runs; each failure was
+root-caused from artifacts and each fix is pinned by a replay test.
+- **Round 2 — the IME cover**: an open Gboard froze the a11y tree on the
+  320x640 CI screen and kept the plan card's Approve & Run row uncomposed
+  beneath it (the twice-only back-press was eaten by the suggestion strip).
+  Tests now dismiss the keyboard by package evidence — up to three
+  re-checked presses while the IME's own nodes are in the tree, zero when
+  it is already down.
+- **Round 3 — the relevance gate**: a datacenter egress IP can poison ANY
+  search backend — Bing still "answered" a perfect gold-price query with
+  current.com and a Chinese dictionary, and the chain stopped at the first
+  non-empty backend. A result set now passes only when at least one result
+  carries one of the query's non-generic tokens; a rejected set is logged
+  and the chain continues to the next backend (Google News saved the CBSE
+  current-events test this way in the very next run). Bing also gained
+  `mkt=en-US` (setlang pins only the UI strings).
+- **Round 4 — the defeatist ask**: the free-tier planner sometimes wrote a
+  SINGLE ASK_USER step declaring inability ("I'm not able to pull live
+  market data in this session") — parking the turn on a question the user
+  cannot answer while real searches sat available. A one-step ask whose
+  question matches the defeatism vocabulary is rewritten into a real
+  WEB_SEARCH derived from the goal; legitimate asks and mid-plan asks are
+  never touched.
+- **Round 5 — the instrument has many symbols**: Yahoo serves the same
+  metal under several symbols that fail independently by region
+  (XAUUSD=X 404s from whole egress regions while GC=F — the COMEX futures
+  alias Yahoo's own gold page serves — answers). CHECK_STOCK now tries the
+  alias chain (XAUUSD=X → GC=F, XAGUSD=X → SI=F, XPTUSD=X → PL=F,
+  XPDUSD=X → PA=F) before falling back to a search that queries the metal's
+  NAME ("gold price" — the snippet class that carries the number) instead
+  of the symbol.
+
+Also fixed in round 2: the gold test's reply predicate now recognizes the
+v1.3.0 rich-answer format (a fully-delivered "per oz 4,177.04 United States
+dollars" reply once sat on screen for ten minutes while the old patterns
+polled past it), write-artifact tests own their AGENT mode (a failed
+assertion in the chat-mode test once cascaded the PDF test into honest
+refusal), and long-form replies keep the rich format out of the old
+"Top web results" assumptions.
 
 ## v1.3.0 — Core agent experience: ask_user, real effort levels, rich answers & the memory identity fix
 
