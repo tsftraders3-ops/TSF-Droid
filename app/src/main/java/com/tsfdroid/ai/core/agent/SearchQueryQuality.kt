@@ -50,10 +50,16 @@ object SearchQueryQuality {
         // substance of the ask.
         q = Regex(
             "^(please\\s+)?(kindly\\s+)?(can\\s+you\\s+|could\\s+you\\s+|cna\\s+u\\s+|cn\\s+u\\s+)?" +
-                "(fetch|get|find|search(\\s+for)?|look\\s?up|show\\s+me|tell\\s+me|give\\s+me|write|make|create|build|draft|compose|prepare|research|check|look|what('s|\\s+is|\\s+are)|how\\s+much\\s+is|how\\s+many\\s+is)\\s+" +
+                "(web\\s+fetch|webfetch|web\\s+search|websearch|web\\s+look\\s?up|google\\s+for|" +
+                "fetch|get|find|search(\\s+for)?|look\\s?up|show\\s+me|tell\\s+me|give\\s+me|write|make|create|build|draft|compose|prepare|research|check|look|what('s|\\s+is|\\s+are)|how\\s+much\\s+is|how\\s+many\\s+is)\\s+" +
                 "(the\\s+|me\\s+|a\\s+|an\\s+|up\\s+|out\\s+|for\\s+|about\\s+)*",
             RegexOption.IGNORE_CASE
         ).replace(q, "")
+
+        // v1.3.1: a leading article with no verb in front of it ("the price
+        // of xauusd" as a url-slot phrase) — a search query never needs its
+        // leading article.
+        q = Regex("^(the|a|an)\\s+", RegexOption.IGNORE_CASE).replace(q, "")
 
         // Trailing format ask-ons ("... as a pdf", "... in html").
         q = Regex(

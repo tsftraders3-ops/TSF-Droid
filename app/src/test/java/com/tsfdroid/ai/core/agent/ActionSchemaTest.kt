@@ -190,4 +190,59 @@ class ActionSchemaTest {
         assertEquals("wifi_password", params["key"])
         assertEquals("secret123", params["secret"])
     }
+
+    // ── v1.3.1 param aliases (the xauusd field report) ─────────────────
+    // A WEB_SEARCH dispatched as a FETCH_URL's fallback arrives with the
+    // primary's params: {url: ...} and no query. Before aliases this failed
+    // validation as a missing `query` and dead-ended the turn asking the
+    // user for a query they had already given.
+
+    @Test
+    fun `web search query resolves from the url alias slot`() {
+        val (result, enriched) = ActionSchema.validateParams(
+            "WEB_SEARCH", mapOf("url" to "the price of xauusd")
+        )
+        assertTrue(result is ActionSchema.ValidationResult.Valid)
+        assertEquals("the price of xauusd", enriched["query"])
+    }
+
+    @Test
+    fun `web search query resolves from topic q and keyword aliases`() {
+        listOf("topic", "q", "search", "keyword", "term").forEach { slot ->
+            val (result, enriched) = ActionSchema.validateParams(
+                "WEB_SEARCH", mapOf(slot to "current gold price USD")
+            )
+            assertTrue(
+                "alias '$slot' should satisfy query",
+                result is ActionSchema.ValidationResult.Valid
+            )
+            assertEquals("current gold price USD", enriched["query"])
+        }
+    }
+
+    @Test
+    fun `an explicit query still wins over aliases`() {
+        val (result, enriched) = ActionSchema.validateParams(
+            "WEB_SEARCH", mapOf("query" to "gold price", "url" to "goldprice.org")
+        )
+        assertTrue(result is ActionSchema.ValidationResult.Valid)
+        assertEquals("gold price", enriched["query"])
+    }
+
+    @Test
+    fun `web search with neither query nor alias is still missing`() {
+        val (result, _) = ActionSchema.validateParams("WEB_SEARCH", emptyMap())
+        assertTrue(result is ActionSchema.ValidationResult.MissingParams)
+        assertTrue(
+            (result as ActionSchema.ValidationResult.MissingParams).params.contains("query")
+        )
+    }
+
+    @Test
+    fun `blank alias values do not satisfy the query`() {
+        val (result, _) = ActionSchema.validateParams(
+            "WEB_SEARCH", mapOf("url" to "   ")
+        )
+        assertTrue(result is ActionSchema.ValidationResult.MissingParams)
+    }
 }

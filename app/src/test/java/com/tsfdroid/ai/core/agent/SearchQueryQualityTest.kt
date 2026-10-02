@@ -100,4 +100,18 @@ class SearchQueryQualityTest {
             SearchQueryQuality.fromGoal("price")
         )
     }
+
+    // v1.3.1 (the xauusd field report): "web fetch" compounds.
+
+    @Test
+    fun `web fetch framing is stripped`() {
+        assertEquals(
+            "price of xauusd",
+            SearchQueryQuality.fromGoal("web fetch the price of xauusd")
+        )
+        assertEquals(
+            "current gold price USD",
+            SearchQueryQuality.fromGoal("websearch the current gold price USD")
+        )
+    }
 }

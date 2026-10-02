@@ -586,8 +586,19 @@ class InformationActions @Inject constructor() {
     private class CheckStockAction : Action {
         override val name: String = "CHECK_STOCK"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
-            val symbol = params["symbol"]?.uppercase()?.trim()?.takeIf { it.isNotBlank() }
+            val raw = params["symbol"]?.uppercase()?.trim()?.takeIf { it.isNotBlank() }
                 ?: return ActionResult(false, null, "symbol parameter is missing")
+            // v1.3.1: Yahoo's chart endpoint needs the instrument's exchange
+            // suffix — plain "XAUUSD" 404s. Six pure letters = a forex/metals
+            // pair (XAUUSD, EURUSD, GBPJPY) → "=X"; already-suffixed
+            // (GC=F, XAUUSD=X) and dashed tickers (BTC-USD, ^NSEI) pass
+            // through untouched. Stocks and ETFs (AAPL, NIFTYBEES) keep their
+            // planner-given form — the planner owns exchange suffixes there.
+            val symbol = when {
+                raw.contains('=') -> raw
+                Regex("^[A-Z]{6}$").matches(raw) -> raw + "=X"
+                else -> raw
+            }
             try {
                 val body = httpGetText(
                     "https://query1.finance.yahoo.com/v8/finance/chart/${URLEncoder.encode(symbol, "UTF-8")}?range=1d&interval=1d",
@@ -606,7 +617,17 @@ class InformationActions @Inject constructor() {
             } catch (e: Exception) {
                 Log.w("CheckStock", "Yahoo failed: ${e.localizedMessage}")
             }
-            val search = searchWeb("$symbol stock price")
+            // v1.3.1: the search fallback quotes the RAW symbol — the
+            // normalized form ("XAUUSD=X") is a Yahoo-internal artifact that
+            // pollutes a web query; the raw form ("XAUUSD") is what a person
+            // would search. Gold/forex symbols also read better without the
+            // stock-word, so only stocks (<=5 letters, no '=') keep it.
+            val searchPhrase = if (symbol.contains('=') || raw.length >= 6) {
+                "$raw price"
+            } else {
+                "$raw stock price"
+            }
+            val search = searchWeb(searchPhrase)
             if (search != null) return ActionResult(true, search, null)
             return ActionResult(false, null, "Couldn't fetch the stock quote right now.")
         }
@@ -622,6 +643,14 @@ class InformationActions @Inject constructor() {
         override val name: String = "SUMMARIZE_URL"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val url = params["url"] ?: return ActionResult(false, null, "url is missing")
+            // v1.3.1 (the xauusd field report): a phrase in the url slot is a
+            // search in disguise — fail fast with the instruction the
+            // re-planner (and the user) can act on instead of attempting
+            // https://<phrase> and timing out on three fetch strategies.
+            if (!com.tsfdroid.ai.core.agent.StepRepair.isUrlShaped(url)) {
+                return ActionResult(false, null,
+                    "'$url' is not a web address. Use WEB_SEARCH for search terms, or provide a https:// link.")
+            }
             val normalized = if (url.startsWith("http")) url else "https://$url"
             val pageText = fetchPageText(normalized, maxChars = 6_000)
                 ?: return ActionResult(false, null, "Couldn't fetch that page (tried direct, desktop profile and reader proxy). Check the URL or your internet.")
@@ -641,6 +670,16 @@ class InformationActions @Inject constructor() {
             val url = params["url"]?.takeIf { it.isNotBlank() }
                 ?: params["query"]?.takeIf { it.isNotBlank() }
                 ?: return ActionResult(false, null, "url parameter is missing")
+            // v1.3.1 (the xauusd field report): "web fetch the price of
+            // xauusd" reached this action with the PHRASE as its url (the
+            // `query` alias slot feeds it) and burned three fetch strategies
+            // on https://the price of xauusd before failing. A non-url value
+            // fails immediately with the instruction that steers the
+            // re-planner to WEB_SEARCH.
+            if (!com.tsfdroid.ai.core.agent.StepRepair.isUrlShaped(url)) {
+                return ActionResult(false, null,
+                    "'$url' is not a web address. Use WEB_SEARCH for search terms, or provide a https:// link.")
+            }
             val normalized = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
             val pageText = fetchPageText(normalized, maxChars = 8_000)
                 ?: return ActionResult(false, null, "Couldn't fetch that page (tried direct, desktop profile and reader proxy). Check the URL or your internet.")

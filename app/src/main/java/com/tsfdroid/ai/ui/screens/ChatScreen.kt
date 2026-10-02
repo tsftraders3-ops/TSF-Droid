@@ -555,7 +555,18 @@ fun ChatScreen(
                             }
                         }
                     }
-                    itemsIndexed(history) { index, msg ->
+                    // v1.3.1 (the thinking-glitch field report): messages
+                    // are keyed by their stable id — the streaming reply
+                    // grows by REPLACING its row (same id), and Room re-emits
+                    // the whole list on every write. With positional keys
+                    // every history growth shifted the items below it, so the
+                    // keyless ThinkingBubble item was torn down and rebuilt
+                    // mid-turn (its infinite dot animation restarting = the
+                    // visible flash) and every bubble lost its identity on
+                    // every stream delta. Id keys keep item identity across
+                    // list re-emissions; Compose then skips bubbles whose
+                    // data-class message is unchanged.
+                    itemsIndexed(history, key = { _, msg -> msg.id }) { index, msg ->
                         // v1.2.1 round-16: the LIVE step trace renders INSIDE the
                         // streaming reply bubble (above the answer text — the same
                         // grammar as the persisted ACTIVITY section). The old
@@ -583,7 +594,12 @@ fun ChatScreen(
                     // Show a typing/thinking bubble if thinking - scoped to this chat, see
                     // visibleAgentState.
                     if (visibleAgentState is AgentState.Thinking) {
-                        item {
+                        // v1.3.1: a STABLE key — a keyless item holds a
+                        // positional key, so every history growth (the
+                        // streaming reply appending its partial row)
+                        // destroyed and recreated the whole bubble mid-think,
+                        // restarting the dot animation and flashing the trace.
+                        item(key = "thinking-bubble") {
                             ThinkingBubble(liveThinking = liveThinking, steps = liveActivity)
                         }
                     }

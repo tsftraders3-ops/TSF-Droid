@@ -4,6 +4,69 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.3.1 — The xauusd field report: no more dead ends, no more thinking flicker
+
+The first user-field-tested release. Two screenshots from a live session
+(2026-10-02) exposed one failure chain and one rendering defect — both
+root-caused and fixed with regression tests that replay the exact report.
+
+### The dead-end fix — "web fetch the price of xauusd" now ends in data
+
+The field report showed the whole chain breaking at three different layers:
+the planner put the PHRASE "the price of xauusd" into FETCH_URL's url slot, the
+action burned its three fetch strategies on https://<phrase>, and the WEB_SEARCH
+fallback — dispatched with the same params, which carried `url` but no `query` —
+failed schema validation and dead-ended the turn with "Needs user input: I need
+the query to complete this", asking the user for a query they had already given.
+- **PlanValidator repair**: a FETCH_URL/SUMMARIZE_URL step whose url is not
+  URL-shaped (no dots-and-TLD, contains spaces) is rewritten deterministically
+  into a WEB_SEARCH whose query is the phrase itself or the goal-derived
+  substance. A WEB_SEARCH with a blank query (or one hiding in `url`/`topic`)
+  gets the goal-derived phrase.
+- **Schema param aliases**: WEB_SEARCH's `query` now accepts `url`, `topic`,
+  `q`, `search`, `keyword`, `term` at validation time — the fallback dispatch
+  path that dead-ended in the report now searches. Param aliases are a generic
+  ActionSchema feature (ParamDefinition.aliases).
+- **Fetch actions fail fast and teach**: FETCH_URL/SUMMARIZE_URL reject
+  non-URL values immediately with "'X' is not a web address. Use WEB_SEARCH
+  for search terms, or provide a https:// link." — the re-planner acts on it
+  instead of timing out on https://the price of xauusd.
+- **CHECK_STOCK symbol normalization**: six-letter pairs get Yahoo's "=X"
+  suffix (XAUUSD → XAUUSD=X, EURUSD → EURUSD=X), and the search fallback
+  quotes the RAW symbol ("XAUUSD price", never "XAUUSD=X stock price").
+- **Planner guidance**: FETCH_URL requires a real URL the user gave; live
+  prices/quotes are CHECK_STOCK or WEB_SEARCH territory; capability questions
+  get direct answers — never a "noted your question" memory-confirmation as
+  the reply (the other turn in the report).
+- **fromGoal compounds**: "web fetch/search/look up" framing strips like the
+  other request verbs; a leading article never survives into a query.
+- Regression: `webFetchPhrasing_searchesInsteadOfDeadEnd` replays the exact
+  field-report sentence (41st E2E test) — it must end in a price, the search
+  listing or a quote, and never in "Needs user input"/"Fallback failed".
+- 24 pure-JVM tests cover StepRepair + SearchQueryQuality (standalone-rig
+  verified before push).
+
+### The thinking-flicker fix — stable LazyColumn identity
+
+During a turn the streaming reply grows by REPLACING its row, and Room
+re-emits the entire history list on every write — with POSITIONAL item keys
+every growth shifted the items below, tearing down the keyless ThinkingBubble
+mid-think (its infinite dot animation restarting was the visible flash) and
+stomping every bubble's identity on every stream delta. Messages are now keyed
+by their stable id and the ThinkingBubble holds a stable key: item identity
+survives list re-emissions, Compose skips unchanged bubbles (strong skipping
+is on), and the thinking animation runs unbroken for the whole turn.
+
+### QA diagnostic reports — every E2E run explains itself
+
+Adopted the useful core of the user's Gemini consult (its vision-model
+screenshot-tap loop was deliberately NOT adopted — the a11y-tree E2E is
+deterministic, faster and burns zero tokens): every E2E run now ends with
+`scripts/generate_qa_report.py` distilling the instrument output and logcat
+into QA_REPORT.md — verdict, failure stacks, and the agent-loop evidence
+(plan repairs, watchdog lines, search chain) — attached to the run's step
+summary and artifacts, so forensics never starts from a 17MB logcat again.
+
 ## v1.3.0 — Core agent experience: ask_user, real effort levels, rich answers & the memory identity fix
 
 The "make every promise real" release: every capability the UI offered now

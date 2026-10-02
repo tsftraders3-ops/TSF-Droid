@@ -1,0 +1,202 @@
+package com.tsfdroid.ai.core.agent
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * The xauusd lesson (2026-10-02 field report): "web fetch the price of
+ * xauusd" → FETCH_URL with a phrase as its url → fetch failed on three
+ * strategies → the WEB_SEARCH fallback inherited phrase-in-`url` params →
+ * schema validation demanded the missing `query` → NeedsInput dead end asking
+ * the user for a query they had already given.
+ *
+ * These repairs are pure logic — they get the standalone-JVM treatment.
+ */
+class StepRepairTest {
+
+    // ------------------------------------------------------------ isUrlShaped
+
+    @Test
+    fun `real web addresses are url-shaped`() {
+        listOf(
+            "goldprice.org",
+            "https://example.com/page",
+            "http://example.com",
+            "https://sub.domain.co.uk/path?query=1",
+            "example.com:8080/path",
+            "localhost",
+            "localhost:3000",
+            "docs.google.com",
+            "en.m.wikipedia.org/wiki/Gold"
+        ).forEach { s ->
+            assertTrue("'$s' should be url-shaped", StepRepair.isUrlShaped(s))
+        }
+    }
+
+    @Test
+    fun `phrases and bare words are not url-shaped`() {
+        listOf(
+            "the price of xauusd",
+            "xauusd",
+            "price of gold today",
+            "",
+            "   ",
+            "https://xauusd",           // scheme but no TLD label
+            "gold",                      // single label
+            "web fetch the price",
+            "gold price.org"             // space inside
+        ).forEach { s ->
+            assertFalse("'$s' should NOT be url-shaped", StepRepair.isUrlShaped(s))
+        }
+    }
+
+    // ------------------------------------------------------------ fetchToSearch
+
+    @Test
+    fun `the exact field-report step becomes a search`() {
+        // The screenshot: FETCH_URL {url: "the price of xauusd"} for the goal
+        // "web fetch the price of xauusd".
+        val repair = StepRepair.fetchToSearch(
+            "FETCH_URL",
+            mapOf("url" to "the price of xauusd"),
+            "web fetch the price of xauusd"
+        )
+        assertNotNull(repair)
+        assertEquals("WEB_SEARCH", repair!!.first)
+        assertEquals("price of xauusd", repair.second["query"])
+    }
+
+    @Test
+    fun `query-slot phrases are repaired too`() {
+        // The action's url alias is `query` — a phrase there is the same bug.
+        val repair = StepRepair.fetchToSearch(
+            "FETCH_URL",
+            mapOf("query" to "price of xauusd"),
+            "web fetch the price of xauusd"
+        )
+        assertNotNull(repair)
+        assertEquals("WEB_SEARCH", repair!!.first)
+        assertEquals("price of xauusd", repair.second["query"])
+    }
+
+    @Test
+    fun `bare symbol urls search for the symbol`() {
+        val repair = StepRepair.fetchToSearch(
+            "FETCH_URL",
+            mapOf("url" to "xauusd"),
+            "web fetch the price of xauusd"
+        )
+        assertNotNull(repair)
+        assertEquals("WEB_SEARCH", repair!!.first)
+        assertEquals("xauusd", repair.second["query"])
+    }
+
+    @Test
+    fun `empty url slots derive the query from the goal`() {
+        val repair = StepRepair.fetchToSearch(
+            "SUMMARIZE_URL",
+            emptyMap(),
+            "web fetch the price of xauusd"
+        )
+        assertNotNull(repair)
+        assertEquals("WEB_SEARCH", repair!!.first)
+        assertEquals("price of xauusd", repair.second["query"])
+    }
+
+    @Test
+    fun `real urls are left alone`() {
+        listOf(
+            "https://example.com/article",
+            "goldprice.org",
+            "localhost:8080"
+        ).forEach { url ->
+            assertNull(
+                "a real url must not be rewritten",
+                StepRepair.fetchToSearch(
+                    "FETCH_URL",
+                    mapOf("url" to url),
+                    "web fetch the price of xauusd"
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `non-fetch actions are not rewritten`() {
+        assertNull(
+            StepRepair.fetchToSearch(
+                "WEB_SEARCH",
+                mapOf("query" to "gold price"),
+                "search gold price"
+            )
+        )
+        assertNull(
+            StepRepair.fetchToSearch(
+                "OPEN_APP",
+                mapOf("appName" to "Chrome"),
+                "open chrome"
+            )
+        )
+    }
+
+    @Test
+    fun `non-fetch actions with phrase urls are not rewritten`() {
+        // OPEN_APP_OR_WEBSITE-style repair paths live in PlanValidator's own
+        // unknown-action handling; StepRepair must not touch them.
+        assertNull(
+            StepRepair.fetchToSearch(
+                "OPEN_APP",
+                mapOf("url" to "the price of xauusd"),
+                "web fetch the price of xauusd"
+            )
+        )
+    }
+
+    // ------------------------------------------------------------ repairSearchQuery
+
+    @Test
+    fun `the fallback-dispatch case - query hiding in the url slot`() {
+        // The screenshot: the WEB_SEARCH fallback inherited {url: ...} only.
+        val repaired = StepRepair.repairSearchQuery(
+            mapOf("url" to "current gold price USD"),
+            "fetch the current gold price"
+        )
+        assertNotNull(repaired)
+        assertEquals("current gold price USD", repaired!!["query"])
+    }
+
+    @Test
+    fun `blank query with no alias derives from the goal`() {
+        val repaired = StepRepair.repairSearchQuery(
+            emptyMap(),
+            "web fetch the price of xauusd"
+        )
+        assertNotNull(repaired)
+        assertEquals("price of xauusd", repaired!!["query"])
+    }
+
+    @Test
+    fun `degenerate aliases fall back to the goal`() {
+        // url: "current" — the alias is a torn-out adjective, use the goal.
+        val repaired = StepRepair.repairSearchQuery(
+            mapOf("url" to "current"),
+            "fetch the current gold price"
+        )
+        assertNotNull(repaired)
+        assertEquals("current gold price", repaired!!["query"])
+    }
+
+    @Test
+    fun `present queries are left alone`() {
+        assertNull(
+            StepRepair.repairSearchQuery(
+                mapOf("query" to "current gold price USD"),
+                "fetch the current gold price"
+            )
+        )
+    }
+}

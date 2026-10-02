@@ -9,6 +9,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import com.tsfdroid.ai.MainActivity
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -1001,6 +1002,56 @@ class AgentCapabilityE2EInstrumentedTest {
             !(reply!!.contains("Unreadable response", true) || reply.contains("MALFORMED", true))
         )
         println("TSF-E2E gold reply: ${reply.take(200)}")
+    }
+
+    // ---------- v1.3.1: the 2026-10-02 field screenshot failure ----------
+    // The user's screenshot: "web fetch the price of xauusd" → the planner
+    // wrote FETCH_URL with the PHRASE as its url → three fetch strategies
+    // burned on https://<phrase> → the WEB_SEARCH fallback inherited the same
+    // params ({url, no query}) → schema validation demanded the missing
+    // `query` → the turn dead-ended with "Fallback failed: Needs user input:
+    // I need the query to complete this" — asking for a query the user had
+    // already given. Fixes: PlanValidator rewrites phrase-in-url fetch steps
+    // to real WEB_SEARCHs, the schema resolves query aliases (url/topic/...)
+    // so the fallback dispatch works, and the fetch actions reject non-urls
+    // fast with a teaching error. This test replays the exact sentence.
+
+    /** The EXACT field-report sentence — must end in data, never a dead end. */
+    @Test(timeout = 1_200_000)
+    fun webFetchPhrasing_searchesInsteadOfDeadEnd() {
+        reachDashboard()
+        val baseline = sendTask(
+            "web fetch the price of xauusd",
+            "cap22_xauusd",
+            planningWindowMs = 600_000
+        )
+        assertNoBrowserFallback(baseline, "cap22_xauusd")
+        val reply = waitNewText(
+            baseline, 600_000,
+            predicate = { t ->
+                // Success surfaces: a price figure (gold trades in the
+                // thousands), the structured search listing, or a Yahoo
+                // quote. The dead-end error text matches NONE of these, so a
+                // regression times out instead of "passing" as an error.
+                Regex("""\d{3,}(\.\d+)?""").containsMatchIn(t) ||
+                    t.startsWith("Top web results") ||
+                    t.contains("latest session close", ignoreCase = true)
+            }
+        )
+        shoot("cap22_xauusd_reply")
+        assertNotNull(
+            "the exact field-report sentence produced no answer within 600s — " +
+                "the phrase-in-url repair chain regressed",
+            reply
+        )
+        val answer = reply!!
+        assertFalse(
+            "the turn dead-ended asking for a query the user already gave: ${answer.take(200)}",
+            answer.contains("Needs user input", true) ||
+                answer.contains("Fallback failed", true) ||
+                answer.contains("is not a web address", true)
+        )
+        println("TSF-E2E xauusd reply: ${answer.take(200)}")
     }
 
     // ---------- v1.1.1: the 2026-09-27 field screenshot failures ----------

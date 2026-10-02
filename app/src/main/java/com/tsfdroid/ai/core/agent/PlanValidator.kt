@@ -93,6 +93,28 @@ class PlanValidator @Inject constructor(
                 }
             }
 
+            // v1.3.1 (the xauusd field report): a FETCH_URL/SUMMARIZE_URL step
+            // whose url slot carries a PHRASE ("web fetch the price of xauusd"
+            // → url="the price of xauusd") is a search in disguise — the fetch
+            // would attempt https://the price of xauusd and fail all three
+            // strategies, then the WEB_SEARCH fallback would inherit the same
+            // phrase-in-`url` params and dead-end on the missing `query`.
+            // Rewrite it deterministically into a real search.
+            val fetchRepair = StepRepair.fetchToSearch(updatedStep.action, updatedStep.params, plan.goal)
+            if (fetchRepair != null) {
+                android.util.Log.w(
+                    "PlanValidator",
+                    "${updatedStep.action} with non-url '${updatedStep.params["url"] ?: updatedStep.params["query"]?.take(40)}' " +
+                        "rewritten to WEB_SEARCH (goal='${plan.goal.take(60)}')"
+                )
+                updatedStep = updatedStep.copy(
+                    action = fetchRepair.first,
+                    params = fetchRepair.second,
+                    description = if (updatedStep.description.isBlank()) "Search for the requested information"
+                    else updatedStep.description
+                )
+            }
+
             // v1.3.0 round 19 (the gold-query lesson): a WEB_SEARCH whose
             // query degenerated to a lone generic word ("current" for the
             // goal "Fetch the current gold price") is repaired here — the
@@ -102,6 +124,16 @@ class PlanValidator @Inject constructor(
             // deterministically from the goal, which is always about the
             // substance of the ask.
             if (updatedStep.action.uppercase() == "WEB_SEARCH") {
+                // v1.3.1: first the missing/blank query (incl. alias slots) —
+                // a blank one can't even be judged degenerate yet.
+                val repairedQuery = StepRepair.repairSearchQuery(updatedStep.params, plan.goal)
+                if (repairedQuery != null) {
+                    android.util.Log.w(
+                        "PlanValidator",
+                        "blank WEB_SEARCH query filled from '${repairedQuery["query"]?.take(60)}' (goal='${plan.goal.take(60)}')"
+                    )
+                    updatedStep = updatedStep.copy(params = repairedQuery)
+                }
                 val query = updatedStep.params["query"]?.trim().orEmpty()
                 if (SearchQueryQuality.isDegenerate(query)) {
                     val derived = SearchQueryQuality.fromGoal(plan.goal)
