@@ -107,4 +107,36 @@ object StepRepair {
         if (derived.isBlank()) return null
         return params + mapOf("query" to derived)
     }
+
+    /**
+     * v1.3.1 round 4 (the third gold lesson): the free-tier planner sometimes
+     * writes a SINGLE defeatist ASK_USER step — "I'm not able to pull live
+     * market data in this session" — for a plain data goal, parking the turn
+     * on a question the user cannot usefully answer (run 36987915019: zero
+     * searches executed, the test watched a 54-char apology). A one-step
+     * ask whose question declares inability is rewritten into a real search
+     * derived from the goal. Legitimate asks (cap21's "which city do you
+     * prefer?") never match the defeatism vocabulary and multi-step plans
+     * are left alone — asking mid-plan is normal agentic behavior.
+     */
+    private val DEFEATISM_MARKERS = listOf(
+        "not able to", "can't", "cannot", "unable to", "no access",
+        "don't have access", "do not have access", "cannot pull", "can't pull",
+        "isn't available", "not available to me", "no internet access",
+        "cannot access the internet", "don't have the ability"
+    )
+
+    fun defeatistAskToSearch(
+        action: String,
+        params: Map<String, String>,
+        goal: String,
+        totalSteps: Int
+    ): Pair<String, Map<String, String>>? {
+        if (action.uppercase() != "ASK_USER" || totalSteps != 1) return null
+        val question = params["question"]?.lowercase() ?: return null
+        if (DEFEATISM_MARKERS.none { question.contains(it) }) return null
+        val derived = SearchQueryQuality.fromGoal(goal)
+        if (derived.isBlank() || SearchQueryQuality.isDegenerate(derived)) return null
+        return "WEB_SEARCH" to mapOf("query" to derived)
+    }
 }

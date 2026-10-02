@@ -190,12 +190,69 @@ class StepRepairTest {
         assertEquals("current gold price", repaired!!["query"])
     }
 
+    // ------------------------------------------------------------ defeatistAskToSearch
+
     @Test
     fun `present queries are left alone`() {
         assertNull(
             StepRepair.repairSearchQuery(
                 mapOf("query" to "current gold price USD"),
                 "fetch the current gold price"
+            )
+        )
+    }
+
+    @Test
+    fun `the third gold lesson - a defeatist single ask becomes a search`() {
+        // Run 36987915019: the planner wrote ASK_USER("I'm not able to pull
+        // live market data in this session...") for "cna u fetch the price
+        // of gold now" — zero searches executed, the turn apologized.
+        val repair = StepRepair.defeatistAskToSearch(
+            "ASK_USER",
+            mapOf("question" to "I'm not able to pull live market data in this session (tool limitations). What would you like me to do?"),
+            "cna u fetch the price of gold now",
+            totalSteps = 1
+        )
+        assertNotNull(repair)
+        assertEquals("WEB_SEARCH", repair!!.first)
+        assertEquals("price of gold", repair.second["query"])
+    }
+
+    @Test
+    fun `legitimate asks are never rewritten`() {
+        // cap21's exact ask: "which city do you prefer" — no defeatism.
+        assertNull(
+            StepRepair.defeatistAskToSearch(
+                "ASK_USER",
+                mapOf("question" to "Which city do you prefer between Pune and Mumbai?"),
+                "ask me which city I prefer",
+                totalSteps = 1
+            )
+        )
+    }
+
+    @Test
+    fun `multi-step ask plans are left alone`() {
+        // Asking mid-plan is normal agentic behavior — only the single-step
+        // defeatist surrender is rewritten.
+        assertNull(
+            StepRepair.defeatistAskToSearch(
+                "ASK_USER",
+                mapOf("question" to "I can't decide without knowing your budget - what is it?"),
+                "book me a trip",
+                totalSteps = 3
+            )
+        )
+    }
+
+    @Test
+    fun `non-ask actions are never rewritten`() {
+        assertNull(
+            StepRepair.defeatistAskToSearch(
+                "WEB_SEARCH",
+                mapOf("query" to "gold price"),
+                "fetch gold price",
+                totalSteps = 1
             )
         )
     }

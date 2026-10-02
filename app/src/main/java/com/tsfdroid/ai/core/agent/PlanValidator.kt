@@ -93,6 +93,23 @@ class PlanValidator @Inject constructor(
                 }
             }
 
+            // v1.3.1 round 4 (the third gold lesson): a SINGLE defeatist
+            // ASK_USER step — "I'm not able to pull live market data in this
+            // session" — parks the turn on a question the user cannot
+            // usefully answer while real searches were available (run
+            // 36987915019: zero searches, a 54-char apology). Rewritten into
+            // a real search; legitimate asks never match the vocabulary.
+            val askRepair = StepRepair.defeatistAskToSearch(
+                updatedStep.action, updatedStep.params, plan.goal, plan.steps.size
+            )
+            if (askRepair != null) {
+                android.util.Log.w(
+                    "PlanValidator",
+                    "defeatist single-step ASK_USER rewritten to WEB_SEARCH (goal='${plan.goal.take(60)}')"
+                )
+                updatedStep = updatedStep.copy(action = askRepair.first, params = askRepair.second)
+            }
+
             // v1.3.1 (the xauusd field report): a FETCH_URL/SUMMARIZE_URL step
             // whose url slot carries a PHRASE ("web fetch the price of xauusd"
             // → url="the price of xauusd") is a search in disguise — the fetch
