@@ -604,48 +604,70 @@ class InformationActions @Inject constructor() {
      * No browser.
      */
     private class CheckStockAction : Action {
+        // v1.3.1 round 5 (the fourth gold lesson): Yahoo serves the same
+        // metal under several symbols and they fail independently by region —
+        // XAUUSD=X 404s from whole egress regions while GC=F (the COMEX
+        // futures alias Yahoo's own gold page serves) answers. The variant
+        // chain tries each known alias of the instrument before giving up.
+        private val METALS_FUTURES = mapOf(
+            "XAU" to "GC=F", "XAG" to "SI=F", "XPT" to "PL=F", "XPD" to "PA=F"
+        )
+        private val METALS_NAMES = mapOf(
+            "XAU" to "gold", "XAG" to "silver", "XPT" to "platinum", "XPD" to "palladium"
+        )
+
         override val name: String = "CHECK_STOCK"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val raw = params["symbol"]?.uppercase()?.trim()?.takeIf { it.isNotBlank() }
                 ?: return ActionResult(false, null, "symbol parameter is missing")
             // v1.3.1: Yahoo's chart endpoint needs the instrument's exchange
             // suffix — plain "XAUUSD" 404s. Six pure letters = a forex/metals
-            // pair (XAUUSD, EURUSD, GBPJPY) → "=X"; already-suffixed
-            // (GC=F, XAUUSD=X) and dashed tickers (BTC-USD, ^NSEI) pass
-            // through untouched. Stocks and ETFs (AAPL, NIFTYBEES) keep their
+            // pair (XAUUSD, EURUSD, GBPJPY) → "=X" plus the COMEX futures
+            // alias for the major metals; already-suffixed (GC=F,
+            // XAUUSD=X) and dashed tickers (BTC-USD, ^NSEI) pass through
+            // untouched. Stocks and ETFs (AAPL, NIFTYBEES) keep their
             // planner-given form — the planner owns exchange suffixes there.
-            val symbol = when {
-                raw.contains('=') -> raw
-                Regex("^[A-Z]{6}$").matches(raw) -> raw + "=X"
-                else -> raw
+            val metalRoot = raw.take(3).uppercase()
+            val variants: List<String> = when {
+                raw.contains('=') -> listOf(raw)
+                Regex("^[A-Z]{6}$").matches(raw) -> {
+                    val v = mutableListOf(raw + "=X")
+                    METALS_FUTURES[metalRoot]?.let { v.add(it) }
+                    v
+                }
+                else -> listOf(raw)
             }
-            try {
-                val body = httpGetText(
-                    "https://query1.finance.yahoo.com/v8/finance/chart/${URLEncoder.encode(symbol, "UTF-8")}?range=1d&interval=1d",
-                    userAgent = USER_AGENT_DESKTOP,
-                    timeoutMs = 8_000
-                )
-                val price = body?.let { b ->
-                    Regex("\"regularMarketPrice\"\\s*:\\s*([0-9.]+)").find(b)?.groupValues?.get(1)
+            for (symbol in variants) {
+                try {
+                    val body = httpGetText(
+                        "https://query1.finance.yahoo.com/v8/finance/chart/${URLEncoder.encode(symbol, "UTF-8")}?range=1d&interval=1d",
+                        userAgent = USER_AGENT_DESKTOP,
+                        timeoutMs = 8_000
+                    )
+                    val price = body?.let { b ->
+                        Regex("\"regularMarketPrice\"\\s*:\\s*([0-9.]+)").find(b)?.groupValues?.get(1)
+                    }
+                    val currency = body?.let { b ->
+                        Regex("\"currency\"\\s*:\\s*\"([A-Z]+)\"").find(b)?.groupValues?.get(1)
+                    }
+                    if (price != null) {
+                        return ActionResult(true, "$symbol is at $price ${currency ?: ""} (latest session close).", null)
+                    }
+                } catch (e: Exception) {
+                    Log.w("CheckStock", "Yahoo failed for $symbol: ${e.localizedMessage}")
                 }
-                val currency = body?.let { b ->
-                    Regex("\"currency\"\\s*:\\s*\"([A-Z]+)\"").find(b)?.groupValues?.get(1)
-                }
-                if (price != null) {
-                    return ActionResult(true, "$symbol is at $price ${currency ?: ""} (latest session close).", null)
-                }
-            } catch (e: Exception) {
-                Log.w("CheckStock", "Yahoo failed: ${e.localizedMessage}")
             }
-            // v1.3.1: the search fallback quotes the RAW symbol — the
-            // normalized form ("XAUUSD=X") is a Yahoo-internal artifact that
-            // pollutes a web query; the raw form ("XAUUSD") is what a person
-            // would search. Gold/forex symbols also read better without the
-            // stock-word, so only stocks (<=5 letters, no '=') keep it.
-            val searchPhrase = if (symbol.contains('=') || raw.length >= 6) {
-                "$raw price"
-            } else {
-                "$raw stock price"
+            // v1.3.1: the search fallback quotes what a person would type —
+            // a metals instrument (pair or futures alias) searches its METAL
+            // NAME ("gold price", the snippets that carry the actual
+            // number), the raw symbol for forex pairs, and "stock price"
+            // only for stocks.
+            val metalName = METALS_NAMES[metalRoot]
+                ?: METALS_FUTURES.entries.firstOrNull { it.value == raw }?.key?.let { METALS_NAMES[it] }
+            val searchPhrase = when {
+                metalName != null -> "$metalName price"
+                raw.length >= 6 -> "$raw price"
+                else -> "$raw stock price"
             }
             val search = searchWeb(searchPhrase)
             if (search != null) return ActionResult(true, search, null)
