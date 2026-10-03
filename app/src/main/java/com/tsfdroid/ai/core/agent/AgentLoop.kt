@@ -1783,6 +1783,20 @@ class AgentLoop @Inject constructor(
     private suspend fun synthesizeExecutablePlan(provider: LLMProvider, userGoal: String): Plan? {
         val goal = userGoal.lowercase()
 
+        // v1.3.0 round 22 (cap3 E2E evidence, run on d697485): an EXPLICIT
+        // URL in a fetch-flavored goal is a FETCH ask first. "Fetch
+        // https://example.com and report the page's main heading" carries
+        // the artifact word "report" as a VERB — the artifact heuristic
+        // below read it as a PDF ask and synthesized a report file instead
+        // of fetching the page the user named. The URL + fresh-data intent
+        // wins over any artifact wording.
+        val explicitUrl = Regex("https?://\\S+").find(userGoal)?.value
+        val wantsFreshDataNow = PlanResponseSanitizer.goalWantsWebData(userGoal) ||
+            PlanResponseSanitizer.goalDemandsFreshData(userGoal)
+        if (explicitUrl != null && wantsFreshDataNow) {
+            return buildSingleStepPlan(userGoal, "FETCH_URL", mapOf("url" to explicitUrl))
+        }
+
         // Data goal → executable search step right now. v1.3.0 round-7: an
         // explicit lookup command ("google X", "look up X") counts as a data
         // goal even when no DATA_WORD matches — the command IS the task.

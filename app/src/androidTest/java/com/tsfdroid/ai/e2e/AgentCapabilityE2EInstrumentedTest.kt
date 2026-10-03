@@ -1317,26 +1317,40 @@ class AgentCapabilityE2EInstrumentedTest {
     // (cap23/cap24 are the v1.4.0 answer-engine tests above; these are cap25/cap26)
 
     /**
-     * Dumps the logcat lines for the given tags, only those newer than the
-     * device timestamp [sinceStamp] ("MM-DD HH:MM:SS.mmm", from
-     * [deviceStamp]). Used to prove the GROUNDING path ran (WEB_SEARCH
-     * dispatch) when the reply itself is model-written prose — the UI alone
-     * can't tell a memory answer from a researched one.
+     * Dumps the logcat lines for the given tags, keeping only lines stamped
+     * at or after [sinceStamp] (device wall clock, format "MM-DD-HH-MM-SS"
+     * from [deviceStamp]; line stamps are normalized to the same shape so
+     * the string comparison is exact). Timestamp filtering happens IN TEST
+     * CODE — `logcat -T` with a space-containing stamp and `date` format
+     * strings with quotes are both fragile through executeShellCommand,
+     * while a bare `logcat -d -v time` and a space-free `date +%m-%d-%H-%M-%S`
+     * have no quoting to break. Used to prove the GROUNDING path ran
+     * (WEB_SEARCH dispatch / CHECK_STOCK quote) when the reply itself is
+     * model-written prose — the UI alone can't tell a memory answer from a
+     * researched one.
      */
     private fun dumpLogcat(sinceStamp: String, vararg tags: String): String {
         val filter = tags.joinToString(" ") { "$it:V" } + " *:S"
-        return runCatching {
+        val raw = runCatching {
             val pfd = InstrumentationRegistry.getInstrumentation().uiAutomation
-                .executeShellCommand("logcat -d -T '$sinceStamp' $filter")
+                .executeShellCommand("logcat -d -v time $filter")
             ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes().toString(Charsets.UTF_8) }
         }.getOrDefault("")
+        val stampRegex = Regex("""^(\d{2}-\d{2} \d{2}:\d{2}:\d{2})""")
+        return raw.lineSequence()
+            .filter { line ->
+                stampRegex.find(line)?.let {
+                    it.groupValues[1].replace(" ", "-").replace(":", "-") >= sinceStamp
+                } ?: false
+            }
+            .joinToString("\n")
     }
 
-    /** Device-wall-clock stamp usable as logcat -T (MM-DD HH:MM:SS.000). */
+    /** Device-wall-clock stamp, space-free (MM-DD-HH-MM-SS — see [dumpLogcat]). */
     private fun deviceStamp(): String =
         runCatching {
             val pfd = InstrumentationRegistry.getInstrumentation().uiAutomation
-                .executeShellCommand("date '+%m-%d %H:%M:%S.000'")
+                .executeShellCommand("date +%m-%d-%H-%M-%S")
             ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes().toString(Charsets.UTF_8) }.trim()
         }.getOrDefault("")
 
@@ -1389,8 +1403,13 @@ class AgentCapabilityE2EInstrumentedTest {
         // BAR-A evidence: the turn was GROUNDED, not memory-only. Any of:
         // a WEB_SEARCH dispatch (searchWeb log), a CHECK_STOCK Yahoo quote
         // (the plan-start line names the executed actions), or a FETCH_URL.
+        // Round-22 fix: the planner may REWRITE the goal ("price of Nvidia
+        // stock" arrived as "Check price of NVIDIA stock"), so match on the
+        // subject, not the typed sentence.
         val log = dumpLogcat(stamp, "InformationActions", "AgentLoop", "CheckStock")
-        val planLines = log.lineSequence().filter { it.contains("plan start: goal='price of Nvidia") }.toList()
+        val planLines = log.lineSequence()
+            .filter { it.contains("plan start: goal=") && it.contains("vidia", ignoreCase = true) }
+            .toList()
         val groundedPlan = planLines.any { line ->
             line.contains("WEB_SEARCH") || line.contains("CHECK_STOCK") || line.contains("FETCH_URL")
         }
