@@ -121,22 +121,28 @@ internal object AnswerEngine {
         "CURRENCY_CONVERT", "CHECK_STOCK", "SUMMARIZE_URL"
     )
 
+    /** Trailing citation footer — excluded from dump-density (chips, not slop). */
+    private val SOURCES_FOOTER = Regex("""\s*Sources:\s.*$""", RegexOption.DOT_MATCHES_ALL)
+
     /**
      * The quality guard: would a user reading [text] see raw tool output
      * instead of an answer? Matches the listing prefixes the actions emit,
-     * bare-URL density, and numbered-entry dumps.
+     * bare-URL density, and numbered-entry dumps. The closing "Sources:
+     * https://..." footer is CITATION (it renders as tappable chips) — the
+     * density and numbered-entry checks measure the BODY without it.
      */
     fun looksLikeRawDump(text: String): Boolean {
         val t = text.trim()
         if (t.isEmpty()) return false
         val lower = t.lowercase()
         if (RAW_LISTING_MARKERS.any { lower.startsWith(it) }) return true
-        val urls = URL_PATTERN.findAll(t).toList()
+        val body = SOURCES_FOOTER.replace(t, "")
+        val urls = URL_PATTERN.findAll(body).toList()
         val urlChars = urls.sumOf { it.value.length }
-        // Bare-URL density: a reply that is mostly links is a dump.
-        if (urls.size >= 3 && urlChars > t.length * 0.35) return true
+        // Bare-URL density: a reply whose body is mostly links is a dump.
+        if (urls.size >= 3 && urlChars > body.length * 0.35) return true
         // Numbered listing: >= 3 entries that each contain a URL.
-        val numberedLines = t.lines().filter { it.matches(Regex("""\s*\d+[.)]\s.*""")) }
+        val numberedLines = body.lines().filter { it.matches(Regex("""\s*\d+[.)]\s.*""")) }
         if (numberedLines.size >= 3 && numberedLines.count { URL_PATTERN.containsMatchIn(it) } >= 3) return true
         return false
     }
@@ -157,7 +163,7 @@ internal object AnswerEngine {
 
         val domains = results.flatMap { r -> URL_PATTERN.findAll(r).mapNotNull { m ->
             m.groupValues.getOrNull(1)?.lowercase()?.removePrefix("www.")
-        } }.distinct().take(4)
+        } }.distinct().take(3)
 
         // 1) Answer-bearing sentence: contains a price/number figure AND
         //    is not a URL line. Search listings append their URL to the

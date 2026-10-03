@@ -1182,13 +1182,14 @@ class AgentCapabilityE2EInstrumentedTest {
         if (lower.startsWith("top web results") || lower.startsWith("search results") ||
             lower.startsWith("latest news") || lower.startsWith("top results")
         ) return true
-        // Bare-URL DENSITY (not mere count — a legit answer may close with a
-        // 3-URL "Sources: https://..." line; that is ChatGPT-style citation,
-        // not a dump). Mirrors AnswerEngine.looksLikeRawDump.
-        val urls = Regex("""https?://\S+""").findAll(t).toList()
+        // The closing "Sources: https://..." footer is CITATION (it renders
+        // as tappable source chips), not slop — density measures the BODY
+        // without it. Mirrors AnswerEngine.looksLikeRawDump exactly.
+        val body = Regex("""\s*Sources:\s.*$""", RegexOption.DOT_MATCHES_ALL).replace(t.trim(), "")
+        val urls = Regex("""https?://\S+""").findAll(body).toList()
         val urlChars = urls.sumOf { it.value.length }
-        if (urls.size >= 3 && urlChars > t.length * 0.35) return true
-        val numberedLines = t.lines().filter { it.matches(Regex("""\s*\d+[.)]\s.*""")) }
+        if (urls.size >= 3 && urlChars > body.length * 0.35) return true
+        val numberedLines = body.lines().filter { it.matches(Regex("""\s*\d+[.)]\s.*""")) }
         return numberedLines.size >= 3 && numberedLines.count { Regex("""https?://""").containsMatchIn(it) } >= 3
     }
 

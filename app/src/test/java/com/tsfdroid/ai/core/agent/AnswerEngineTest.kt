@@ -50,6 +50,18 @@ class AnswerEngineTest {
     }
 
     @Test
+    fun `sources footer is citation not dump - the field regression`() {
+        // The EXACT extractive reply from the 2026-10-03 field data: body
+        // carries the price, footer cites 3 full URLs. The density guard
+        // must measure the BODY without the Sources footer — this reply
+        // is a GOOD answer, never a dump.
+        val fieldReply = "Gold spot price today (XAU/USD) — \$4,199.40/oz (-0.07%) | NowPrice — " +
+            "Live XAU/USD gold spot price — \$4,199.40/oz, -0.07% today. " +
+            "Sources: https://tradingview.com, https://investing.com, https://nowprice.io."
+        assertFalse(AnswerEngine.looksLikeRawDump(fieldReply))
+    }
+
+    @Test
     fun `bare url density is detected`() {
         val linky = "check these out https://a.com/x https://b.com/y https://c.com/z " +
             "https://d.com/w https://e.com/v more links here"
