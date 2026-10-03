@@ -314,6 +314,20 @@ internal object PlanResponseSanitizer {
         return ARTIFACT_WORDS.any { g.contains(it) }
     }
 
+    /**
+     * v1.3.0 round 24 (cap22 E2E evidence): CONCRETE artifact asks only — a
+     * format word (pdf, html, file, website, csv...) that names a real
+     * deliverable. The loose [goalWantsArtifact] matches the VERB "report"
+     * ("search the price and REPORT the source URL", "fetch the page and
+     * REPORT its heading") and misroutes data asks into report-PDF
+     * synthesis. Soft artifact words stay out: "report" alone is a verb as
+     * often as a noun, and only the CONCRETE formats are unambiguous.
+     */
+    fun goalWantsConcreteArtifact(goal: String): Boolean {
+        val g = goal.lowercase()
+        return CONCRETE_ARTIFACT_WORDS.any { g.contains(it) }
+    }
+
     /** Actions that actually produce live web data. */
     private val DATA_ACTIONS = setOf(
         "WEB_SEARCH", "FETCH_URL", "GET_NEWS", "GET_WEATHER",

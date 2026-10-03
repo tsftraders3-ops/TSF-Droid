@@ -558,6 +558,40 @@ class PlanResponseSanitizerTest {
         assertTrue(!PlanResponseSanitizer.replyRefusesGoal(grounded))
     }
 
+    // --- v1.3.0 round 24: the report-verb routing fix (cap22/cap3 E2E) ---
+
+    @Test
+    fun `report as a verb is not a concrete artifact ask`() {
+        // "search the price and REPORT the source URL" — the planner-rewritten
+        // goal from the cap22 failure; "report" is the VERB, not a deliverable.
+        assertTrue(
+            !PlanResponseSanitizer.goalWantsConcreteArtifact(
+                "Search the web for the current Bitcoin price in USD and report the source URL"
+            )
+        )
+        assertTrue(
+            !PlanResponseSanitizer.goalWantsConcreteArtifact(
+                "Fetch https://example.com in-app and report the page's main heading"
+            )
+        )
+        // The loose heuristic reads the same goals as artifact asks — that
+        // is exactly the misroute round 24 fixes at the call site.
+        assertTrue(
+            PlanResponseSanitizer.goalWantsArtifact(
+                "Search the web for the current Bitcoin price in USD and report the source URL"
+            )
+        )
+    }
+
+    @Test
+    fun `concrete format words are concrete artifact asks`() {
+        assertTrue(PlanResponseSanitizer.goalWantsConcreteArtifact("write a deep research report about solar energy growth in india as a pdf"))
+        assertTrue(PlanResponseSanitizer.goalWantsConcreteArtifact("can u create a award winning website in html"))
+        assertTrue(PlanResponseSanitizer.goalWantsConcreteArtifact("ok create a pdf of a resume of mine with synthetic data with no image"))
+        assertTrue(!PlanResponseSanitizer.goalWantsConcreteArtifact("price of Nvidia stock"))
+        assertTrue(!PlanResponseSanitizer.goalWantsConcreteArtifact("how are you today"))
+    }
+
     @Test
     fun `a long refusal against a data goal is a deferral at any length`() {
         val slop = "I can't pull a live quote right now (no tool access in this session), " +

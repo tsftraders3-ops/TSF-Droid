@@ -237,6 +237,13 @@ private const val PLAN_STALL_CHECK_INTERVAL_MS = 30_000L
 private const val ASK_CONFIRM_TIMEOUT_MS = 30_000L
 
 /**
+ * v1.3.0 round 24: the synthesized WEB_SEARCH query-repair call's wall clock.
+ * A stalling free tier must never delay the corrective plan — the
+ * deterministic SearchQueryQuality strip stays as the fallback.
+ */
+private const val SEARCH_QUERY_REPAIR_TIMEOUT_MS = 15_000L
+
+/**
  * v1.4.0: dedicated bound for the Hermes answer-engine synthesis call. A
  * real answer (up to 900 tokens) needs more than the ask-confirm sentence,
  * but a stalling free tier must never delay the final bubble past this —
@@ -1772,6 +1779,66 @@ class AgentLoop @Inject constructor(
     }
 
     /**
+     * v1.3.0 round 24: the synthesized WEB_SEARCH step's query, repaired by
+     * one bounded model call. The planner's corrective fallback used to
+     * search the RAW goal ("can give me 5y of India vixen stock details with
+     * analysis") — every backend rejected it as off-topic and the turn died
+     * on a garbage query. The model writes the 5-10 word query a person
+     * would type; any failure (rate limit, timeout, empty) falls back to
+     * [SearchQueryQuality.fromGoal]'s deterministic strip.
+     */
+    private suspend fun repairSearchQuery(provider: LLMProvider, userGoal: String): String {
+        val deterministic = SearchQueryQuality.fromGoal(userGoal)
+        return try {
+            val response = withTimeout(SEARCH_QUERY_REPAIR_TIMEOUT_MS) {
+                provider.complete(
+                    LLMRequest(
+                        systemPrompt = "You rewrite requests into web search queries. Output ONLY " +
+                            "the query — 5 to 10 words, the way a person would type it into a search " +
+                            "engine: key entity, topic, and qualifier (e.g. 'India VIX 5 year " +
+                            "historical data', 'Nvidia NVDA stock price today'). No quotes, no " +
+                            "sentence, no punctuation at the end.",
+                        messages = listOf(
+                            ChatMessage(
+                                id = UUID.randomUUID().toString(),
+                                text = "Request: ${userGoal.take(300)}\nSearch query:",
+                                sender = ChatMessage.Sender.USER
+                            )
+                        ),
+                        temperature = 0.0f,
+                        maxTokens = 60,
+                        responseFormat = ResponseFormat.TEXT
+                    )
+                )
+            }
+            val repaired = PlanResponseSanitizer.stripReasoningBlocks(response.content)
+                .trim().trim('"', '\'', '.', '!', '?', '\n')
+                .replace(Regex("\\s+"), " ")
+            // Sanity: a repaired query must be a real improvement, not a
+            // restatement of a whole sentence or an empty echo.
+            if (repaired.length in 4..80 && repaired.split(" ").size <= 12 &&
+                !SearchQueryQuality.isDegenerate(repaired)
+            ) {
+                android.util.Log.i(
+                    "AgentLoop",
+                    "synthesized search query repaired: '${userGoal.take(60)}' -> '$repaired'"
+                )
+                repaired
+            } else {
+                deterministic
+            }
+        } catch (tce: TimeoutCancellationException) {
+            android.util.Log.w("AgentLoop", "search query repair timed out — deterministic strip stays")
+            deterministic
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("AgentLoop", "search query repair failed: ${e.localizedMessage}")
+            deterministic
+        }
+    }
+
+    /**
      * v1.0.6: deterministic plan synthesis for goals the model repeatedly
      * answered with prose. Artifact goals get one dedicated CONTENT_NOW
      * generation request whose output becomes the inline content of a
@@ -1800,14 +1867,27 @@ class AgentLoop @Inject constructor(
         // Data goal → executable search step right now. v1.3.0 round-7: an
         // explicit lookup command ("google X", "look up X") counts as a data
         // goal even when no DATA_WORD matches — the command IS the task.
+        // v1.3.0 round 24 (cap22 E2E evidence, runs on d697485/a7fc908): the
+        // condition must be CONCRETE artifact asks only. The loose
+        // goalWantsArtifact reads the VERB "report" ("...and report the
+        // source URL", "...report the page's main heading") as the artifact
+        // NOUN and synthesized a report PDF where the user asked for a
+        // searched ANSWER — twice.
         val wantsFreshData = PlanResponseSanitizer.goalWantsWebData(userGoal) ||
             PlanResponseSanitizer.goalDemandsFreshData(userGoal)
-        if (wantsFreshData && !PlanResponseSanitizer.goalWantsArtifact(userGoal)) {
+        if (wantsFreshData && !PlanResponseSanitizer.goalWantsConcreteArtifact(userGoal)) {
             val url = Regex("https?://\\S+").find(userGoal)?.value
             return if (url != null) {
                 buildSingleStepPlan(userGoal, "FETCH_URL", mapOf("url" to url))
             } else {
-                buildSingleStepPlan(userGoal, "WEB_SEARCH", mapOf("query" to userGoal.trim()))
+                // v1.3.0 round 24 (cap24 E2E evidence): the raw goal is often
+                // a bad QUERY ("can give me 5y of India vixen stock details
+                // with analysis" — every backend rejected it). One bounded
+                // model call rewrites it into the short query a person would
+                // type; any failure falls back to SearchQueryQuality's
+                // deterministic repair.
+                val query = repairSearchQuery(provider, userGoal)
+                buildSingleStepPlan(userGoal, "WEB_SEARCH", mapOf("query" to query))
             }
         }
 
