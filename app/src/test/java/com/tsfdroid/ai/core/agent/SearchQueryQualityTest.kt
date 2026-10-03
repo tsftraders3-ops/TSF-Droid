@@ -164,4 +164,44 @@ class SearchQueryQualityTest {
             )
         )
     }
+
+    // v1.4.0 (run-37118014660, the India-VIX lesson): quorum matching.
+
+    @Test
+    fun `country page does not satisfy an index query`() {
+        // "India VIX 5 year historical data" answered with wikipedia's India
+        // COUNTRY page — "india" alone echoing is NOT relevance.
+        assertFalse(
+            SearchQueryQuality.resultsAreRelevant(
+                "India VIX 5 year historical data analysis NSE",
+                listOf(
+                    "India - Wikipedia https://en.wikipedia.org/wiki/India",
+                    "India | Britannica https://www.britannica.com/place/India"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `a real index page satisfies an index query`() {
+        assertTrue(
+            SearchQueryQuality.resultsAreRelevant(
+                "India VIX 5 year historical data",
+                listOf(
+                    "India VIX - Wikipedia https://en.wikipedia.org/wiki/India_VIX — India VIX is a volatility index based on the NIFTY index"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `stemming lets dates match date sheet`() {
+        // The CBSE acceptance case: "dates" vs "Date Sheet" — trailing-s stem.
+        assertTrue(
+            SearchQueryQuality.resultsAreRelevant(
+                "CBSE class 10 board exam dates 2026",
+                listOf("CBSE Date Sheet 2026 cbse.gov.in")
+            )
+        )
+    }
 }

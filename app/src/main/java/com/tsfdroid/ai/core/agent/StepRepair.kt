@@ -141,6 +141,35 @@ object StepRepair {
     )
 
     /**
+     * v1.4.0 (run-37118014660, the poisoned-backend window): a plan for a
+     * METALS/CRYPTO price goal gets a CHECK_STOCK step APPENDED when it has
+     * none — Yahoo's JSON endpoints are a different backend that kept
+     * answering (round-1 evidence: GC=F digits while DDG/Bing served
+     * garbage), so the answer engine always has a digit-bearing source
+     * even when the search chain is poisoned. Returns (action, params) to
+     * append, or null. Never guesses non-map instruments ("price of gold"
+     * maps to XAU; "iPhone price" maps to nothing — no step, no mis-quote).
+     */
+    fun priceGoalQuoteStep(
+        goal: String,
+        existingActions: List<String>
+    ): Pair<String, Map<String, String>>? {
+        if (existingActions.any { it.trim().uppercase() == "CHECK_STOCK" }) return null
+        val g = goal.lowercase()
+        val wantsQuote = listOf("price", "rate", "quote", "cost", "worth").any { g.contains(it) }
+        if (!wantsQuote) return null
+        val symbol = when {
+            g.contains("gold") || g.contains("xau") -> "XAU"
+            g.contains("silver") || g.contains("xag") -> "XAG"
+            g.contains("platinum") || g.contains("xpt") -> "XPT"
+            g.contains("bitcoin") || Regex("""\bbtc\b""").containsMatchIn(g) -> "BTC-USD"
+            g.contains("ethereum") || Regex("""\beth\b""").containsMatchIn(g) -> "ETH-USD"
+            else -> return null
+        }
+        return "CHECK_STOCK" to mapOf("symbol" to symbol)
+    }
+
+    /**
      * WEB_SEARCH with a missing or blank `query` — including the fallback
      * dispatch case where the query is hiding in an alias slot (`url`,
      * `topic`, ...) or nowhere at all. Returns repaired params with `query`

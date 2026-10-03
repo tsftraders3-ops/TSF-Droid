@@ -335,4 +335,67 @@ class StepRepairTest {
             )
         )
     }
+
+    // v1.4.0 (run-37118014660): the poisoned-backend quote assist.
+
+    @Test
+    fun `gold price goal gains a check stock step`() {
+        val step = StepRepair.priceGoalQuoteStep(
+            "cna u fetch the price of gold now",
+            listOf("WEB_SEARCH")
+        )
+        assertNotNull(step)
+        assertEquals("CHECK_STOCK", step!!.first)
+        assertEquals("XAU", step.second["symbol"])
+    }
+
+    @Test
+    fun `bitcoin price goal gains a check stock step`() {
+        val step = StepRepair.priceGoalQuoteStep(
+            "Search the web for the current Bitcoin price in USD and tell me",
+            listOf("WEB_SEARCH", "FETCH_URL")
+        )
+        assertNotNull(step)
+        assertEquals("BTC-USD", step!!.second["symbol"])
+    }
+
+    @Test
+    fun `xauusd goal maps to xau`() {
+        val step = StepRepair.priceGoalQuoteStep(
+            "what is the current price of xauusd",
+            listOf("WEB_SEARCH")
+        )
+        assertNotNull(step)
+        assertEquals("XAU", step!!.second["symbol"])
+    }
+
+    @Test
+    fun `no quote step without a price word`() {
+        assertNull(
+            StepRepair.priceGoalQuoteStep(
+                "write a report about gold mining",
+                listOf("WEB_SEARCH")
+            )
+        )
+    }
+
+    @Test
+    fun `no quote step for unlisted instruments`() {
+        assertNull(
+            StepRepair.priceGoalQuoteStep(
+                "ok search for latest iphone price",
+                listOf("WEB_SEARCH")
+            )
+        )
+    }
+
+    @Test
+    fun `no quote step when check stock already planned`() {
+        assertNull(
+            StepRepair.priceGoalQuoteStep(
+                "fetch the current price of gold",
+                listOf("WEB_SEARCH", "CHECK_STOCK")
+            )
+        )
+    }
 }

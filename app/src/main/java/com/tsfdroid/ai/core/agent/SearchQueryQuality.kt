@@ -41,19 +41,28 @@ object SearchQueryQuality {
      * fine, the chain just continues) but Bing still "answers" with an
      * off-market result set (current.com and a Chinese dictionary for
      * "current gold price today per gram"). A result set is only relevant
-     * when at least one result carries one of the query's NON-GENERIC
-     * tokens — degenerate words ("current", "latest", "today") are ignored
-     * by design, so a domain that merely echoes the torn-out adjective
-     * (current.com) never passes the gate.
+     * when it carries the query's NON-GENERIC tokens — degenerate words
+     * ("current", "latest", "today") are ignored by design, so a domain
+     * that merely echoes the torn-out adjective (current.com) never passes
+     * the gate.
+     *
+     * v1.4.0 (run-37118014660, the India-VIX lesson): ANY-single-token
+     * matching was too weak — "India VIX 5 year historical data" ACCEPTED
+     * wikipedia's India COUNTRY page because "india" alone echoed. The gate
+     * is now a QUORUM: at least half the query's distinctive tokens (with
+     * trailing-s stemming so "dates" matches "Date Sheet") must appear in
+     * the joined results. A page about the country is not a page about the
+     * index.
      */
     fun resultsAreRelevant(query: String, resultTexts: List<String>): Boolean {
         val tokens = query.lowercase().split(Regex("[^a-z0-9]+"))
             .filter { it.length >= 3 && it !in DEGENERATE_QUERY_WORDS }
         if (tokens.isEmpty()) return true // nothing decisive to gate on
-        return resultTexts.any { text ->
-            val t = text.lowercase()
-            tokens.any { t.contains(it) }
-        }
+        val stems = tokens.map { if (it.length >= 4 && it.endsWith("s")) it.dropLast(1) else it }
+        val joined = resultTexts.joinToString(" ").lowercase()
+        val matched = stems.count { stem -> joined.contains(stem) }
+        val quorum = (stems.size + 1) / 2 // ceil(n/2): half the distinctive tokens
+        return matched >= quorum
     }
 
     /**

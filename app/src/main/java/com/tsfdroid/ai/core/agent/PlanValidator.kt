@@ -210,7 +210,32 @@ class PlanValidator @Inject constructor(
         }
 
         val cleanedSteps = removeBadDependencies(finalSteps)
-        return plan.copy(steps = cleanedSteps, estimatedSteps = cleanedSteps.size)
+
+        // v1.4.0 (run-37118014660, the poisoned-backend window): a metals/
+        // crypto price goal whose plan never calls CHECK_STOCK gets one
+        // APPENDED — Yahoo's JSON endpoints are a different backend that
+        // kept answering while DDG/Bing served garbage (round-1 evidence:
+        // GC=F digits through the same window), so the answer engine always
+        // has a digit-bearing source for the synthesis.
+        val quoteAssist = StepRepair.priceGoalQuoteStep(plan.goal, cleanedSteps.map { it.action })
+        val finalPlan = if (quoteAssist != null) {
+            android.util.Log.w(
+                "PlanValidator",
+                "price goal '${plan.goal.take(60)}' gains a CHECK_STOCK(${quoteAssist.second["symbol"]}) step — an independent quote backend for the synthesis"
+            )
+            val quoteStep = PlanStep(
+                stepId = "quote-assist-${System.currentTimeMillis()}",
+                order = cleanedSteps.size + 1,
+                description = "Fetch the live ${quoteAssist.second["symbol"]} quote (Yahoo JSON — independent of the search backends)",
+                action = quoteAssist.first,
+                params = quoteAssist.second,
+                fallback = ""
+            )
+            plan.copy(steps = cleanedSteps + quoteStep, estimatedSteps = cleanedSteps.size + 1)
+        } else {
+            plan.copy(steps = cleanedSteps, estimatedSteps = cleanedSteps.size)
+        }
+        return finalPlan
     }
 
     private fun removeBadDependencies(steps: List<PlanStep>): List<PlanStep> {
