@@ -85,6 +85,13 @@ internal object AnswerEngine {
      * produced data/analytics a human should read as an answer, not as a
      * dump). Device-state turns (alarm/flashlight/wifi) keep the instant
      * canned path — synthesis would only add latency there.
+     *
+     * v1.4.0 SPEED GATE: a plan whose ONLY completed step is a data action
+     * that already returned an ANSWER-SHAPED result (short, not a dump,
+     * carries the figure — CHECK_STOCK's "GC=F is at 4209.3 USD (latest
+     * session close).") delivers that result instantly; no LLM round-trip
+     * on top of a finished answer. Multi-step or listing-shaped results
+     * (WEB_SEARCH dumps, fetches, analyses) still synthesize.
      */
     fun needsSynthesis(steps: List<PlanStep>): Boolean {
         val completed = steps.filter { it.status == StepStatus.COMPLETED }
@@ -92,7 +99,16 @@ internal object AnswerEngine {
         val hasDataAction = completed.any {
             it.action.trim().uppercase() in DATA_ACTIONS
         }
-        if (hasDataAction) return true
+        if (hasDataAction) {
+            // Single data step, answer already shaped: instant delivery.
+            if (completed.size == 1) {
+                val r = completed[0].result
+                if (!r.isNullOrBlank() && r.length < 300 && !looksLikeRawDump(r)) {
+                    return false
+                }
+            }
+            return true
+        }
         // Even non-data turns whose joined results would read as a dump
         // (long, linky, listing-shaped) get the synthesis treatment.
         val joined = PlanResponseSanitizer.stepResultSummary(steps) ?: return false

@@ -65,8 +65,34 @@ class AnswerEngineTest {
     @Test
     fun `data plan needs synthesis`() {
         assertTrue(AnswerEngine.needsSynthesis(listOf(step("WEB_SEARCH", goldListing))))
-        assertTrue(AnswerEngine.needsSynthesis(listOf(step("CHECK_STOCK", "GC=F is at 4209.3 USD"))))
+        assertTrue(AnswerEngine.needsSynthesis(listOf(step("CHECK_STOCK", goldListing))))
         assertTrue(AnswerEngine.needsSynthesis(listOf(step("GET_NEWS", goldListing))))
+    }
+
+    @Test
+    fun `single clean data answer skips synthesis for speed`() {
+        // v1.4.0 speed gate: CHECK_STOCK's "GC=F is at 4209.3 USD (latest
+        // session close)." is ALREADY the answer — instant delivery, no LLM
+        // round-trip on top of a finished answer.
+        assertFalse(
+            AnswerEngine.needsSynthesis(
+                listOf(step("CHECK_STOCK", "GC=F is at 4209.3 USD (latest session close)."))
+            )
+        )
+        assertFalse(
+            AnswerEngine.needsSynthesis(
+                listOf(step("GET_WEATHER", "Weather in Pune: 28C, clear skies, feels like 30C."))
+            )
+        )
+        // Multi-step research still synthesizes even with clean short steps.
+        assertTrue(
+            AnswerEngine.needsSynthesis(
+                listOf(
+                    step("WEB_SEARCH", "India VIX at 14.2 points today"),
+                    step("FETCH_URL", "Historical data: 5y range 10.2 to 32.8")
+                )
+            )
+        )
     }
 
     @Test
