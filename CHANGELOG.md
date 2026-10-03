@@ -4,6 +4,81 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## Unreleased — round 21: the 2026-10-03 field failures closed end to end
+
+Three live-device screenshots and a screen recording (20:11–20:28) showed the
+agent claiming it had no tools while web_search sat unused. Every failure is
+root-caused and closed with deterministic gates, not prompt hope.
+
+### The CHAT-slop plan hole (the Nvidia/PDF screenshots)
+
+- **Root cause**: the wrapper-form plan answer `{"action":"CHAT","params":{...}}`
+  was the ONE parse path with no deferral gate — the planner wrote the CHAT
+  response at plan time (with no tool results in hand), and "I can't pull a
+  live quote right now (no tool access in this session)" / "file-generation
+  tools aren't available in this session" executed verbatim. The full-plan
+  and bare-plan branches had the check since v1.0.6; the wrapper form and the
+  last-resort prose fallback now get it too, plus a generatePlan post-parse
+  guard and an executePlanLoop entry guard (covers plan-tab approvals and
+  MODIFY replans). An all-CHAT plan for a data or artifact goal is swapped
+  for the deterministic executable plan (WEB_SEARCH / FETCH_URL / CREATE_PDF).
+- **Refusal detection**: a reply that LEADS with "no tool access", "tools
+  aren't available in this session", "can't pull a live quote" etc. against a
+  data or artifact goal is a deferral at ANY length — the old >600-char
+  "substantive answer" exemption let 700-character memory-dumps through.
+- **Precision fix shipped with it**: `planDefersGoal` now uses whole-word
+  live-data nouns (price/stock/rate/gold/weather/...) instead of the loose
+  DATA_WORDS substring match, so "how are you today" (bare "today") can never
+  be treated as a deferred data ask. TRANSLATE/CALCULATE/ANALYZE_SCREENSHOT/
+  GET_SYSTEM_INFO join the data-action whitelist (the planning prompt's own
+  dependency rule always listed them).
+
+### The answer-formation stage for data plans (the original "pasted links" complaint)
+
+- A completed data-gathering plan no longer ends its turn by concatenating
+  RAW step results ("Top web results for…") — one bounded model call writes
+  the final user-facing reply FROM those results: figure first, short,
+  sources inline. Any failure falls back to the deterministic join exactly
+  as before.
+
+### The gold give-up nudge (the 20:11 screenshot)
+
+- When a number-seeking ask ran tools and the model answers "I wasn't able
+  to pull an actual live XAU/USD number…", the harness pushes ONE guided
+  retry ("fetch_url the most promising source URL…") instead of shipping the
+  surrender. Likewise, a WEB_SEARCH that returns no figure on a price-like
+  ask gets one round of fetch guidance. Grounded answers are never nudged.
+
+### Spoken text is clean (the "Speaking: **Taparia…" screenshot)
+
+- Every text handed to TTS or the "Speaking:" status line passes through
+  `SpeechText.forSpeech`: markdown markers stripped, URLs spoken as "link",
+  code blocks as "(code block)". The phone no longer says "asterisk
+  asterisk".
+
+### Sources chips dedup (the nseindia.com + www.nseindia.com screenshot)
+
+- The SOURCES chip row deduplicates by normalized host (www stripped, scheme
+  and trailing slash ignored) — www-variants of the same page collapse to
+  one chip, first-seen URL as the target.
+
+### Prompt hardening
+
+- CHAT mode must end file/creation asks with the exact line "Switch to Agent
+  mode (the toggle at the top) and I'll do it for you." and never claim
+  tools are missing. The planner is told live-data and artifact asks are
+  NEVER conversational CHAT steps.
+
+### Tests
+
+- New unit suites: AnswerQualityTest, SpeechTextTest; extended
+  PlanResponseSanitizerTest (wrapper/refusal/precision cases), MarkdownLiteTest
+  (www-variant dedup), HarnessLoopTest (give-up retry, fetch guidance,
+  non-price immunity).
+- New E2E: cap23 stockPriceAsk_runsSearch_noToolAccessSlop (logcat-proven
+  WEB_SEARCH dispatch + no slop reply), cap24 resumePdfAsk_createsRealPdf
+  (real %PDF artifact + no slop refusal).
+
 ## v1.3.0 — Core agent experience: ask_user, real effort levels, rich answers & the memory identity fix
 
 The "make every promise real" release: every capability the UI offered now

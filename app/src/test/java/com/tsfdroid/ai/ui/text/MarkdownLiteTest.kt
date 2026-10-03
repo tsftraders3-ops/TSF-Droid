@@ -470,6 +470,37 @@ class MarkdownLiteTest {
         assertTrue(extractUrls("no links here, just words").isEmpty())
         assertTrue(extractUrls("").isEmpty())
     }
+
+    // ── v1.3.0 round 21: www-variant dedup (the 2026-10-03 field evidence:
+    // the SOURCES chips showed BOTH "nseindia.com" and "www.nseindia.com",
+    // "investing.com" and "www.investing.com") ─────────────────────────
+
+    @Test
+    fun `www variants of the same page collapse to one url`() {
+        val text = "See https://www.investing.com/currencies/xau-usd and " +
+            "https://investing.com/currencies/xau-usd plus https://tradingview.com"
+        val urls = extractUrls(text)
+        assertEquals(2, urls.size)
+        assertEquals("https://www.investing.com/currencies/xau-usd", urls[0])
+        assertEquals("https://tradingview.com", urls[1])
+    }
+
+    @Test
+    fun `www and non-www hosts with different paths both stay`() {
+        val text = "https://nasdaq.com and https://www.nasdaq.com/market-activity/stocks/nvda"
+        val urls = extractUrls(text)
+        assertEquals(2, urls.size)
+    }
+
+    @Test
+    fun `the field sources row dedupes exactly`() {
+        // The 20:14 Taparia turn's sources: nseindia.com + www.nseindia.com
+        // + bseindia.com + www.bseindia.com must collapse to two chips.
+        val text = "Sources: https://www.nseindia.com/ https://nseindia.com " +
+            "https://www.bseindia.com/ http://bseindia.com"
+        val urls = extractUrls(text)
+        assertEquals(2, urls.size)
+    }
     // ── v1.3.0: scheme-less citation domains (E2E cap22 evidence) ────────
 
     @Test

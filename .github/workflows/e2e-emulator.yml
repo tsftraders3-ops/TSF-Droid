@@ -21,13 +21,14 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    # v1.3.0: the suite is 40 tests across 10 classes — the 22 capability
+    # v1.3.0: the suite is 42 tests across 10 classes — the 22 capability
     # suite of v1.2.0 plus the 14 formerly-orphaned instrumented tests wired
     # in round 9 (a11y targeting, screen scrape, service readiness, keystore
     # AEAD, credential store) and the v1.3.0 additions (ask round-trip,
-    # bounded fetch, SSE streaming). Worst-case waits exceed 70 minutes;
-    # a failing first pass triggers one clean retry (free-tier latency
-    # flakes move between runs).
+    # bounded fetch, SSE streaming), plus the round-21 field-failure tests
+    # (cap23 stock-price no-slop, cap24 resume-PDF artifact). Worst-case
+    # waits exceed 70 minutes; a failing first pass triggers one clean retry
+    # (free-tier latency flakes move between runs).
     timeout-minutes: 240
 
     steps:

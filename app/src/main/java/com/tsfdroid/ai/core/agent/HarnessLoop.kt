@@ -186,6 +186,15 @@ class HarnessLoop @Inject constructor(
         var lastFinishReason: String? = null
         val recentSignatures = ArrayDeque<String>()
         var doomWarned = false
+        // v1.3.0 round 21 (the 2026-10-03 20:11 gold screenshot): give-up
+        // detection for number-seeking asks. The turn's original question —
+        // tool results are USER-sender stubs, so skip those.
+        val userQuery = config.history.lastOrNull {
+            it.sender == ChatMessage.Sender.USER && !it.text.startsWith("TOOL RESULT")
+        }?.text.orEmpty()
+        val priceLikeAsk = AnswerQuality.isPriceLikeQuery(userQuery)
+        var searchGuided = false
+        var priceNudged = false
 
         // v1.2.1 round-16: layer-by-layer evidence. Rounds 10-15 proved the
         // hang layer cannot be found from pump-level logs alone — cap15's
@@ -308,6 +317,29 @@ class HarnessLoop @Inject constructor(
                     continue
                 }
 
+                // v1.3.0 round 21 (the 20:11 gold screenshot — "I wasn't able
+                // to pull an actual live XAU/USD number… the quote feed
+                // returned only page listings"): a number-seeking ask that
+                // already ran tools must not END on a give-up reply. One
+                // guided re-ask (the harness knows what the model can still
+                // do); after that the honest reply stands.
+                if (priceLikeAsk && toolCallsExecuted > 0 && !priceNudged &&
+                    round < config.maxRounds - 1 &&
+                    AnswerQuality.isGiveUpAnswer(response.content)
+                ) {
+                    priceNudged = true
+                    messages = messages + userMessage(
+                        "You said you could not get the figure, but web_search and fetch_url are " +
+                            "available to you right now. Try once more: fetch_url the most promising " +
+                            "source URL from the earlier results (or web_search the subject plus " +
+                            "'price today' and the ticker). Then give the user the actual number. " +
+                            "Only if that also fails, apologize in one sentence and name the " +
+                            "single best link to check."
+                    )
+                    android.util.Log.i(TAG, "round $round give-up answer on a price-like ask — one guided retry")
+                    continue
+                }
+
                 android.util.Log.i(
                     TAG,
                     "runTurn EXIT answer rounds=$round tools=$toolCallsExecuted cont=$continuationSegments finish=$lastFinishReason content=${response.content.length}c"
@@ -355,6 +387,7 @@ class HarnessLoop @Inject constructor(
             } else {
                 messages = messages + toolRoundStub(response.toolCalls)
             }
+            var roundSearchWithoutFigure = false
             for (call in response.toolCalls) {
                 // v1.3.0 ask_user: the one tool that is NOT an action — it
                 // parks the turn on the USER. Intercepted before the bridge
@@ -463,6 +496,30 @@ class HarnessLoop @Inject constructor(
                     ),
                     sender = ChatMessage.Sender.USER
                 )
+                // v1.3.0 round 21: flag a search round that returned no
+                // figure on a number-seeking ask (checked post-loop so the
+                // guidance lands after the whole round's results).
+                if (mapped?.action == "WEB_SEARCH" && result.success &&
+                    !AnswerQuality.containsPriceFigure(result.data ?: "")
+                ) {
+                    roundSearchWithoutFigure = true
+                }
+            }
+
+            // v1.3.0 round 21 (the 20:11 gold evidence): the search came
+            // back as page listings with NO figure. Guide the model to the
+            // drill-down the field reply never attempted — fetch_url on a
+            // promising result — instead of letting it surrender. Once per
+            // turn; a model that was already going to fetch ignores it.
+            if (priceLikeAsk && roundSearchWithoutFigure && !searchGuided) {
+                searchGuided = true
+                messages = messages + userMessage(
+                    "Those search results contain no actual number. Do not give up and do not " +
+                        "just list links: call fetch_url on the result URL most likely to contain " +
+                        "the live figure (a rates/quote page), or web_search a sharper query (add " +
+                        "the ticker and 'price today'). Then answer the user with the actual number."
+                )
+                android.util.Log.i(TAG, "round $round search had no figure on a price-like ask — fetch guidance sent")
             }
 
             // Wrap-up nudge: make the second-to-last round land the answer.

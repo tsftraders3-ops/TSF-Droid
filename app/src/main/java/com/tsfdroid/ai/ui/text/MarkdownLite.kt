@@ -404,11 +404,17 @@ private object MarkdownLiteParser {
     }
 
     /**
-     * Collects every tappable URL in order of first appearance, deduplicated
-     * by exact string and capped at [maxUrls]. See [extractUrls].
+     * Collects every tappable URL in order of first appearance, capped at
+     * [maxUrls]. v1.3.0 round 21 (the 2026-10-03 field evidence: the SOURCES
+     * chips showed BOTH "nseindia.com" and "www.nseindia.com", "investing.com"
+     * and "www.investing.com"): deduplication is by NORMALIZED key — scheme
+     * and leading www. stripped, trailing slash dropped — so www-variants of
+     * the same page collapse to ONE chip (the first-seen URL stays the
+     * target). See [extractUrls].
      */
     fun extractUrls(text: String, maxUrls: Int): List<String> {
         val seen = LinkedHashSet<String>()
+        val seenKeys = mutableSetOf<String>()
         for (block in parse(text)) {
             val spanLists: List<List<Span>> = when (block) {
                 is Block.Heading -> listOf(block.spans)
@@ -424,11 +430,23 @@ private object MarkdownLiteParser {
                         // LinkedHashSet.add on an existing element is a no-op
                         // (position preserved), so the size check caps only
                         // NEW urls.
-                        if (seen.size < maxUrls) seen += url
+                        if (seenKeys.add(urlKey(url)) && seen.size < maxUrls) seen += url
                     }
                 }
             }
         }
         return seen.toList()
+    }
+
+    /**
+     * The dedup key for a URL: lowercase, scheme and leading "www." stripped,
+     * trailing slash dropped — "https://www.nasdaq.com/" and
+     * "http://nasdaq.com" are the same source.
+     */
+    private fun urlKey(url: String): String {
+        var u = url.lowercase().trim()
+        u = u.substringAfter("://", u)
+        if (u.startsWith("www.")) u = u.removePrefix("www.")
+        return u.trimEnd('/')
     }
 }

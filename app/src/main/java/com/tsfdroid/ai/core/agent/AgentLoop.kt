@@ -235,6 +235,13 @@ private const val PLAN_STALL_CHECK_INTERVAL_MS = 30_000L
  * delaying the final bubble by minutes.
  */
 private const val ASK_CONFIRM_TIMEOUT_MS = 30_000L
+
+/**
+ * v1.3.0 round 21: the data-summary answer-formation call's wall clock. A
+ * stalling free tier must never delay the final bubble by minutes — the
+ * deterministic raw join stays as the fallback.
+ */
+private const val DATA_SUMMARY_TIMEOUT_MS = 45_000L
 /**
  * v1.2.0: bounded rounds for the chat-path tool loop now live in
  * [HarnessLoop] (OpenCode-style: tool rounds + continuation + doom guard).
@@ -947,7 +954,7 @@ class AgentLoop @Inject constructor(
     ) {
         try {
             val speechText = humanizePreSpeech(alias.action)
-            onSpeakCallback?.invoke(speechText)
+            onSpeakCallback?.invoke(com.tsfdroid.ai.core.util.SpeechText.forSpeech(speechText))
 
             // Save agent response
             val replyMsg = ChatMessage(
@@ -978,6 +985,20 @@ class AgentLoop @Inject constructor(
 
     fun dismissChatError() {
         _chatError.value = null
+    }
+
+    /**
+     * v1.3.0 round 21 (the 2026-10-03 field evidence, screenshot 20:16): the
+     * green "Speaking:" status line showed literal markdown — "Speaking:
+     * **Taparia Tools Ltd (BSE: 5056…" — and the phone's TTS SPOKE the
+     * asterisks. EVERY text that reaches speech or a speech-shaped status
+     * surface goes through [SpeechText.forSpeech] first: the words survive,
+     * the markup does not, and URLs become the word "link".
+     */
+    private fun announce(text: String) {
+        val clean = com.tsfdroid.ai.core.util.SpeechText.forSpeech(text)
+        _agentState.value = AgentState.Speaking(clean)
+        onSpeakCallback?.invoke(clean)
     }
 
     private fun publishChatError(error: ChatErrorUiState) {
@@ -1307,8 +1328,7 @@ class AgentLoop @Inject constructor(
                         conversationRepository.insertMessage(sessionId, loopMsg)
                         memoryManager.storeMessage(loopMsg, sessionId)
                         _chatError.value = null
-                        _agentState.value = AgentState.Speaking(harnessAnswer)
-                        onSpeakCallback?.invoke(harnessAnswer)
+                        announce(harnessAnswer)
                         return
                     }
                     // v1.2.1 round-17: the snag message carries the same trace —
@@ -1409,8 +1429,7 @@ class AgentLoop @Inject constructor(
                     conversationRepository.insertMessage(sessionId, loopMsg)
                     memoryManager.storeMessage(loopMsg, sessionId)
                     _chatError.value = null
-                    _agentState.value = AgentState.Speaking(harnessAnswer)
-                    onSpeakCallback?.invoke(harnessAnswer)
+                    announce(harnessAnswer)
                     scope.launch { memoryLearner.learnFromExchange(userMsg.text, harnessAnswer) }
                     return
                 }
@@ -1571,8 +1590,7 @@ class AgentLoop @Inject constructor(
             conversationRepository.insertMessage(sessionId, finalReplyMsg)
             memoryManager.storeMessage(finalReplyMsg, sessionId)
             _chatError.value = null
-            _agentState.value = AgentState.Speaking(finalReplyMsg.text)
-            onSpeakCallback?.invoke(finalReplyMsg.text)
+            announce(finalReplyMsg.text)
             // v1.2.1 Hermes-style memory learning over the completed exchange —
             // background, never blocks, never fails the turn.
             scope.launch {
@@ -1716,6 +1734,18 @@ class AgentLoop @Inject constructor(
             PlanResponseSanitizer.classifyProseReply(
                 PlanResponseSanitizer.stripReasoningBlocks(it.content)
             )?.let { (action, params) ->
+                // v1.3.0 round 21: the last-resort prose delivery gets the
+                // same deferral/refusal gate as every other parse path — a
+                // "no tool access in this session" prose reply to a data
+                // or artifact goal must never be the final answer (the
+                // 2026-10-03 PDF screenshot shipped exactly this way).
+                // proseDeclinesAction covers refusal phrases at any length
+                // for data/artifact goals.
+                if (action == "CHAT" &&
+                    PlanResponseSanitizer.proseDeclinesAction(params["response"], userGoal)
+                ) {
+                    throw firstFailure
+                }
                 return buildSingleStepPlan(userGoal, action, params)
             }
         }
@@ -2179,16 +2209,40 @@ class AgentLoop @Inject constructor(
                 )
             }
 
-            planManager.startNewPlan(plan, context, PlanStatus.PROPOSED)
+            // v1.3.0 round 21: the LAST line of defense before a parsed plan
+            // starts. Whatever parse path produced it — wrapper form, full
+            // plan, corrective re-ask, prose classification — a plan whose
+            // steps are ALL CHAT against a data or artifact goal never runs;
+            // it is swapped for the deterministic executable plan (WEB_SEARCH
+            // / FETCH_URL / CREATE_PDF with generated content). The 2026-10-03
+            // field failures (Nvidia "no tool access in this session", the
+            // PDF "file-generation tools aren't available") shipped through
+            // exactly this gap.
+            val parsedPlan = if (
+                PlanResponseSanitizer.planDefersGoal(
+                    plan.steps.map { it.action }, plan.goal
+                )
+            ) {
+                android.util.Log.w(
+                    "AgentLoop",
+                    "parsed plan defers the goal (all-CHAT for a data/artifact ask) — synthesizing executable steps"
+                )
+                val provider2 = runCatching { llmProviderFactory.getActiveProvider() }.getOrNull()
+                provider2?.let { synthesizeExecutablePlan(it, plan.goal) } ?: plan
+            } else {
+                plan
+            }
+
+            planManager.startNewPlan(parsedPlan, context, PlanStatus.PROPOSED)
             // Re-read after LLM work: user may have flipped mode or revoked grants
             // while planning was in flight; stale pre-LLM config must not auto-run.
             val liveConfig = settingsRepository.llmConfig.first()
             val approval = liveConfig.approvalSettings()
-            if (AutoApprovalPolicy.shouldAutoApprove(approval.mode, approval.grantedActions, plan)) {
-                recordAutoApprovedTrace(plan, approval.mode, sessionId)
-                executePlanLoop(plan, context, sessionId, autoApproved = true)
+            if (AutoApprovalPolicy.shouldAutoApprove(approval.mode, approval.grantedActions, parsedPlan)) {
+                recordAutoApprovedTrace(parsedPlan, approval.mode, sessionId)
+                executePlanLoop(parsedPlan, context, sessionId, autoApproved = true)
             } else {
-                proposePlan(plan, sessionId)
+                proposePlan(parsedPlan, sessionId)
             }
         } catch (e: CancellationException) {
             throw e
@@ -2484,7 +2538,35 @@ class AgentLoop @Inject constructor(
         // v1.3.0 round-7: fresh ask bookkeeping per plan run — a previous
         // plan's ask must not leak its confirmation into this one.
         askedUserDuringPlan = false
+
+        // v1.3.0 round 21: the execution-time deferral guard — covers every
+        // path into this loop that skipped the parse-time gates (a plan
+        // approved from the Plan tab after an edit, a MODIFY replan, an
+        // older proposal re-approved after a mode flip). An all-CHAT plan
+        // against a data or artifact goal never executes its canned slop:
+        // it is swapped for the deterministic executable plan. When
+        // synthesis is impossible (no goal class matched) the original
+        // proceeds unchanged — conversational plans are legitimate.
+        val effectivePlan = if (
+            PlanResponseSanitizer.planDefersGoal(
+                plan.steps.map { it.action }, plan.goal
+            )
+        ) {
+            android.util.Log.w(
+                "AgentLoop",
+                "executePlanLoop: plan defers the goal — swapping in deterministic executable steps"
+            )
+            runCatching { llmProviderFactory.getActiveProvider() }.getOrNull()
+                ?.let { synthesizeExecutablePlan(it, plan.goal) }
+                ?: plan
+        } else {
+            plan
+        }
         var currentPlanState = planManager.currentPlan.value ?: return
+        if (effectivePlan !== plan) {
+            planManager.startNewPlan(effectivePlan, context, PlanStatus.RUNNING)
+            currentPlanState = effectivePlan
+        }
 
         // v1.3.0 round 18: the plan-stall watchdog, DECOUPLED from the plan
         // coroutine's lifetime. Round 16 cancelled it in a finally — which
@@ -2502,7 +2584,7 @@ class AgentLoop @Inject constructor(
         // actually wrote.
         android.util.Log.i(
             "AgentLoop",
-            "plan start: goal='${plan.goal.take(60)}' steps=" + plan.steps.joinToString("; ") { st ->
+            "plan start: goal='${effectivePlan.goal.take(60)}' steps=" + effectivePlan.steps.joinToString("; ") { st ->
                 "${st.action}(" + st.params.entries.joinToString(",") { "${it.key}=${it.value.take(40)}" } + ")"
             }.take(900)
         )
@@ -2510,7 +2592,7 @@ class AgentLoop @Inject constructor(
         val lastProgressAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
         val armedAt = System.currentTimeMillis()
         planWatchdogScope.launch {
-            android.util.Log.i("PlanStallWatchdog", "armed: epoch=$myEpoch goal='${plan.goal.take(48)}'")
+            android.util.Log.i("PlanStallWatchdog", "armed: epoch=$myEpoch goal='${effectivePlan.goal.take(48)}'")
             while (true) {
                 delay(PLAN_STALL_CHECK_INTERVAL_MS)
                 // Retire after 30 minutes — an indefinitely parked ask (the
@@ -2624,8 +2706,7 @@ class AgentLoop @Inject constructor(
                     memoryManager.storeMessage(chatMsg, sessionId)
                     conversationRepository.insertMessage(sessionId, chatMsg)
                     _chatError.value = null
-                    _agentState.value = AgentState.Speaking(response)
-                    onSpeakCallback?.invoke(response)
+                    announce(response)
                 }
                 completeLastRunningStep(ActivityStep.STATUS_DONE, "reply delivered")
                 planManager.updateStepStatus(
@@ -2808,7 +2889,7 @@ class AgentLoop @Inject constructor(
                 }
 
                 if (replan.speech.isNotEmpty()) {
-                    onSpeakCallback?.invoke(replan.speech)
+                    onSpeakCallback?.invoke(com.tsfdroid.ai.core.util.SpeechText.forSpeech(replan.speech))
                 }
 
                 when (replan.decision.uppercase()) {
@@ -2960,7 +3041,7 @@ class AgentLoop @Inject constructor(
 
             // Speak post-step evaluation speech if any
             if (reEval.speech.isNotEmpty()) {
-                onSpeakCallback?.invoke(reEval.speech)
+                onSpeakCallback?.invoke(com.tsfdroid.ai.core.util.SpeechText.forSpeech(reEval.speech))
             }
 
             when (reEval.decision.uppercase()) {
@@ -3044,8 +3125,7 @@ class AgentLoop @Inject constructor(
                 conversationRepository.insertMessage(sessionId, assistantMsg)
 
                 _liveThinking.value = null
-                _agentState.value = AgentState.Speaking(summaryText)
-                onSpeakCallback?.invoke(summaryText)
+                announce(summaryText)
                 android.util.Log.i("AgentLoop", "PLAN STALL WATCHDOG: salvaged reply saved (${summaryText.length}c)")
             }
         } catch (e: TimeoutCancellationException) {
@@ -3145,7 +3225,7 @@ class AgentLoop @Inject constructor(
             contactPickerData = matchesJson
         )
         conversationRepository.insertMessage(sessionId, pickerMsg)
-        onSpeakCallback?.invoke(pickerResult.question)
+        onSpeakCallback?.invoke(com.tsfdroid.ai.core.util.SpeechText.forSpeech(pickerResult.question))
 
         // Wait for user response
         val userSelection = awaitUserResponse(sessionId)
@@ -3284,7 +3364,7 @@ class AgentLoop @Inject constructor(
             }
         )
         conversationRepository.insertMessage(sessionId, promptMsg)
-        onSpeakCallback?.invoke(needsInput.question)
+        onSpeakCallback?.invoke(com.tsfdroid.ai.core.util.SpeechText.forSpeech(needsInput.question))
 
         // v1.3.0: publish the answer surface while the turn is parked on
         // this question — cleared when the answer lands (or the task dies).
@@ -3353,7 +3433,7 @@ class AgentLoop @Inject constructor(
             modelBadge = "System"
         )
         conversationRepository.insertMessage(sessionId, pendingMsg)
-        onSpeakCallback?.invoke(pending.message)
+        onSpeakCallback?.invoke(com.tsfdroid.ai.core.util.SpeechText.forSpeech(pending.message))
     }
 
     /**
@@ -3386,7 +3466,16 @@ class AgentLoop @Inject constructor(
             // was swallowed by string heuristics. Try the LLM confirmation
             // first; any failure falls to the deterministic assembly, which
             // now quotes the answers too.
-            askConfirmedSummary(plan) ?: cannedSuccessSummary(plan)
+            askConfirmedSummary(plan)
+                // v1.3.0 round 21 (the ORIGINAL 2026-09 field complaint:
+                // "it just pasted or gave me the links and the thing that it
+                // extracted"): a data-gathering plan must not end its turn
+                // by concatenating RAW step results. One bounded model call
+                // writes the final user-facing answer FROM those results —
+                // figure first, short, sources inline. Any failure falls to
+                // the deterministic join (never worse than before).
+                ?: synthesizedDataSummary(plan)
+                ?: cannedSuccessSummary(plan)
         } else {
             // Log the technical errors but DON'T show them to the user
             val failedSteps = plan.steps.filter { it.status == StepStatus.FAILED }
@@ -3426,8 +3515,7 @@ class AgentLoop @Inject constructor(
         // the NEXT plan (or chat turn) starts from a clean slate.
         askedUserDuringPlan = false
 
-        _agentState.value = AgentState.Speaking(summaryText)
-        onSpeakCallback?.invoke(summaryText)
+        announce(summaryText)
         // v1.2.1 Hermes-style memory learning over the agent turn too: goals
         // often carry durable facts ("my cat Luna...", "for my shop...").
         scope.launch {
@@ -3444,6 +3532,84 @@ class AgentLoop @Inject constructor(
      */
     private fun cannedSuccessSummary(plan: Plan): String =
         PlanResponseSanitizer.stepResultSummary(plan.steps) ?: humanizeGoalDone(plan.goal)
+
+    /**
+     * v1.3.0 round 21: the answer-formation stage for data-gathering plans.
+     * [PlanResponseSanitizer.stepResultSummary] joins RAW tool outputs —
+     * the "pasted the links and the extracted text" field complaint — so
+     * when a completed plan gathered web data for a data-flavored goal, ONE
+     * bounded model call writes the final reply from those results: lead
+     * with the actual figure or fact, keep it short, cite source URLs
+     * inline (the app renders them as tappable chips). Falls to null on
+     * ANY failure or when the reply would carry neither a URL nor a figure
+     * (cap6/cap7 keep passing via their existing predicates) — the caller
+     * then uses the deterministic join exactly as before.
+     */
+    private suspend fun synthesizedDataSummary(plan: Plan): String? {
+        val dataActions = setOf(
+            "WEB_SEARCH", "FETCH_URL", "GET_NEWS", "GET_WEATHER",
+            "CURRENCY_CONVERT", "CHECK_STOCK", "SUMMARIZE_URL"
+        )
+        val goal = plan.goal
+        val wantsData = PlanResponseSanitizer.goalWantsWebData(goal) ||
+            PlanResponseSanitizer.goalDemandsFreshData(goal)
+        if (!wantsData) return null
+        val dataSteps = plan.steps.filter {
+            it.action.trim().uppercase() in dataActions &&
+                it.status == StepStatus.COMPLETED && !it.result.isNullOrBlank()
+        }
+        if (dataSteps.isEmpty()) return null
+        return try {
+            val results = dataSteps.take(5).joinToString("\n\n") { step ->
+                "Result (${step.action}): ${step.result!!.take(3_500)}"
+            }
+            val provider = llmProviderFactory.getActiveProvider()
+            val response = withTimeout(DATA_SUMMARY_TIMEOUT_MS) {
+                provider.complete(
+                    LLMRequest(
+                        systemPrompt = "You are TSF Droid finishing a data-gathering task on the " +
+                            "user's Android phone. Write the final chat reply from the tool results " +
+                            "below. Rules: lead with the direct answer — the actual figure or fact with " +
+                            "its date if shown; keep it 2-6 short sentences or a few bullets; put the " +
+                            "source URLs inline in parentheses (they render as tappable chips); if the " +
+                            "results do NOT contain the requested figure, say so in one plain sentence " +
+                            "and give the single best source URL for the user to check. Never invent " +
+                            "numbers. No preamble, no meta commentary.",
+                        messages = listOf(
+                            ChatMessage(
+                                id = UUID.randomUUID().toString(),
+                                text = "The user asked: ${goal.take(400)}\n\nTool results:\n$results\n\n" +
+                                    "Write the final reply now.",
+                                sender = ChatMessage.Sender.USER
+                            )
+                        ),
+                        temperature = 0.3f,
+                        maxTokens = 700,
+                        responseFormat = ResponseFormat.TEXT
+                    )
+                )
+            }
+            val text = PlanResponseSanitizer.stripReasoningBlocks(response.content).trim()
+            // A summary with neither a URL nor a figure adds nothing over
+            // the raw join — reject it so the deterministic path stays.
+            text.takeIf { it.length in 20..4_000 &&
+                (it.contains("http", ignoreCase = true) || Regex("\\d").containsMatchIn(it)) }
+                ?.also {
+                    android.util.Log.i(
+                        "AgentLoop",
+                        "data summary synthesized: steps=${dataSteps.size} len=${it.length}"
+                    )
+                }
+        } catch (tce: TimeoutCancellationException) {
+            android.util.Log.w("AgentLoop", "data summary timed out — deterministic join stays")
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("AgentLoop", "data summary failed: ${e.localizedMessage}")
+            null
+        }
+    }
 
     /**
      * v1.3.0 round-7: the ask-answer round-trip contract (the opencode
@@ -3558,6 +3724,25 @@ class AgentLoop @Inject constructor(
 
                     if (action != null && !hasPlanObject) {
                         val params = jsonObjectToStringMap(root["params"]?.jsonObject)
+                        // v1.3.0 round 21 (the 2026-10-03 field evidence — both
+                        // Nvidia turns and the PDF turn): the WRAPPER form
+                        // {"action":"CHAT","params":{"response":"I can't pull
+                        // a live quote right now (no tool access in this
+                        // session)…"}} is the ONE plan shape the loop-17
+                        // deferral gate never covered — the planner wrote the
+                        // response at PLAN TIME, without its tools, and the
+                        // CHAT step delivered that canned slop verbatim. Apply
+                        // the same gate the full-plan branches get, plus the
+                        // refusal-shape check on the response text itself.
+                        val refusalShaped = action.trim().uppercase() == "CHAT" &&
+                            PlanResponseSanitizer.replyRefusesGoal(params["response"])
+                        if (refusalShaped ||
+                            PlanResponseSanitizer.planDefersGoal(listOf(action), userGoal)
+                        ) {
+                            throw IllegalArgumentException(
+                                "Wrapper-form plan deferred the goal (refusal-shaped or no executable action for it)"
+                            )
+                        }
                         return buildSingleStepPlan(userGoal, action, params)
                     }
 

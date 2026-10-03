@@ -606,4 +606,122 @@ class HarnessLoopTest {
         assertEquals(listOf("A", "B"), opts)
     }
 
+    // ── v1.3.0 round 21: the 2026-10-03 give-up nudges ─────────────────
+    // The 20:11 gold screenshot: searches ran, results carried no figure,
+    // and the model's "I wasn't able to pull an actual live XAU/USD number…"
+    // became the final reply. The harness now pushes ONE guided retry.
+
+    @Test
+    fun `a give-up answer on a price ask gets one guided retry`() = runBlocking {
+        val provider = FakeProvider(
+            answer(
+                "",
+                toolCalls = listOf(LLMToolCall("web_search", """{"query":"gold price today"}"""))
+            ),
+            // The exact 20:11 field give-up shape.
+            answer(
+                "I wasn't able to pull an actual live XAU/USD number — the quote feed " +
+                    "returned only page listings rather than a price."
+            ),
+            // The guided retry lands a grounded figure.
+            answer("Gold is at $2,109.30 per ounce right now (Kitco).")
+        )
+
+        val result = harness.runTurn(
+            provider,
+            config(
+                tool = Tool("web_search", "search", """{"type":"object","properties":{"query":{"type":"string"}}}""")
+            ).copy(
+                history = listOf(ChatMessage("1", "what's the price of gold", ChatMessage.Sender.USER))
+            )
+        )
+
+        assertEquals("Gold is at $2,109.30 per ounce right now (Kitco).", result!!.content)
+        // The retry request carried the guidance.
+        assertTrue(
+            provider.requests[2].messages.any { it.text.contains("fetch_url the most promising") }
+        )
+    }
+
+    @Test
+    fun `a second give-up is delivered honestly - the nudge fires only once`() = runBlocking {
+        val giveUp = "I wasn't able to pull an actual live number, sorry."
+        val provider = FakeProvider(
+            answer(
+                "",
+                toolCalls = listOf(LLMToolCall("web_search", """{"query":"gold price"}"""))
+            ),
+            answer(giveUp),
+            answer(giveUp)
+        )
+
+        val result = harness.runTurn(
+            provider,
+            config(
+                tool = Tool("web_search", "search", """{"type":"object","properties":{"query":{"type":"string"}}}""")
+            ).copy(
+                history = listOf(ChatMessage("1", "what's the price of gold", ChatMessage.Sender.USER))
+            )
+        )
+
+        assertEquals(giveUp, result!!.content)
+        assertEquals(3, provider.requests.size)
+    }
+
+    @Test
+    fun `a search without a figure on a price ask triggers fetch guidance once`() = runBlocking {
+        val provider = FakeProvider(
+            answer(
+                "",
+                toolCalls = listOf(LLMToolCall("web_search", """{"query":"nvidia stock price"}"""))
+            ),
+            answer(
+                "",
+                toolCalls = listOf(LLMToolCall("fetch_url", """{"url":"https://nasdaq.com/market-activity/stocks/nvda"}"""))
+            ),
+            answer("NVDA closed at $187.42, up 1.2%.")
+        )
+
+        val result = harness.runTurn(
+            provider,
+            config(
+                tool = Tool("web_search", "search", """{"type":"object","properties":{"query":{"type":"string"}}}""")
+            ).copy(
+                history = listOf(ChatMessage("1", "price of Nvidia stock", ChatMessage.Sender.USER))
+            )
+        )
+
+        assertEquals("NVDA closed at $187.42, up 1.2%.", result!!.content)
+        // The request after the figure-less search carried the guidance.
+        assertTrue(
+            provider.requests[1].messages.any { it.text.contains("no actual number") }
+        )
+    }
+
+    @Test
+    fun `non-price asks never get the give-up nudge`() = runBlocking {
+        val provider = FakeProvider(
+            answer(
+                "",
+                toolCalls = listOf(LLMToolCall("web_search", """{"query":"roman history"}"""))
+            ),
+            answer("I couldn't find a definitive answer in those results, but here's the overview.")
+        )
+
+        val result = harness.runTurn(
+            provider,
+            config(
+                tool = Tool("web_search", "search", """{"type":"object","properties":{"query":{"type":"string"}}}""")
+            ).copy(
+                history = listOf(ChatMessage("1", "teach me about the Roman empire", ChatMessage.Sender.USER))
+            )
+        )
+
+        assertEquals(
+            "I couldn't find a definitive answer in those results, but here's the overview.",
+            result!!.content
+        )
+        assertEquals(2, provider.requests.size)
+    }
+
 }

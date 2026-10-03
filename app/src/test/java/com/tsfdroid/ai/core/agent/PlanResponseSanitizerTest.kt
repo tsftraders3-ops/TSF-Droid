@@ -470,4 +470,99 @@ class PlanResponseSanitizerTest {
         )
         assertNull(PlanResponseSanitizer.stepResultSummary(listOf(failed)))
     }
+
+    // --- v1.3.0 round 21: the 2026-10-03 field failures ------------------
+    // Three screenshots: "price of Nvidia stock" (twice) and "create a pdf of
+    // a resume" both came back as CHAT plans claiming tools were
+    // unavailable — the wrapper-form parse path had no deferral gate.
+
+    @Test
+    fun `a chat-only wrapper plan defers the nvidia stock goal`() {
+        assertTrue(
+            PlanResponseSanitizer.planDefersGoal(
+                listOf("CHAT"), "price of Nvidia stock"
+            )
+        )
+    }
+
+    @Test
+    fun `a chat-only wrapper plan defers the resume pdf goal`() {
+        assertTrue(
+            PlanResponseSanitizer.planDefersGoal(
+                listOf("CHAT"),
+                "ok create a pdf of a resume of mine with synthetic data with no image"
+            )
+        )
+    }
+
+    @Test
+    fun `translate and calculate plans are not deferrals`() {
+        // The planning prompt's own dependency rule names these as data
+        // producers; the gate must agree (round-21 DATA_ACTIONS sync).
+        assertTrue(!PlanResponseSanitizer.planDefersGoal(listOf("TRANSLATE"), "translate hello to french"))
+        assertTrue(!PlanResponseSanitizer.planDefersGoal(listOf("CALCULATE"), "calculate 234 times 19"))
+        assertTrue(!PlanResponseSanitizer.planDefersGoal(listOf("ANALYZE_SCREENSHOT"), "analyze this screenshot"))
+    }
+
+    @Test
+    fun `chatty goals never trip the precise live-data gate`() {
+        // The pre-existing false positive: bare "today" in DATA_WORDS made
+        // "how are you today" look like a deferred data ask.
+        assertTrue(!PlanResponseSanitizer.goalNeedsLiveData("how are you today"))
+        assertTrue(!PlanResponseSanitizer.goalNeedsLiveData("what is the current state of the empire"))
+        assertTrue(!PlanResponseSanitizer.goalNeedsLiveData("golden retriever facts"))
+        assertTrue(!PlanResponseSanitizer.planDefersGoal(listOf("CHAT"), "how are you today"))
+        assertTrue(PlanResponseSanitizer.goalNeedsLiveData("price of Nvidia stock"))
+        assertTrue(PlanResponseSanitizer.goalNeedsLiveData("ok tell me the price of xauusd"))
+    }
+
+    @Test
+    fun `the exact field refusal replies are detected`() {
+        // 20:19 Nvidia
+        assertTrue(
+            PlanResponseSanitizer.replyRefusesGoal(
+                "I can't pull a live quote right now (no tool access in this session), " +
+                    "but here's what I know as a reference point: NVIDIA Corp (NASDAQ: NVDA)"
+            )
+        )
+        // 20:22 Nvidia
+        assertTrue(
+            PlanResponseSanitizer.replyRefusesGoal(
+                "I don't have a live quote feed available right now, so I can't give you " +
+                    "a verified current number for NVIDIA (NVDA)"
+            )
+        )
+        // 20:25 PDF
+        assertTrue(
+            PlanResponseSanitizer.replyRefusesGoal(
+                "I can't create the PDF right now — file-generation tools aren't " +
+                    "available in this session, so no file card will appear."
+            )
+        )
+        // 20:11 gold
+        assertTrue(
+            PlanResponseSanitizer.replyRefusesGoal(
+                "I wasn't able to pull an actual live XAU/USD number — the quote feed " +
+                    "returned only page listings rather than a price"
+            )
+        )
+        // Grounded answers are not refusals.
+        assertTrue(!PlanResponseSanitizer.replyRefusesGoal("Gold is at $2,109 per ounce per Kitco."))
+    }
+
+    @Test
+    fun `a late partial-failure mention is not a refusal`() {
+        // The window is the first 260 chars — a grounded reply that mentions a
+        // partial failure deep in its body stays legitimate.
+        val grounded = ("x".repeat(300)) + " The live-rates feed couldn't find the ticker, but BSE shows ₹15.50."
+        assertTrue(!PlanResponseSanitizer.replyRefusesGoal(grounded))
+    }
+
+    @Test
+    fun `a long refusal against a data goal is a deferral at any length`() {
+        val slop = "I can't pull a live quote right now (no tool access in this session), " +
+            "but here's what I know as a reference point: " + "context ".repeat(200)
+        assertTrue(slop.length > 600)
+        assertTrue(PlanResponseSanitizer.proseDeclinesAction(slop, "price of Nvidia stock"))
+    }
 }

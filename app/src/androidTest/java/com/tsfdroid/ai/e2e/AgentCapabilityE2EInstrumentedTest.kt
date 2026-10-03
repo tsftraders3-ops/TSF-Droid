@@ -1094,6 +1094,136 @@ class AgentCapabilityE2EInstrumentedTest {
         )
     }
 
+    // ---------- v1.3.0 round 21: the 2026-10-03 field failures ----------
+
+    /**
+     * Dumps the logcat lines for the given tags, only those newer than the
+     * device timestamp [sinceStamp] ("MM-DD HH:MM:SS.mmm", from
+     * [deviceStamp]). Used to prove the GROUNDING path ran (WEB_SEARCH
+     * dispatch) when the reply itself is model-written prose — the UI alone
+     * can't tell a memory answer from a researched one.
+     */
+    private fun dumpLogcat(sinceStamp: String, vararg tags: String): String {
+        val filter = tags.joinToString(" ") { "$it:V" } + " *:S"
+        return runCatching {
+            val pfd = InstrumentationRegistry.getInstrumentation().uiAutomation
+                .executeShellCommand("logcat -d -T '$sinceStamp' $filter")
+            ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes().toString(Charsets.UTF_8) }
+        }.getOrDefault("")
+    }
+
+    /** Device-wall-clock stamp usable as logcat -T (MM-DD HH:MM:SS.000). */
+    private fun deviceStamp(): String =
+        runCatching {
+            val pfd = InstrumentationRegistry.getInstrumentation().uiAutomation
+                .executeShellCommand("date '+%m-%d %H:%M:%S.000'")
+            ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes().toString(Charsets.UTF_8) }.trim()
+        }.getOrDefault("")
+
+    /**
+     * The 20:19/20:22 field screenshots: "price of Nvidia stock" (AGENT
+     * mode) came back as a CHAT-slop plan — "I can't pull a live quote
+     * right now (no tool access in this session)" — delivered verbatim
+     * while web_search sat unused. The round-21 bars: NO refusal-shaped
+     * reply, and the search tool ACTUALLY dispatched (logcat evidence).
+     */
+    @Test(timeout = 1_200_000)
+    fun stockPriceAsk_runsSearch_noToolAccessSlop() {
+        reachDashboard()
+        // AGENT mode is the default; pin it explicitly anyway — the field
+        // session had drifted between modes.
+        assertTrue("AGENT mode chip not reachable", ensureMode("AGENT"))
+        val stamp = deviceStamp()
+        val baseline = sendTask(
+            "price of Nvidia stock",
+            "cap23_nvidia",
+            planningWindowMs = 700_000
+        )
+        assertNoBrowserFallback(baseline, "cap23_nvidia")
+        val reply = waitNewText(
+            baseline, 700_000,
+            predicate = { t ->
+                t.contains("no tool access", true) ||
+                    t.contains("not available in this session", true) ||
+                    t.contains("no live quote feed", true) ||
+                    t.contains("file-generation tools", true) ||
+                    Regex("""\$\s?\d""").containsMatchIn(t) ||
+                    Regex("""\d{2,}(\.\d+)?\s?(usd|dollars|nvda)""", RegexOption.IGNORE_CASE).containsMatchIn(t) ||
+                    t.startsWith("Top web results")
+            }
+        )
+        shoot("cap23_nvidia_reply")
+        assertNotNull(
+            "stock-price ask produced no reply within 700s",
+            reply
+        )
+        val slop = reply!!.contains("no tool access", true) ||
+            reply.contains("not available in this session", true) ||
+            reply.contains("no live quote feed", true) ||
+            reply.contains("file-generation tools", true)
+        assertTrue(
+            "the 2026-10-03 slop reply shipped again — the model claimed its " +
+                "tools were unavailable while web_search sat unused. Reply: ${reply.take(200)}",
+            !slop
+        )
+        // BAR-A evidence: the search really dispatched during this task.
+        val searchLog = dumpLogcat(stamp, "InformationActions")
+        assertTrue(
+            "no WEB_SEARCH dispatch evidence in logcat — the reply may be " +
+                "memory-only (the 20:19 field failure shape)",
+            searchLog.contains("searchWeb query=")
+        )
+        println("TSF-E2E nvidia reply: ${reply.take(200)}")
+    }
+
+    /**
+     * The 20:25 field screenshot: "ok create a pdf of a resume of mine
+     * with synthetic data with no image" returned "I can't create the PDF
+     * right now — file-generation tools aren't available in this session"
+     * and pasted resume text. The round-21 bar: a REAL .pdf artifact in the
+     * workspace (the artifact card rides the same emission path).
+     */
+    @Test(timeout = 1_500_000)
+    fun resumePdfAsk_createsRealPdf_noSlopRefusal() {
+        reachDashboard()
+        assertTrue("AGENT mode chip not reachable", ensureMode("AGENT"))
+        val baseline = sendTask(
+            "ok create a pdf of a resume of mine with synthetic data with no image",
+            "cap24_resume_pdf",
+            planningWindowMs = 800_000
+        )
+        // A slop refusal must FAIL the test immediately if it appears —
+        // only the EXACT field refusal phrasings, never a legit reply that
+        // happens to say "can't create the PDF without your photo".
+        val slop = waitNewText(
+            baseline, 120_000,
+            predicate = { t ->
+                t.contains("file-generation tools aren't available", true) ||
+                    t.contains("no file card will appear", true) ||
+                    t.contains("no tool access in this session", true) ||
+                    t.contains("tools aren't available in this session", true)
+            }
+        )
+        assertNull(
+            "the 2026-10-03 PDF slop refusal appeared: ${slop?.take(160)}",
+            slop
+        )
+        assertNoBrowserFallback(baseline, "cap24_resume_pdf")
+        val pdf = awaitFile("pdf", 420_000, contentMarker = "%PDF")
+        shoot("cap24_resume_pdf_done")
+        assertNotNull(
+            "resume PDF ask produced no .pdf artifact within 420s — the " +
+                "CHAT-slop regression from the 20:25 screenshot",
+            pdf
+        )
+        val bytes = pdf!!.readBytes()
+        println("TSF-E2E resume pdf: ${pdf.absolutePath} (${bytes.size} bytes)")
+        assertTrue(
+            "the resume PDF is suspiciously thin (${bytes.size} bytes)",
+            bytes.size > 2_000
+        )
+    }
+
     // ---------- v1.2.0: the OpenCode-grade harness features ----------
 
     /**

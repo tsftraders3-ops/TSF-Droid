@@ -163,6 +163,53 @@ internal object PlanResponseSanitizer {
     )
 
     /**
+     * v1.3.0 round 21 (the 2026-10-03 field evidence, three screenshots):
+     * phrases with which a reply REFUSES a data or artifact goal by claiming
+     * missing tools or missing data — "I can't pull a live quote right now
+     * (no tool access in this session)", "file-generation tools aren't
+     * available in this session", "I don't have a live quote feed available
+     * right now". The tools exist on this device; only the reply's author
+     * (the planner, writing a CHAT step at plan time, or a tool-less call)
+     * could not see them. Such a reply against a data/artifact goal is a
+     * deferral at ANY length — the >600-char "substantive answer" exemption
+     * must never rescue it.
+     */
+    private val REFUSAL_PHRASES = listOf(
+        "no tool access", "tools aren't available", "tools are not available",
+        "no tools available", "don't have tools", "do not have tools",
+        "no tool access in this session", "no file-generation tools",
+        "wasn't able to pull", "was not able to pull",
+        "couldn't pull", "could not pull", "can't pull", "cannot pull",
+        "unable to pull", "couldn't extract", "could not extract",
+        "no live quote feed", "don't have a live quote",
+        "do not have a live quote", "no figure to quote",
+        "can't create the pdf", "cannot create the pdf",
+        "can't generate the pdf", "cannot generate the pdf",
+        "file-generation tools aren't available",
+        "no file card will appear",
+        "can't access the internet", "cannot access the internet",
+        "no internet access in this session",
+        "tools not available in this session",
+        "not available in this session"
+    )
+
+    /**
+     * True when [response] opens with a refusal-shaped claim (checked in the
+     * first [REFUSAL_WINDOW_CHARS] characters — the field refusals all LEAD
+     * with the disclaimer, while a grounded answer that mentions a partial
+     failure mid-text is legitimate). See [REFUSAL_PHRASES].
+     */
+    fun replyRefusesGoal(response: String?): Boolean {
+        val reply = response?.lowercase() ?: return false
+        if (reply.isEmpty()) return false
+        val window = reply.take(REFUSAL_WINDOW_CHARS)
+        return REFUSAL_PHRASES.any { window.contains(it) }
+    }
+
+    /** Where [replyRefusesGoal] looks for refusal phrases (see its doc). */
+    private const val REFUSAL_WINDOW_CHARS = 260
+
+    /**
      * True when a prose reply is a SHORT commitment to do an artifact or
      * data task later instead of a plan that does it now — "I am creating
      * the HTML file for you." against a "create an HTML website" goal, or
@@ -194,6 +241,15 @@ internal object PlanResponseSanitizer {
         // task (run-102 cap22 pass-2: "data I retrieved earlier in our
         // conversation", zero fresh search).
         if (goalDemandsFreshData(userGoal)) return true
+        // v1.3.0 round 21: a refusal-shaped reply ("I can't pull a live
+        // quote… no tool access in this session") against a data or
+        // artifact goal is ALWAYS a deferral, at any length — the tools
+        // exist; this reply's author just couldn't see them. Checked BEFORE
+        // the length exemption so a 700-character "here's what I know from
+        // memory" refusal cannot slip through as "substantive".
+        if ((goalWantsWebData(userGoal) || goalWantsArtifact(userGoal)) &&
+            replyRefusesGoal(response)
+        ) return true
         if (reply.length > 600) return false
         // Softer artifact asks ("make a report of your capabilities") keep
         // the long-prose exemption — their answer is often legitimately
@@ -261,11 +317,49 @@ internal object PlanResponseSanitizer {
     /** Actions that actually produce live web data. */
     private val DATA_ACTIONS = setOf(
         "WEB_SEARCH", "FETCH_URL", "GET_NEWS", "GET_WEATHER",
-        "CURRENCY_CONVERT", "CHECK_STOCK", "SUMMARIZE_URL"
+        "CURRENCY_CONVERT", "CHECK_STOCK", "SUMMARIZE_URL",
+        // v1.3.0 round 21: the planning prompt's own dependency list (rule 4)
+        // names these as data producers; the deferral gate must agree or a
+        // perfectly good TRANSLATE/CALCULATE plan reads as "deferred".
+        "TRANSLATE", "CALCULATE", "ANALYZE_SCREENSHOT", "GET_SYSTEM_INFO"
     )
 
     /** Actions that actually produce a file artifact. */
     private val ARTIFACT_ACTIONS = setOf("WRITE_FILE", "CREATE_PDF")
+
+    /**
+     * PRECISE live-data detection for the deferral gate (v1.3.0 round 21):
+     * strong data nouns/noun-phrases, whole-word matched. The looser
+     * [goalWantsWebData] (which matches bare "today"/"current"/"latest")
+     * stays in use where RECALL matters (plan synthesis, summary routing) —
+     * but the deferral gate must never flag "how are you today" or "tell me
+     * about the current Roman empire" as a deferred data ask now that the
+     * wrapper-form branch runs the same check (the pre-existing false
+     * positive surfaced by round-21 testing).
+     */
+    private val STRONG_DATA_NOUNS = listOf(
+        "price", "prices", "stock", "stocks", "quote", "quotes",
+        "rate", "rates", "gold", "silver", "copper", "platinum",
+        "bitcoin", "ethereum", "crypto", "cryptocurrency", "usd", "inr",
+        "weather", "forecast", "temperature", "news", "headline",
+        "headlines", "score", "scores", "standings", "dividend",
+        "sensex", "nifty", "nasdaq", "xauusd", "xau", "usd/inr"
+    )
+    private val STRONG_DATA_PHRASES = listOf(
+        "share price", "share market", "exchange rate", "market cap",
+        "pe ratio", "oil price", "crude oil", "dow jones", "s&p"
+    )
+
+    /** Whole-word/phrase live-data detection — see [STRONG_DATA_NOUNS]. */
+    fun goalNeedsLiveData(goal: String): Boolean {
+        val tokens = goal.lowercase()
+            .replace(Regex("[^a-z0-9&/]+"), " ").trim()
+            .split(" ").filter { it.isNotBlank() }
+        val tokenSet = tokens.toSet()
+        val bigrams = tokens.zipWithNext { a, b -> "$a $b" }
+        return STRONG_DATA_NOUNS.any { it in tokenSet } ||
+            STRONG_DATA_PHRASES.any { it in bigrams }
+    }
 
     /**
      * Plan-shaped deferral (v1.0.6 loop-17): a VALID plan can still refuse
@@ -280,7 +374,7 @@ internal object PlanResponseSanitizer {
         if (actions.isEmpty()) return false
         val canonical = actions.map { it.trim().uppercase() }
         if (goalWantsArtifact(userGoal) && canonical.none { it in ARTIFACT_ACTIONS }) return true
-        if ((goalWantsWebData(userGoal) || goalDemandsFreshData(userGoal)) &&
+        if ((goalNeedsLiveData(userGoal) || goalDemandsFreshData(userGoal)) &&
             !goalWantsArtifact(userGoal) &&
             canonical.none { it in DATA_ACTIONS }) return true
         return false
