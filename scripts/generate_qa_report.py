@@ -37,6 +37,13 @@ EVIDENCE_PATTERNS = [
     (re.compile(r"ActionDispatcher"), "action dispatch"),
     (re.compile(r"HararnessLoop|HarnessLoop", re.I), "harness loop"),
     (re.compile(r"ContextCompactor|75% context", re.I), "compaction"),
+    # v1.4.0 answer-engine signals: synthesis outcome, dump-guard rejections,
+    # extractive fallbacks, and the end-of-chat artifact-card plumbing.
+    (re.compile(r"synthesized summary:"), "answer synthesis"),
+    (re.compile(r"synthesis attempt \d+ rejected"), "synthesis dump-guard"),
+    (re.compile(r"synthesized summary (timed out|failed)"), "synthesis fallback"),
+    (re.compile(r"artifact (collected|card attached)"), "file cards"),
+    (re.compile(r"ask-confirmed summary"), "ask confirmation"),
 ]
 
 

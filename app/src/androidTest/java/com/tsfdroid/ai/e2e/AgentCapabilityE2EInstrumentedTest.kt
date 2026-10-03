@@ -256,8 +256,12 @@ class AgentCapabilityE2EInstrumentedTest {
                 if (t.uppercase() in modelBadgeTexts) continue // model-badge node, never a reply
                 // Harness plumbing nodes are never the deliverable reply
                 // (round-4 evidence: "[tool calls issued]" matched a
-                // length-based predicate mid-tool-loop).
-                if (t == "[tool calls issued]" || t.startsWith("[harness]")) continue
+                // length-based predicate mid-tool-loop). v1.4.0: the
+                // answer-engine's "[answer] turning..." indicator is the
+                // same class — live status, never the reply.
+                if (t == "[tool calls issued]" || t.startsWith("[harness]") ||
+                    t.startsWith("[answer]")
+                ) continue
                 if (t.startsWith(chatPlaceholder)) continue
                 if (t.startsWith("AUTONOMOUS PLAN")) continue
                 if (t.startsWith("Goal:")) continue

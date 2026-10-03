@@ -154,7 +154,6 @@ class InformationActions @Inject constructor() {
          * for no-browser operation.
          */
         suspend fun searchWeb(query: String): String? {
-            val encQuery = URLEncoder.encode(query, "UTF-8")
             // v1.3.0 round 20: the gold-query forensics trail — run-124's
             // plan carried a GOOD query but the reply contained dictionary
             // garbage, and nothing logged WHICH backend answered with WHAT.
@@ -164,6 +163,33 @@ class InformationActions @Inject constructor() {
             // another region serves locale-poisoned results (the observed
             // Chinese-dictionary entries for an English price query).
             Log.i(TAG, "searchWeb query='$query'")
+            searchChain(query)?.let { return it }
+
+            // v1.4.0 (run-37106169790 cap24 forensics): an OVER-STUFFED
+            // query ("NSE India VIX VIXINDIA index 5 year historical prices
+            // yearly high low close 2021 2022 2023 2024 2025" — 19 words)
+            // gets off-topic junk from the same backends that answer the
+            // simple form fine ("India VIX 5 year historical data"). When
+            // the chain found nothing usable AND the query is long, retry
+            // ONCE with the significant head of the query (years dropped,
+            // first 7 words) before giving up.
+            val words = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+            if (words.size > 8) {
+                val simplified = words
+                    .filterNot { it.matches(Regex("\\d{4}")) } // bare years
+                    .take(7)
+                    .joinToString(" ")
+                if (simplified.isNotBlank() && simplified != query) {
+                    Log.i(TAG, "searchWeb retry simplified='$simplified' (original: ${words.size} words)")
+                    return searchChain(simplified)
+                }
+            }
+            return null
+        }
+
+        /** The DDG → Bing → News backend chain with the relevance gate. */
+        private suspend fun searchChain(query: String): String? {
+            val encQuery = URLEncoder.encode(query, "UTF-8")
 
             val lite = httpGetText("https://lite.duckduckgo.com/lite/?q=$encQuery&kl=us-en")
                 ?.let { WebContentParsers.parseDuckDuckGoLite(it) }.orEmpty()
@@ -280,7 +306,15 @@ class InformationActions @Inject constructor() {
                 ?: params["topic"]?.takeIf { it.isNotBlank() }
                 ?: return ActionResult(false, null, "query parameter is missing")
             val results = searchWeb(query)
-                ?: return ActionResult(false, null, "No search results came back for '$query'. The backend chain (DDG Lite, DDG HTML, Bing, News RSS) is unreachable from this network.")
+                ?: return ActionResult(false, null,
+                    // v1.4.0 honest text (run-37106169790): this fires both
+                    // when the backends were unreachable AND when they answered
+                    // but the relevance gate rejected everything off-topic —
+                    // the old "unreachable from this network" blamed the
+                    // network for what was often a junk-results rejection.
+                    "No usable search results came back for '$query' — every backend " +
+                        "either returned nothing on-topic or was unreachable. " +
+                        "Try a shorter, more specific query.")
             return ActionResult(true, results, null)
         }
     }

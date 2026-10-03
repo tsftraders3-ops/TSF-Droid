@@ -2440,7 +2440,7 @@ class AgentLoop @Inject constructor(
 
     /**
      * v1.4.0: artifacts created during the CURRENT turn, collected by
-     * [collectArtifactCard] and drained by the final reply save — the first
+     * [emitArtifactCardIfNeeded] and drained by the final reply save — the first
      * attaches to the summary message itself (ChatGPT-style end-of-chat
      * card), extras become follow-up card messages. Queue-based so the
      * plan path and the harness path share one mechanism.
@@ -2491,9 +2491,25 @@ class AgentLoop @Inject constructor(
             val pathHint = when (actionResult) {
                 is ActionResult.Success -> actionResult.dataMap["path"]
                 else -> null
-            } ?: params["filePath"] ?: params["path"] ?: return
-            val file = com.tsfdroid.ai.core.storage.StorageWorkspaceProvider.resolveFile(contextOrNull() ?: return, pathHint)
-            if (!file.exists() || file.length() == 0L) return
+            } ?: params["filePath"] ?: params["path"] ?: run {
+                android.util.Log.w("AgentLoop", "artifact card skipped: no path on $canonicalAction result/params")
+                return
+            }
+            // v1.4.0 (cap9 forensics): some legacy results carry message-shaped
+            // data ("File saved at /path", "PDF created: /path") in the path
+            // slot — strip the known prefixes so the card survives them.
+            val cleanPath = pathHint
+                .replace(Regex("""^(File saved at|PDF created:|Folder created at|File created at)\s+"""), "")
+                .trim()
+            val context = contextOrNull() ?: run {
+                android.util.Log.w("AgentLoop", "artifact card skipped: no app context")
+                return
+            }
+            val file = com.tsfdroid.ai.core.storage.StorageWorkspaceProvider.resolveFile(context, cleanPath)
+            if (!file.exists() || file.length() == 0L) {
+                android.util.Log.i("AgentLoop", "artifact card skipped: not on disk: '$cleanPath'")
+                return
+            }
             val mime = when {
                 file.name.endsWith(".pdf", true) -> "application/pdf"
                 file.name.endsWith(".html", true) || file.name.endsWith(".htm", true) -> "text/html"
@@ -3433,6 +3449,15 @@ class AgentLoop @Inject constructor(
         // v1.4.0: the reply badge reflects WHO wrote the final answer —
         // the model when synthesis ran, System for deterministic paths.
         var summaryBadge = "System"
+        // v1.4.0: drain the turn's artifacts BEFORE composing — a pure
+        // artifact turn (CREATE_PDF/WRITE_FILE only) answers with the clean
+        // file line, never the canned "/storage/..." path text (the third
+        // field complaint). Data turns keep the synthesis ladder, which
+        // names files per the contract.
+        val artifactJson = drainCollectedArtifact()
+        val artifactName = artifactJson?.let {
+            runCatching { org.json.JSONObject(it).optString("name") }.getOrNull()
+        }
         val summaryText = if (isSuccess) {
             // v1.3.0 round-7: when the plan asked the user something, the
             // answer must round-trip back through the MODEL for the final
@@ -3447,19 +3472,25 @@ class AgentLoop @Inject constructor(
             // for every OTHER plan the final reply is SYNTHESIZED by the
             // model from the step results — raw tool output (search
             // listings, "PDF created: /storage/..." paths) is context,
-            // never the deliverable. Ladder: ask-confirmation → synthesis →
-            // extractive fallback → canned listing (last resort).
+            // never the deliverable. Ladder: ask-confirmation → clean
+            // artifact line → synthesis → extractive fallback → canned
+            // listing (last resort).
             val confirmed = askConfirmedSummary(plan)
-            if (confirmed != null) {
-                confirmed
-            } else {
-                val synthesized = synthesizedSummary(plan)
-                if (synthesized != null) {
-                    summaryBadge = synthesized.second
-                    synthesized.first
-                } else {
-                    AnswerEngine.extractiveAnswer(plan.goal, plan.steps)
-                        ?: cannedSuccessSummary(plan)
+            when {
+                confirmed != null -> confirmed
+                // Pure artifact turn: the card carries the file; the reply
+                // is one clean sentence, exactly like ChatGPT's delivery.
+                artifactName != null && !AnswerEngine.needsSynthesis(plan.steps) ->
+                    "I've created $artifactName — it's ready to open below."
+                else -> {
+                    val synthesized = synthesizedSummary(plan)
+                    if (synthesized != null) {
+                        summaryBadge = synthesized.second
+                        synthesized.first
+                    } else {
+                        AnswerEngine.extractiveAnswer(plan.goal, plan.steps)
+                            ?: cannedSuccessSummary(plan)
+                    }
                 }
             }
         } else {
@@ -3483,7 +3514,13 @@ class AgentLoop @Inject constructor(
                 }
             }
             
-            userFacingError ?: humanizeFailure(plan.goal)
+            // v1.4.0 (run-37106169790 cap24 forensics): a FAILED plan that
+            // already gathered real data must DELIVER it — the India-VIX turn
+            // completed a legitimate search, two over-specific follow-ups
+            // got rejected, and the user's data vanished behind "Sorry, that
+            // didn't work out". The honest partial answer (what was found +
+            // what failed) always beats the generic failure.
+            userFacingError ?: partialFindingsSummary(plan) ?: humanizeFailure(plan.goal)
         }
 
         val assistantMsg = ChatMessage(
@@ -3492,9 +3529,9 @@ class AgentLoop @Inject constructor(
             sender = ChatMessage.Sender.AGENT,
             modelBadge = summaryBadge,
             // v1.4.0: created files ride the summary as a ChatGPT-style
-            // card at the END of the chat — the first artifact attaches to
-            // this message itself; extras land as follow-up card messages.
-            attachmentJson = drainCollectedArtifact()?.also {
+            // card at the END of the chat — the drained artifact attaches
+            // to this message itself; extras land as follow-up cards.
+            attachmentJson = artifactJson?.also {
                 android.util.Log.i("AgentLoop", "artifact card attached to summary: ${it.take(80)}")
             },
             // v1.2.1: the plan's full visible-step trace rides the summary so
@@ -3538,6 +3575,11 @@ class AgentLoop @Inject constructor(
         if (!AnswerEngine.needsSynthesis(plan.steps)) return null
         val digest = AnswerEngine.stepDigest(plan.steps)
         if (digest.isBlank()) return null
+        // v1.4.0: the turn is NOT silent while the model writes — the same
+        // live-thinking surface the chat path uses tells the user the results
+        // are being turned into their answer (perceived latency: tools done
+        // -> "writing your answer" -> answer, never a dead pause).
+        _liveThinking.value = "[answer] turning the results into your answer…"
         return try {
             val provider = llmProviderFactory.getActiveProvider()
             val userPayload = "User's request: ${plan.goal.take(400)}\n\nTool results (raw):\n$digest"
@@ -3590,6 +3632,8 @@ class AgentLoop @Inject constructor(
         } catch (e: Exception) {
             android.util.Log.w("AgentLoop", "synthesized summary failed: ${e.localizedMessage}")
             null
+        } finally {
+            _liveThinking.value = null
         }
     }
 
@@ -3602,6 +3646,33 @@ class AgentLoop @Inject constructor(
      */
     private fun cannedSuccessSummary(plan: Plan): String =
         PlanResponseSanitizer.stepResultSummary(plan.steps) ?: humanizeGoalDone(plan.goal)
+
+    /**
+     * v1.4.0: the honest partial answer for a FAILED plan that still
+     * gathered data. Runs the same answer-engine ladder (synthesis →
+     * extractive) over the COMPLETED steps' results, prefixed with what
+     * went wrong — never a silent data loss. Returns null when nothing
+     * completed with a result (the generic humanizeFailure path stays).
+     * Deliberately wider than [AnswerEngine.needsSynthesis]: on a failure
+     * turn, even a single clean step result is worth delivering — the
+     * speed gate's "already answer-shaped → skip" optimization belongs
+     * to the SUCCESS path only.
+     */
+    private suspend fun partialFindingsSummary(plan: Plan): String? {
+        val hasCompletedData = plan.steps.any {
+            it.status == StepStatus.COMPLETED && !it.result.isNullOrBlank() &&
+                it.action.trim().uppercase() != "CHAT"
+        }
+        if (!hasCompletedData) return null
+        val failed = plan.steps.count { it.status == StepStatus.FAILED }
+        val preface = "I couldn't fully complete this — " +
+            "$failed step${if (failed == 1) "" else "s"} hit dead ends — " +
+            "but here's what I found:\n\n"
+        val body = synthesizedSummary(plan)?.first
+            ?: AnswerEngine.extractiveAnswer(plan.goal, plan.steps)
+            ?: return null
+        return preface + body
+    }
 
     /**
      * v1.3.0 round-7: the ask-answer round-trip contract (the opencode
