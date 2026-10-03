@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.tsfdroid.ai.actions.base.Action
 import com.tsfdroid.ai.actions.base.ActionResult
+import com.tsfdroid.ai.core.agent.SearchQueryQuality
 import com.tsfdroid.ai.core.web.WebContentParsers
 import java.net.HttpURLConnection
 import java.net.URL
@@ -153,7 +154,6 @@ class InformationActions @Inject constructor() {
          * for no-browser operation.
          */
         suspend fun searchWeb(query: String): String? {
-            val encQuery = URLEncoder.encode(query, "UTF-8")
             // v1.3.0 round 20: the gold-query forensics trail — run-124's
             // plan carried a GOOD query but the reply contained dictionary
             // garbage, and nothing logged WHICH backend answered with WHAT.
@@ -163,21 +163,67 @@ class InformationActions @Inject constructor() {
             // another region serves locale-poisoned results (the observed
             // Chinese-dictionary entries for an English price query).
             Log.i(TAG, "searchWeb query='$query'")
+            searchChain(query)?.let { return it }
+
+            // v1.4.0 (run-37106169790 cap24 forensics): an OVER-STUFFED
+            // query ("NSE India VIX VIXINDIA index 5 year historical prices
+            // yearly high low close 2021 2022 2023 2024 2025" — 19 words)
+            // gets off-topic junk from the same backends that answer the
+            // simple form fine ("India VIX 5 year historical data"). When
+            // the chain found nothing usable AND the query is long, retry
+            // ONCE with the significant head of the query (years dropped,
+            // first 7 words) before giving up.
+            val words = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+            if (words.size > 8) {
+                val simplified = words
+                    .filterNot { it.matches(Regex("\\d{4}")) } // bare years
+                    .take(7)
+                    .joinToString(" ")
+                if (simplified.isNotBlank() && simplified != query) {
+                    Log.i(TAG, "searchWeb retry simplified='$simplified' (original: ${words.size} words)")
+                    return searchChain(simplified)
+                }
+            }
+            return null
+        }
+
+        /** The DDG → Bing → News backend chain with the relevance gate. */
+        private suspend fun searchChain(query: String): String? {
+            val encQuery = URLEncoder.encode(query, "UTF-8")
 
             val lite = httpGetText("https://lite.duckduckgo.com/lite/?q=$encQuery&kl=us-en")
                 ?.let { WebContentParsers.parseDuckDuckGoLite(it) }.orEmpty()
             Log.i(TAG, "backend=lite results=${lite.size} first='${lite.firstOrNull()?.title?.take(60)}'")
-            if (lite.isNotEmpty()) return renderResults(query, lite)
+            // v1.3.1 round 3: the relevance gate — a poisoned backend that
+            // returns off-topic results (datacenter-IP market garbage) is
+            // rejected and the chain continues instead of delivering slop.
+            if (lite.isNotEmpty() && SearchQueryQuality.resultsAreRelevant(query, lite.map { "${it.title} ${it.url}" })) {
+                return renderResults(query, lite)
+            } else if (lite.isNotEmpty()) {
+                Log.w(TAG, "backend=lite results=${lite.size} REJECTED as off-topic — continuing the chain")
+            }
 
             val html = httpGetText("https://html.duckduckgo.com/html/?q=$encQuery&kl=us-en")
                 ?.let { WebContentParsers.parseDuckDuckGoHtml(it) }.orEmpty()
             Log.i(TAG, "backend=html results=${html.size} first='${html.firstOrNull()?.title?.take(60)}'")
-            if (html.isNotEmpty()) return renderResults(query, html)
+            if (html.isNotEmpty() && SearchQueryQuality.resultsAreRelevant(query, html.map { "${it.title} ${it.url}" })) {
+                return renderResults(query, html)
+            } else if (html.isNotEmpty()) {
+                Log.w(TAG, "backend=html results=${html.size} REJECTED as off-topic — continuing the chain")
+            }
 
-            val bing = httpGetText("https://www.bing.com/search?q=$encQuery&setlang=en", userAgent = USER_AGENT_DESKTOP)
+            // v1.3.1 round 3: mkt pins Bing's RESULT market (setlang only
+            // pins its UI strings) — and the relevance gate still stands
+            // guard behind it, because no parameter reliably fixes a
+            // datacenter egress IP.
+            val bing = httpGetText("https://www.bing.com/search?q=$encQuery&setlang=en&mkt=en-US", userAgent = USER_AGENT_DESKTOP)
                 ?.let { WebContentParsers.parseBingResults(it) }.orEmpty()
             Log.i(TAG, "backend=bing results=${bing.size} first='${bing.firstOrNull()?.title?.take(60)}'")
-            if (bing.isNotEmpty()) return renderResults(query, bing)
+            if (bing.isNotEmpty() && SearchQueryQuality.resultsAreRelevant(query, bing.map { "${it.title} ${it.url}" })) {
+                return renderResults(query, bing)
+            } else if (bing.isNotEmpty()) {
+                Log.w(TAG, "backend=bing results=${bing.size} REJECTED as off-topic — continuing the chain")
+            }
 
             // Last real backend: Google News RSS answers almost any query
             // with live headlines — real data, no browser.
@@ -260,7 +306,15 @@ class InformationActions @Inject constructor() {
                 ?: params["topic"]?.takeIf { it.isNotBlank() }
                 ?: return ActionResult(false, null, "query parameter is missing")
             val results = searchWeb(query)
-                ?: return ActionResult(false, null, "No search results came back for '$query'. The backend chain (DDG Lite, DDG HTML, Bing, News RSS) is unreachable from this network.")
+                ?: return ActionResult(false, null,
+                    // v1.4.0 honest text (run-37106169790): this fires both
+                    // when the backends were unreachable AND when they answered
+                    // but the relevance gate rejected everything off-topic —
+                    // the old "unreachable from this network" blamed the
+                    // network for what was often a junk-results rejection.
+                    "No usable search results came back for '$query' — every backend " +
+                        "either returned nothing on-topic or was unreachable. " +
+                        "Try a shorter, more specific query.")
             return ActionResult(true, results, null)
         }
     }
@@ -584,29 +638,72 @@ class InformationActions @Inject constructor() {
      * No browser.
      */
     private class CheckStockAction : Action {
+        // v1.3.1 round 5 (the fourth gold lesson): Yahoo serves the same
+        // metal under several symbols and they fail independently by region —
+        // XAUUSD=X 404s from whole egress regions while GC=F (the COMEX
+        // futures alias Yahoo's own gold page serves) answers. The variant
+        // chain tries each known alias of the instrument before giving up.
+        private val METALS_FUTURES = mapOf(
+            "XAU" to "GC=F", "XAG" to "SI=F", "XPT" to "PL=F", "XPD" to "PA=F"
+        )
+        private val METALS_NAMES = mapOf(
+            "XAU" to "gold", "XAG" to "silver", "XPT" to "platinum", "XPD" to "palladium"
+        )
+
         override val name: String = "CHECK_STOCK"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
-            val symbol = params["symbol"]?.uppercase()?.trim()?.takeIf { it.isNotBlank() }
+            val raw = params["symbol"]?.uppercase()?.trim()?.takeIf { it.isNotBlank() }
                 ?: return ActionResult(false, null, "symbol parameter is missing")
-            try {
-                val body = httpGetText(
-                    "https://query1.finance.yahoo.com/v8/finance/chart/${URLEncoder.encode(symbol, "UTF-8")}?range=1d&interval=1d",
-                    userAgent = USER_AGENT_DESKTOP,
-                    timeoutMs = 8_000
-                )
-                val price = body?.let { b ->
-                    Regex("\"regularMarketPrice\"\\s*:\\s*([0-9.]+)").find(b)?.groupValues?.get(1)
+            // v1.3.1: Yahoo's chart endpoint needs the instrument's exchange
+            // suffix — plain "XAUUSD" 404s. Six pure letters = a forex/metals
+            // pair (XAUUSD, EURUSD, GBPJPY) → "=X" plus the COMEX futures
+            // alias for the major metals; already-suffixed (GC=F,
+            // XAUUSD=X) and dashed tickers (BTC-USD, ^NSEI) pass through
+            // untouched. Stocks and ETFs (AAPL, NIFTYBEES) keep their
+            // planner-given form — the planner owns exchange suffixes there.
+            val metalRoot = raw.take(3).uppercase()
+            val variants: List<String> = when {
+                raw.contains('=') -> listOf(raw)
+                Regex("^[A-Z]{6}$").matches(raw) -> {
+                    val v = mutableListOf(raw + "=X")
+                    METALS_FUTURES[metalRoot]?.let { v.add(it) }
+                    v
                 }
-                val currency = body?.let { b ->
-                    Regex("\"currency\"\\s*:\\s*\"([A-Z]+)\"").find(b)?.groupValues?.get(1)
-                }
-                if (price != null) {
-                    return ActionResult(true, "$symbol is at $price ${currency ?: ""} (latest session close).", null)
-                }
-            } catch (e: Exception) {
-                Log.w("CheckStock", "Yahoo failed: ${e.localizedMessage}")
+                else -> listOf(raw)
             }
-            val search = searchWeb("$symbol stock price")
+            for (symbol in variants) {
+                try {
+                    val body = httpGetText(
+                        "https://query1.finance.yahoo.com/v8/finance/chart/${URLEncoder.encode(symbol, "UTF-8")}?range=1d&interval=1d",
+                        userAgent = USER_AGENT_DESKTOP,
+                        timeoutMs = 8_000
+                    )
+                    val price = body?.let { b ->
+                        Regex("\"regularMarketPrice\"\\s*:\\s*([0-9.]+)").find(b)?.groupValues?.get(1)
+                    }
+                    val currency = body?.let { b ->
+                        Regex("\"currency\"\\s*:\\s*\"([A-Z]+)\"").find(b)?.groupValues?.get(1)
+                    }
+                    if (price != null) {
+                        return ActionResult(true, "$symbol is at $price ${currency ?: ""} (latest session close).", null)
+                    }
+                } catch (e: Exception) {
+                    Log.w("CheckStock", "Yahoo failed for $symbol: ${e.localizedMessage}")
+                }
+            }
+            // v1.3.1: the search fallback quotes what a person would type —
+            // a metals instrument (pair or futures alias) searches its METAL
+            // NAME ("gold price", the snippets that carry the actual
+            // number), the raw symbol for forex pairs, and "stock price"
+            // only for stocks.
+            val metalName = METALS_NAMES[metalRoot]
+                ?: METALS_FUTURES.entries.firstOrNull { it.value == raw }?.key?.let { METALS_NAMES[it] }
+            val searchPhrase = when {
+                metalName != null -> "$metalName price"
+                raw.length >= 6 -> "$raw price"
+                else -> "$raw stock price"
+            }
+            val search = searchWeb(searchPhrase)
             if (search != null) return ActionResult(true, search, null)
             return ActionResult(false, null, "Couldn't fetch the stock quote right now.")
         }
@@ -622,6 +719,14 @@ class InformationActions @Inject constructor() {
         override val name: String = "SUMMARIZE_URL"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val url = params["url"] ?: return ActionResult(false, null, "url is missing")
+            // v1.3.1 (the xauusd field report): a phrase in the url slot is a
+            // search in disguise — fail fast with the instruction the
+            // re-planner (and the user) can act on instead of attempting
+            // https://<phrase> and timing out on three fetch strategies.
+            if (!com.tsfdroid.ai.core.agent.StepRepair.isUrlShaped(url)) {
+                return ActionResult(false, null,
+                    "'$url' is not a web address. Use WEB_SEARCH for search terms, or provide a https:// link.")
+            }
             val normalized = if (url.startsWith("http")) url else "https://$url"
             val pageText = fetchPageText(normalized, maxChars = 6_000)
                 ?: return ActionResult(false, null, "Couldn't fetch that page (tried direct, desktop profile and reader proxy). Check the URL or your internet.")
@@ -641,6 +746,16 @@ class InformationActions @Inject constructor() {
             val url = params["url"]?.takeIf { it.isNotBlank() }
                 ?: params["query"]?.takeIf { it.isNotBlank() }
                 ?: return ActionResult(false, null, "url parameter is missing")
+            // v1.3.1 (the xauusd field report): "web fetch the price of
+            // xauusd" reached this action with the PHRASE as its url (the
+            // `query` alias slot feeds it) and burned three fetch strategies
+            // on https://the price of xauusd before failing. A non-url value
+            // fails immediately with the instruction that steers the
+            // re-planner to WEB_SEARCH.
+            if (!com.tsfdroid.ai.core.agent.StepRepair.isUrlShaped(url)) {
+                return ActionResult(false, null,
+                    "'$url' is not a web address. Use WEB_SEARCH for search terms, or provide a https:// link.")
+            }
             val normalized = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
             val pageText = fetchPageText(normalized, maxChars = 8_000)
                 ?: return ActionResult(false, null, "Couldn't fetch that page (tried direct, desktop profile and reader proxy). Check the URL or your internet.")

@@ -21,14 +21,15 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    # v1.3.0: the suite is 42 tests across 10 classes — the 22 capability
-    # suite of v1.2.0 plus the 14 formerly-orphaned instrumented tests wired
-    # in round 9 (a11y targeting, screen scrape, service readiness, keystore
-    # AEAD, credential store) and the v1.3.0 additions (ask round-trip,
-    # bounded fetch, SSE streaming), plus the round-21 field-failure tests
-    # (cap23 stock-price no-slop, cap24 resume-PDF artifact). Worst-case
-    # waits exceed 70 minutes; a failing first pass triggers one clean retry
-    # (free-tier latency flakes move between runs).
+    # v1.4.0 + round 21: the suite is 46 tests across 10 classes — the 22
+    # capability suite of v1.2.0, the 14 formerly-orphaned instrumented tests
+    # wired in round 9, the v1.3.0 additions (ask round-trip, bounded fetch,
+    # SSE streaming), the v1.3.1 field-report regression, the v1.4.0
+    # answer-engine tests (cap23 xauusd synthesis, cap24 India VIX), and the
+    # round-21 gates (cap25 stock-price no-slop + logcat-proven search,
+    # cap26 resume-PDF artifact). Worst-case waits exceed 80 minutes;
+    # a failing first pass triggers one clean retry (free-tier latency
+    # flakes move between runs).
     timeout-minutes: 240
 
     steps:
@@ -95,7 +96,7 @@ jobs:
             # app stays installed while the screenshots are pulled — AGP's
             # connected task uninstalls both APKs before any later step runs.
             # NOTE: single line — the runner mangles backslash continuations.
-            ./gradlew installDebug installDebugAndroidTest --no-daemon --stacktrace || exit 1; run_suite() { timeout 5400 adb shell am instrument -w -e class com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest,com.tsfdroid.ai.e2e.AgentCapabilityE2EInstrumentedTest,com.tsfdroid.ai.e2e.AttachmentPipelineInstrumentedTest,com.tsfdroid.ai.accessibility.ClickTargetingAccuracyInstrumentationTest,com.tsfdroid.ai.accessibility.KnownScreenScrapeInstrumentationTest,com.tsfdroid.ai.accessibility.ServiceReadinessInstrumentationTest,com.tsfdroid.ai.core.security.AndroidKeyStoreAeadCipherInstrumentationTest,com.tsfdroid.ai.core.security.AndroidProviderCredentialStoreInstrumentationTest com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner; }; out=$(run_suite); code=$?; echo "$out" | tail -12; if echo "$out" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then echo "=== retry pass (free-tier latency flakes move between runs; a test that failed once must still pass on a clean retry) ==="; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb install -r app/build/outputs/apk/debug/app-debug.apk >/dev/null 2>&1; adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk >/dev/null 2>&1; out2=$(run_suite); code=$?; echo "$out2" | tail -12; out="$out2"; fi; echo "$out" | grep -qE "FAILURES|INSTRUMENTATION_FAILED" && code=1; mkdir -p e2e-screens; timeout 60 adb logcat -d > e2e-screens/instrument-logcat.txt 2>/dev/null || true; timeout 60 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/e2e-screens/. e2e-screens/ 2>/dev/null; timeout 90 adb exec-out run-as com.tsfdroid.ai tar cf - files/e2e-screens 2>/dev/null | tar xf - -C e2e-screens --strip-components=2 || true; mkdir -p e2e-screens/workspace; timeout 90 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/workspace/. e2e-screens/workspace/ 2>/dev/null || true; echo "=== agent workspace artifacts (v1.1.1 quality bar: real PDFs/HTML the agent wrote) ==="; find e2e-screens/workspace -type f -exec ls -la {} \; 2>/dev/null | head -20 || true; ls -la e2e-screens | head -40; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb uninstall com.tsfdroid.ai.test >/dev/null 2>&1; exit $code
+            ./gradlew installDebug installDebugAndroidTest --no-daemon --stacktrace || exit 1; run_suite() { timeout 5400 adb shell am instrument -w -e class com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest,com.tsfdroid.ai.e2e.AgentCapabilityE2EInstrumentedTest,com.tsfdroid.ai.e2e.AttachmentPipelineInstrumentedTest,com.tsfdroid.ai.accessibility.ClickTargetingAccuracyInstrumentationTest,com.tsfdroid.ai.accessibility.KnownScreenScrapeInstrumentationTest,com.tsfdroid.ai.accessibility.ServiceReadinessInstrumentationTest,com.tsfdroid.ai.core.security.AndroidKeyStoreAeadCipherInstrumentationTest,com.tsfdroid.ai.core.security.AndroidProviderCredentialStoreInstrumentationTest com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner; }; out=$(run_suite); code=$?; echo "$out" | tail -12; if echo "$out" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then echo "=== retry pass (free-tier latency flakes move between runs; a test that failed once must still pass on a clean retry) ==="; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb install -r app/build/outputs/apk/debug/app-debug.apk >/dev/null 2>&1; adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk >/dev/null 2>&1; out2=$(run_suite); code=$?; echo "$out2" | tail -12; out="$out2"; fi; echo "$out" | grep -qE "FAILURES|INSTRUMENTATION_FAILED" && code=1; mkdir -p e2e-screens; echo "$out" > e2e-screens/instrument-output.txt; timeout 60 adb logcat -d > e2e-screens/instrument-logcat.txt 2>/dev/null || true; timeout 60 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/e2e-screens/. e2e-screens/ 2>/dev/null; timeout 90 adb exec-out run-as com.tsfdroid.ai tar cf - files/e2e-screens 2>/dev/null | tar xf - -C e2e-screens --strip-components=2 || true; mkdir -p e2e-screens/workspace; timeout 90 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/workspace/. e2e-screens/workspace/ 2>/dev/null || true; echo "=== agent workspace artifacts (v1.1.1 quality bar: real PDFs/HTML the agent wrote) ==="; find e2e-screens/workspace -type f -exec ls -la {} \; 2>/dev/null | head -20 || true; ls -la e2e-screens | head -40; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb uninstall com.tsfdroid.ai.test >/dev/null 2>&1; exit $code
 
       - name: Capture screen on failure
         if: failure()
@@ -110,7 +111,18 @@ jobs:
             mkdir -p e2e-results
             cp -r app/build/outputs/androidTest-results/* e2e-results/ || true
           fi
-      - name: Upload E2E artifacts (screens, logcat, results)
+      - name: Generate QA diagnostic report
+        if: always()
+        run: |
+          # v1.3.1 (the 2026-10-02 Gemini consult, adopted core): the run's
+          # own verdict and agent-loop evidence distilled into QA_REPORT.md —
+          # test outcome, failure stacks, plan repairs / watchdog / search
+          # chain lines — on the run page summary and in the artifacts, so
+          # forensics never starts from a 17MB logcat again.
+          python3 scripts/generate_qa_report.py || true
+          [ -f QA_REPORT.md ] && cat QA_REPORT.md || true
+
+      - name: Upload E2E artifacts (screens, logcat, results, QA report)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -120,5 +132,6 @@ jobs:
             e2e-logcat.txt
             e2e-results/
             e2e-screens/
+            QA_REPORT.md
           if-no-files-found: ignore
           retention-days: 14

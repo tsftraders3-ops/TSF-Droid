@@ -93,6 +93,52 @@ class PlanValidator @Inject constructor(
                 }
             }
 
+            // v1.3.1 round 4 (the third gold lesson): a SINGLE defeatist
+            // ASK_USER step — "I'm not able to pull live market data in this
+            // session" — parks the turn on a question the user cannot
+            // usefully answer while real searches were available (run
+            // 36987915019: zero searches, a 54-char apology). Rewritten into
+            // a real search; legitimate asks never match the vocabulary.
+            val askRepair = StepRepair.defeatistAskToSearch(
+                updatedStep.action, updatedStep.params, plan.goal, plan.steps.size
+            )
+            if (askRepair != null) {
+                android.util.Log.w(
+                    "PlanValidator",
+                    "defeatist single-step ASK_USER rewritten to WEB_SEARCH (goal='${plan.goal.take(60)}')"
+                )
+                updatedStep = updatedStep.copy(action = askRepair.first, params = askRepair.second)
+            }
+
+            // v1.3.1 (the xauusd field report): a FETCH_URL/SUMMARIZE_URL step
+            // whose url slot carries a PHRASE ("web fetch the price of xauusd"
+            // → url="the price of xauusd") is a search in disguise — the fetch
+            // would attempt https://the price of xauusd and fail all three
+            // strategies, then the WEB_SEARCH fallback would inherit the same
+            // phrase-in-`url` params and dead-end on the missing `query`.
+            // Rewrite it deterministically into a real search.
+            val fetchRepair = StepRepair.fetchToSearch(updatedStep.action, updatedStep.params, plan.goal)
+                // v1.4.0 (run-37111962938, the second xauusd lesson): the url
+                // was REAL (google.com/finance/quote/XAU-USD) but the page
+                // paints its price with scripts — the fetched static HTML
+                // carries no digits and the turn honestly reported "the
+                // numeric quote wasn't included". A live-data goal fetching
+                // a JS-rendered quote page is a CHECK_STOCK in disguise.
+                ?: StepRepair.fetchToQuote(updatedStep.action, updatedStep.params, plan.goal)
+            if (fetchRepair != null) {
+                android.util.Log.w(
+                    "PlanValidator",
+                    "${updatedStep.action} with non-url '${updatedStep.params["url"] ?: updatedStep.params["query"]?.take(40)}' " +
+                        "rewritten to WEB_SEARCH (goal='${plan.goal.take(60)}')"
+                )
+                updatedStep = updatedStep.copy(
+                    action = fetchRepair.first,
+                    params = fetchRepair.second,
+                    description = if (updatedStep.description.isBlank()) "Search for the requested information"
+                    else updatedStep.description
+                )
+            }
+
             // v1.3.0 round 19 (the gold-query lesson): a WEB_SEARCH whose
             // query degenerated to a lone generic word ("current" for the
             // goal "Fetch the current gold price") is repaired here — the
@@ -102,6 +148,16 @@ class PlanValidator @Inject constructor(
             // deterministically from the goal, which is always about the
             // substance of the ask.
             if (updatedStep.action.uppercase() == "WEB_SEARCH") {
+                // v1.3.1: first the missing/blank query (incl. alias slots) —
+                // a blank one can't even be judged degenerate yet.
+                val repairedQuery = StepRepair.repairSearchQuery(updatedStep.params, plan.goal)
+                if (repairedQuery != null) {
+                    android.util.Log.w(
+                        "PlanValidator",
+                        "blank WEB_SEARCH query filled from '${repairedQuery["query"]?.take(60)}' (goal='${plan.goal.take(60)}')"
+                    )
+                    updatedStep = updatedStep.copy(params = repairedQuery)
+                }
                 val query = updatedStep.params["query"]?.trim().orEmpty()
                 if (SearchQueryQuality.isDegenerate(query)) {
                     val derived = SearchQueryQuality.fromGoal(plan.goal)
@@ -154,7 +210,32 @@ class PlanValidator @Inject constructor(
         }
 
         val cleanedSteps = removeBadDependencies(finalSteps)
-        return plan.copy(steps = cleanedSteps, estimatedSteps = cleanedSteps.size)
+
+        // v1.4.0 (run-37118014660, the poisoned-backend window): a metals/
+        // crypto price goal whose plan never calls CHECK_STOCK gets one
+        // APPENDED — Yahoo's JSON endpoints are a different backend that
+        // kept answering while DDG/Bing served garbage (round-1 evidence:
+        // GC=F digits through the same window), so the answer engine always
+        // has a digit-bearing source for the synthesis.
+        val quoteAssist = StepRepair.priceGoalQuoteStep(plan.goal, cleanedSteps.map { it.action })
+        val finalPlan = if (quoteAssist != null) {
+            android.util.Log.w(
+                "PlanValidator",
+                "price goal '${plan.goal.take(60)}' gains a CHECK_STOCK(${quoteAssist.second["symbol"]}) step — an independent quote backend for the synthesis"
+            )
+            val quoteStep = PlanStep(
+                stepId = "quote-assist-${System.currentTimeMillis()}",
+                order = cleanedSteps.size + 1,
+                description = "Fetch the live ${quoteAssist.second["symbol"]} quote (Yahoo JSON — independent of the search backends)",
+                action = quoteAssist.first,
+                params = quoteAssist.second,
+                fallback = ""
+            )
+            plan.copy(steps = cleanedSteps + quoteStep, estimatedSteps = cleanedSteps.size + 1)
+        } else {
+            plan.copy(steps = cleanedSteps, estimatedSteps = cleanedSteps.size)
+        }
+        return finalPlan
     }
 
     private fun removeBadDependencies(steps: List<PlanStep>): List<PlanStep> {

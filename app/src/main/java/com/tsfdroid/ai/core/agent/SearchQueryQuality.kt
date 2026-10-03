@@ -36,6 +36,36 @@ object SearchQueryQuality {
     }
 
     /**
+     * v1.3.1 round 3 (the second gold lesson): a datacenter egress IP can
+     * poison ANY search backend — DDG serves its anomaly page (zero results,
+     * fine, the chain just continues) but Bing still "answers" with an
+     * off-market result set (current.com and a Chinese dictionary for
+     * "current gold price today per gram"). A result set is only relevant
+     * when it carries the query's NON-GENERIC tokens — degenerate words
+     * ("current", "latest", "today") are ignored by design, so a domain
+     * that merely echoes the torn-out adjective (current.com) never passes
+     * the gate.
+     *
+     * v1.4.0 (run-37118014660, the India-VIX lesson): ANY-single-token
+     * matching was too weak — "India VIX 5 year historical data" ACCEPTED
+     * wikipedia's India COUNTRY page because "india" alone echoed. The gate
+     * is now a QUORUM: at least half the query's distinctive tokens (with
+     * trailing-s stemming so "dates" matches "Date Sheet") must appear in
+     * the joined results. A page about the country is not a page about the
+     * index.
+     */
+    fun resultsAreRelevant(query: String, resultTexts: List<String>): Boolean {
+        val tokens = query.lowercase().split(Regex("[^a-z0-9]+"))
+            .filter { it.length >= 3 && it !in DEGENERATE_QUERY_WORDS }
+        if (tokens.isEmpty()) return true // nothing decisive to gate on
+        val stems = tokens.map { if (it.length >= 4 && it.endsWith("s")) it.dropLast(1) else it }
+        val joined = resultTexts.joinToString(" ").lowercase()
+        val matched = stems.count { stem -> joined.contains(stem) }
+        val quorum = (stems.size + 1) / 2 // ceil(n/2): half the distinctive tokens
+        return matched >= quorum
+    }
+
+    /**
      * Derives a search phrase from a goal by stripping the request framing
      * users (and planners) write around the substance:
      * "Fetch the current gold price" -> "current gold price"
@@ -50,10 +80,16 @@ object SearchQueryQuality {
         // substance of the ask.
         q = Regex(
             "^(please\\s+)?(kindly\\s+)?(can\\s+you\\s+|could\\s+you\\s+|cna\\s+u\\s+|cn\\s+u\\s+)?" +
-                "(fetch|get|find|search(\\s+for)?|look\\s?up|show\\s+me|tell\\s+me|give\\s+me|write|make|create|build|draft|compose|prepare|research|check|look|what('s|\\s+is|\\s+are)|how\\s+much\\s+is|how\\s+many\\s+is)\\s+" +
+                "(web\\s+fetch|webfetch|web\\s+search|websearch|web\\s+look\\s?up|google\\s+for|" +
+                "fetch|get|find|search(\\s+for)?|look\\s?up|show\\s+me|tell\\s+me|give\\s+me|write|make|create|build|draft|compose|prepare|research|check|look|what('s|\\s+is|\\s+are)|how\\s+much\\s+is|how\\s+many\\s+is)\\s+" +
                 "(the\\s+|me\\s+|a\\s+|an\\s+|up\\s+|out\\s+|for\\s+|about\\s+)*",
             RegexOption.IGNORE_CASE
         ).replace(q, "")
+
+        // v1.3.1: a leading article with no verb in front of it ("the price
+        // of xauusd" as a url-slot phrase) — a search query never needs its
+        // leading article.
+        q = Regex("^(the|a|an)\\s+", RegexOption.IGNORE_CASE).replace(q, "")
 
         // Trailing format ask-ons ("... as a pdf", "... in html").
         q = Regex(

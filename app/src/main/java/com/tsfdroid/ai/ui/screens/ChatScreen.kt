@@ -555,7 +555,18 @@ fun ChatScreen(
                             }
                         }
                     }
-                    itemsIndexed(history) { index, msg ->
+                    // v1.3.1 (the thinking-glitch field report): messages
+                    // are keyed by their stable id — the streaming reply
+                    // grows by REPLACING its row (same id), and Room re-emits
+                    // the whole list on every write. With positional keys
+                    // every history growth shifted the items below it, so the
+                    // keyless ThinkingBubble item was torn down and rebuilt
+                    // mid-turn (its infinite dot animation restarting = the
+                    // visible flash) and every bubble lost its identity on
+                    // every stream delta. Id keys keep item identity across
+                    // list re-emissions; Compose then skips bubbles whose
+                    // data-class message is unchanged.
+                    itemsIndexed(history, key = { _, msg -> msg.id }) { index, msg ->
                         // v1.2.1 round-16: the LIVE step trace renders INSIDE the
                         // streaming reply bubble (above the answer text — the same
                         // grammar as the persisted ACTIVITY section). The old
@@ -583,7 +594,12 @@ fun ChatScreen(
                     // Show a typing/thinking bubble if thinking - scoped to this chat, see
                     // visibleAgentState.
                     if (visibleAgentState is AgentState.Thinking) {
-                        item {
+                        // v1.3.1: a STABLE key — a keyless item holds a
+                        // positional key, so every history growth (the
+                        // streaming reply appending its partial row)
+                        // destroyed and recreated the whole bubble mid-think,
+                        // restarting the dot animation and flashing the trace.
+                        item(key = "thinking-bubble") {
                             ThinkingBubble(liveThinking = liveThinking, steps = liveActivity)
                         }
                     }
@@ -1203,19 +1219,31 @@ fun ChatBubble(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = if (isAgent) Arrangement.Start else Arrangement.End
         ) {
+            // v1.4.0 OPEN REPLIES (the 2026-10-03 field feedback): agent
+            // answers render ChatGPT/Claude/Gemini-style — full-width, on the
+            // canvas, no bubble box. Only the USER's messages keep the
+            // rounded bubble (right-aligned, primary fill). The old boxed
+            // agent reply read like two people texting each other in an
+            // inbox; an assistant answers in the open.
             Column(
-                modifier = Modifier
-                    .widthIn(max = 340.dp)
-                    .clip(
-                        RoundedCornerShape(
-                            topStart = 30.dp,
-                            topEnd = 30.dp,
-                            bottomStart = if (isAgent) 6.dp else 30.dp,
-                            bottomEnd = if (isAgent) 30.dp else 6.dp
+                modifier = if (isAgent) {
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp)
+                } else {
+                    Modifier
+                        .widthIn(max = 340.dp)
+                        .clip(
+                            RoundedCornerShape(
+                                topStart = 30.dp,
+                                topEnd = 30.dp,
+                                bottomStart = 30.dp,
+                                bottomEnd = 6.dp
+                            )
                         )
-                    )
-                    .background(bubbleColor)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .background(bubbleColor)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                }
             ) {
                 if (isAgent && message.modelBadge != null) {
                     val displayName = when (message.modelBadge) {
@@ -1448,13 +1476,6 @@ fun ChatBubble(
                     }
                 }
 
-                // v1.0.6: file attachment card — agent-created artifacts are
-                // REAL files the user can open/share directly from the chat.
-                if (isAgent && message.attachmentJson != null) {
-                    FileAttachmentCard(attachmentJson = message.attachmentJson!!)
-                    Spacer(modifier = Modifier.height(6.dp))
-                }
-
                 // v1.3.0 (Phase 14, Wave B): agent replies render through the
                 // markdown-lite rich renderer — headings, bullets, code fences,
                 // tappable links — plus a numbered SOURCES chip row when the
@@ -1480,6 +1501,16 @@ fun ChatBubble(
                         color = bubbleTextColor,
                         lineHeight = 21.sp
                     )
+                }
+
+                // v1.0.6 → v1.4.0: file attachment card — agent-created
+                // artifacts are REAL files the user can open/share directly from
+                // the chat. v1.4.0 moved it BELOW the reply text + sources:
+                // ChatGPT/Claude/Gemini deliver the created file at the END of
+                // the answer, never above it.
+                if (isAgent && message.attachmentJson != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FileAttachmentCard(attachmentJson = message.attachmentJson!!)
                 }
 
                 // v1.3.0 ask_user bubble: tappable option chips under the

@@ -20,7 +20,17 @@ data class ParamDefinition(
     val required: Boolean,
     val description: String,
     val enumValues: List<String> = emptyList(),
-    val defaultValue: Any? = null
+    val defaultValue: Any? = null,
+    /**
+     * v1.3.1 (the xauusd lesson): alternative param slots this parameter
+     * accepts when its own slot is empty. The fallback dispatcher reuses the
+     * primary action's params verbatim — a WEB_SEARCH fallback inherits the
+     * failed FETCH_URL's `url` and nothing else, so schema validation used to
+     * fail it on the missing `query` before the handler's own tolerance could
+     * run. Aliases are resolved at validation time, so the handler always
+     * receives its canonical slot filled.
+     */
+    val aliases: List<String> = emptyList()
 )
 
 enum class ParamType { STRING, INT, BOOLEAN, ENUM }
@@ -613,7 +623,15 @@ object ActionSchema {
         ActionDefinition(
             name = "WEB_SEARCH",
             description = "Searches the web in-app (no browser) and returns the top results with URLs and snippets",
-            params = listOf(ParamDefinition("query", ParamType.STRING, true, "Search query")),
+            params = listOf(ParamDefinition(
+                "query", ParamType.STRING, true, "Search query",
+                // v1.3.1: the fallback dispatcher reuses the primary action's
+                // params — a WEB_SEARCH fallback behind a failed FETCH_URL
+                // arrives with `url` only. Accept the common smuggling slots
+                // so the turn searches instead of dead-ending on the missing
+                // query (the xauusd field report).
+                aliases = listOf("url", "topic", "q", "search", "keyword", "term")
+            )),
             examples = listOf("search best restaurants", "google latest iphone"),
             category = ActionCategory.INFORMATION
         ),
@@ -1510,7 +1528,23 @@ object ActionSchema {
         val missingRequired = mutableListOf<String>()
 
         definition.params.forEach { paramDef ->
-            val value = enrichedParams[paramDef.name]
+            var value = enrichedParams[paramDef.name]
+
+            // v1.3.1 (the xauusd lesson): resolve param aliases BEFORE the
+            // missing-required check. The fallback dispatcher reuses the
+            // primary action's params verbatim, so a WEB_SEARCH fallback can
+            // arrive carrying only `url` — previously that failed validation
+            // as a missing `query` and became a NeedsInput dead end that
+            // asked the user for a query they had already given.
+            if (value == null || value.toString().isBlank()) {
+                val aliasValue = paramDef.aliases.firstNotNullOfOrNull { alias ->
+                    enrichedParams[alias]?.toString()?.takeIf { it.isNotBlank() }
+                }
+                if (aliasValue != null) {
+                    enrichedParams[paramDef.name] = aliasValue
+                    value = aliasValue
+                }
+            }
 
             when {
                 // Param provided — validate enum if needed

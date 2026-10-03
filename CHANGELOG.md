@@ -4,7 +4,7 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
-## Unreleased — round 21: the 2026-10-03 field failures closed end to end
+## Unreleased — round 21 (on v1.4.0): the wrapper-form slop hole and the spoken-text/markdown polish
 
 Three live-device screenshots and a screen recording (20:11–20:28) showed the
 agent claiming it had no tools while web_search sat unused. Every failure is
@@ -33,13 +33,14 @@ root-caused and closed with deterministic gates, not prompt hope.
   GET_SYSTEM_INFO join the data-action whitelist (the planning prompt's own
   dependency rule always listed them).
 
-### The answer-formation stage for data plans (the original "pasted links" complaint)
+### The answer-formation stage for data plans
 
-- A completed data-gathering plan no longer ends its turn by concatenating
-  RAW step results ("Top web results for…") — one bounded model call writes
-  the final user-facing reply FROM those results: figure first, short,
-  sources inline. Any failure falls back to the deterministic join exactly
-  as before.
+- Superseded by v1.4.0's AnswerEngine (synthesis ladder + extractive
+  fallback) — this round's own variant was dropped in the merge in its
+  favor. What v1.4.0 could NOT reach: a purely conversational (all-CHAT)
+  plan skips the summary ladder entirely and delivered the planner's canned
+  response verbatim — which is exactly what the wrapper-form gate above
+  now closes.
 
 ### The gold give-up nudge (the 20:11 screenshot)
 
@@ -78,6 +79,179 @@ root-caused and closed with deterministic gates, not prompt hope.
 - New E2E: cap23 stockPriceAsk_runsSearch_noToolAccessSlop (logcat-proven
   WEB_SEARCH dispatch + no slop reply), cap24 resumePdfAsk_createsRealPdf
   (real %PDF artifact + no slop refusal).
+## v1.4.0 — The Hermes answer engine: tools gather, the model answers
+
+The second field-tested release. Two screenshots from a live session
+(2026-10-03) exposed the same root failure in both turns: the agent executed
+the RIGHT tools (WEB_SEARCH on XAUUSD, an India VIX lookup), gathered real
+data — the snippets carried "$4,199.40/oz" — and then pasted the RAW results
+as the chat reply: numbered titles, snippets, URLs, no answer sentence, and
+for file tasks a "/storage/..." path dump. The missing stage: a final-answer
+synthesis between the tools and the user. This release installs it.
+
+### The answer engine — raw tool output is context, never the deliverable
+
+- **The synthesis stage** ([AnswerEngine] + AgentLoop.speakAndSaveSummary):
+  every completed data plan (WEB_SEARCH / FETCH_URL / CHECK_STOCK / GET_NEWS
+  / GET_WEATHER / CURRENCY_CONVERT / SUMMARIZE_URL / long results) ends with
+  a bounded LLM call that WRITES the final answer from the step results under
+  an answer contract: the very first sentence is the concrete fact (the
+  number, the price, the verdict), numbers carry units and a compact source
+  tag, analysis asks get actual analytical prose, files are named by name
+  only — never a path. One retry with a harder nudge if the first draft
+  echoes a listing; a dedicated 75s bound; device-state turns (alarms,
+  toggles) keep their instant canned path — no added latency where nothing
+  needs synthesizing.
+- **The quality guard**: [looksLikeRawDump] detects listing prefixes,
+  bare-URL density, and numbered-link dumps — a synthesized draft that
+  looks like a dump is rejected and retried; the raw listing can no longer
+  surface as a final reply even when the model tries.
+- **The deterministic fallback**: when the synthesis tier is unreachable
+  (rate limits, network), the extractive layer assembles the answer from
+  the same results — the price-bearing sentence with the source domains
+  ("XAU/USD is at $4,199.40/oz ... Sources: nowprice.io") — no LLM call, no
+  raw listing. The plan-stall salvage quotes this layer too.
+- **Planner alignment**: research goals are told to gather ENOUGH raw
+  material (2-3 specific searches beat one vague one) and to never add a
+  CHAT step to "present the findings" — synthesis happens after the tools.
+
+### The file card rides the reply — ChatGPT-style end-of-chat delivery
+
+Created files (WRITE_FILE / CREATE_PDF) no longer land as a mid-conversation
+side message while the summary dumps the path as text. Artifacts are
+collected during the turn and attach to the FINAL reply itself as a real
+attachment card (icon, name, size, OPEN/SHARE via FileProvider); extras
+follow as their own cards. If the turn fails after the file was created,
+the card still surfaces — the file belongs to the user either way.
+
+### The open reply — an assistant answers in the open
+
+Agent messages render full-width on the canvas with no bubble box, exactly
+like ChatGPT / Claude / Gemini; only the user's messages keep the rounded
+right-aligned bubble. The chat no longer reads like two people texting in
+an inbox. The reply badge now names WHO wrote the answer (the model when
+synthesis ran, System on deterministic paths).
+
+### Tests
+
+- 16 new unit tests pin the engine's deterministic layers (dump detection,
+  extraction, digest shaping, the contract).
+- 2 new E2E tests replay the EXACT field sentences — "what is the current
+  price of xauusd" and "can give me 5y of India vixen stock details with
+  analysis" — with the bar set at the ANSWER, not the data: a price figure
+  in prose for the first, substantive data-carrying analysis for the second,
+  and the raw listing FAILS both.
+- The gold-price E2E bar is raised: the raw listing that used to count as
+  a pass now fails the test.
+- The deep-research PDF test now also requires the end-of-chat file card.
+
+## v1.3.1 — The xauusd field report: no more dead ends, no more thinking flicker
+
+The first user-field-tested release. Two screenshots from a live session
+(2026-10-02) exposed one failure chain and one rendering defect — both
+root-caused and fixed with regression tests that replay the exact report.
+
+### The dead-end fix — "web fetch the price of xauusd" now ends in data
+
+The field report showed the whole chain breaking at three different layers:
+the planner put the PHRASE "the price of xauusd" into FETCH_URL's url slot, the
+action burned its three fetch strategies on https://<phrase>, and the WEB_SEARCH
+fallback — dispatched with the same params, which carried `url` but no `query` —
+failed schema validation and dead-ended the turn with "Needs user input: I need
+the query to complete this", asking the user for a query they had already given.
+- **PlanValidator repair**: a FETCH_URL/SUMMARIZE_URL step whose url is not
+  URL-shaped (no dots-and-TLD, contains spaces) is rewritten deterministically
+  into a WEB_SEARCH whose query is the phrase itself or the goal-derived
+  substance. A WEB_SEARCH with a blank query (or one hiding in `url`/`topic`)
+  gets the goal-derived phrase.
+- **Schema param aliases**: WEB_SEARCH's `query` now accepts `url`, `topic`,
+  `q`, `search`, `keyword`, `term` at validation time — the fallback dispatch
+  path that dead-ended in the report now searches. Param aliases are a generic
+  ActionSchema feature (ParamDefinition.aliases).
+- **Fetch actions fail fast and teach**: FETCH_URL/SUMMARIZE_URL reject
+  non-URL values immediately with "'X' is not a web address. Use WEB_SEARCH
+  for search terms, or provide a https:// link." — the re-planner acts on it
+  instead of timing out on https://the price of xauusd.
+- **CHECK_STOCK symbol normalization**: six-letter pairs get Yahoo's "=X"
+  suffix (XAUUSD → XAUUSD=X, EURUSD → EURUSD=X), and the search fallback
+  quotes the RAW symbol ("XAUUSD price", never "XAUUSD=X stock price").
+- **Planner guidance**: FETCH_URL requires a real URL the user gave; live
+  prices/quotes are CHECK_STOCK or WEB_SEARCH territory; capability questions
+  get direct answers — never a "noted your question" memory-confirmation as
+  the reply (the other turn in the report).
+- **fromGoal compounds**: "web fetch/search/look up" framing strips like the
+  other request verbs; a leading article never survives into a query.
+- Regression: `webFetchPhrasing_searchesInsteadOfDeadEnd` replays the exact
+  field-report sentence (41st E2E test) — it must end in a price, the search
+  listing or a quote, and never in "Needs user input"/"Fallback failed".
+- 24 pure-JVM tests cover StepRepair + SearchQueryQuality (standalone-rig
+  verified before push).
+
+### The thinking-flicker fix — stable LazyColumn identity
+
+During a turn the streaming reply grows by REPLACING its row, and Room
+re-emits the entire history list on every write — with POSITIONAL item keys
+every growth shifted the items below, tearing down the keyless ThinkingBubble
+mid-think (its infinite dot animation restarting was the visible flash) and
+stomping every bubble's identity on every stream delta. Messages are now keyed
+by their stable id and the ThinkingBubble holds a stable key: item identity
+survives list re-emissions, Compose skips unchanged bubbles (strong skipping
+is on), and the thinking animation runs unbroken for the whole turn.
+
+### QA diagnostic reports — every E2E run explains itself
+
+Adopted the useful core of the user's Gemini consult (its vision-model
+screenshot-tap loop was deliberately NOT adopted — the a11y-tree E2E is
+deterministic, faster and burns zero tokens): every E2E run now ends with
+`scripts/generate_qa_report.py` distilling the instrument output and logcat
+into QA_REPORT.md — verdict, failure stacks, and the agent-loop evidence
+(plan repairs, watchdog lines, search chain) — attached to the run's step
+summary and artifacts, so forensics never starts from a 17MB logcat again.
+First live release of the report directly drove four forensic rounds (see
+below); its own parser bug (junit's singular "There was 1 failure:") was
+found and fixed in round 3.
+
+### The forensic rounds — four gold-test failures, four root causes, all deterministic
+
+The release gate was chased through five E2E runs; each failure was
+root-caused from artifacts and each fix is pinned by a replay test.
+- **Round 2 — the IME cover**: an open Gboard froze the a11y tree on the
+  320x640 CI screen and kept the plan card's Approve & Run row uncomposed
+  beneath it (the twice-only back-press was eaten by the suggestion strip).
+  Tests now dismiss the keyboard by package evidence — up to three
+  re-checked presses while the IME's own nodes are in the tree, zero when
+  it is already down.
+- **Round 3 — the relevance gate**: a datacenter egress IP can poison ANY
+  search backend — Bing still "answered" a perfect gold-price query with
+  current.com and a Chinese dictionary, and the chain stopped at the first
+  non-empty backend. A result set now passes only when at least one result
+  carries one of the query's non-generic tokens; a rejected set is logged
+  and the chain continues to the next backend (Google News saved the CBSE
+  current-events test this way in the very next run). Bing also gained
+  `mkt=en-US` (setlang pins only the UI strings).
+- **Round 4 — the defeatist ask**: the free-tier planner sometimes wrote a
+  SINGLE ASK_USER step declaring inability ("I'm not able to pull live
+  market data in this session") — parking the turn on a question the user
+  cannot answer while real searches sat available. A one-step ask whose
+  question matches the defeatism vocabulary is rewritten into a real
+  WEB_SEARCH derived from the goal; legitimate asks and mid-plan asks are
+  never touched.
+- **Round 5 — the instrument has many symbols**: Yahoo serves the same
+  metal under several symbols that fail independently by region
+  (XAUUSD=X 404s from whole egress regions while GC=F — the COMEX futures
+  alias Yahoo's own gold page serves — answers). CHECK_STOCK now tries the
+  alias chain (XAUUSD=X → GC=F, XAGUSD=X → SI=F, XPTUSD=X → PL=F,
+  XPDUSD=X → PA=F) before falling back to a search that queries the metal's
+  NAME ("gold price" — the snippet class that carries the number) instead
+  of the symbol.
+
+Also fixed in round 2: the gold test's reply predicate now recognizes the
+v1.3.0 rich-answer format (a fully-delivered "per oz 4,177.04 United States
+dollars" reply once sat on screen for ten minutes while the old patterns
+polled past it), write-artifact tests own their AGENT mode (a failed
+assertion in the chat-mode test once cascaded the PDF test into honest
+refusal), and long-form replies keep the rich format out of the old
+"Top web results" assumptions.
 
 ## v1.3.0 — Core agent experience: ask_user, real effort levels, rich answers & the memory identity fix
 

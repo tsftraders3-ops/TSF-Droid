@@ -215,10 +215,18 @@ class AdvancedControlActions @Inject constructor() {
                 val bytes = renderPdf(title, content)
                 val result = StorageWorkspaceProvider.writeBinaryFile(context, filePath, bytes)
                 if (result.success) {
+                    // v1.4.0 (run-37106169790 cap9 forensics): writeBinaryFile's
+                    // data is the "File saved at /path" MESSAGE — putting that in
+                    // dataMap["path"] made the artifact-card collector resolve a
+                    // sentence as a filesystem path, find nothing, and silently
+                    // skip the card. The card path is the RESOLVED real path.
+                    val cleanPath = runCatching {
+                        StorageWorkspaceProvider.resolveFile(context, filePath).absolutePath
+                    }.getOrNull() ?: filePath
                     ActionResult.Success(
                         dataMap = mapOf(
                             "message" to "PDF created: ${result.data}",
-                            "path" to (result.data ?: filePath)
+                            "path" to cleanPath
                         )
                     )
                 } else {
