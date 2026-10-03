@@ -969,11 +969,15 @@ class AgentCapabilityE2EInstrumentedTest {
         )
         // Real data bar: a reply bubble with a numbered result listing
         // (WEB_SEARCH's output shape), not an error, not browser deflection.
+        // v1.4.0: synthesized answers pass too — the answer engine turns the
+        // listing into prose with a Sources line ("search for latest iphone
+        // price" → price sentence + sources).
         val reply = waitNewText(
             baseline, 600_000,
             predicate = { t ->
                 t.contains("https://", ignoreCase = true) ||
                     t.contains("Top web results", ignoreCase = true) ||
+                    t.contains("Sources:", ignoreCase = true) ||
                     (t.length > 80 && Regex("\\d\\.").containsMatchIn(t))
             }
         )
@@ -996,16 +1000,10 @@ class AgentCapabilityE2EInstrumentedTest {
             planningWindowMs = 600_000
         )
         assertNoBrowserFallback(baseline, "cap7_gold")
-        // Data bar: any reply carrying a number ($ or digit with context) OR
-        // the structured search listing. The hard assertion is the negative:
-        // NO "unreadable response" error card and NO browser fallback.
-        // 600s window: the pass-2 retry ran the full planner+research loop on
-        // a rate-limited free tier and 420s expired before the grounded reply.
-        // v1.3.1 round 2: the v1.3.0 rich-answer pipeline delivers researched
-        // prices as formatted snippets — run-36966099119 had "per oz 4,177.04
-        // United States dollars" + SOURCES chips on screen for TEN MINUTES
-        // while these patterns polled past it (no "$", no "Top web results"
-        // prefix). The price-context patterns close that blind spot.
+        // v1.4.0 RAISED BAR (the 2026-10-03 field screenshots): the reply
+        // must be an ANSWER — a price figure in prose — never the raw
+        // "Top web results" listing pasted as the bubble. The old predicate
+        // accepted the listing; that acceptance was the user's complaint.
         val reply = waitNewText(
             baseline, 600_000,
             predicate = { t ->
@@ -1014,21 +1012,25 @@ class AgentCapabilityE2EInstrumentedTest {
                     Regex("""\$\s?\d""").containsMatchIn(t) ||
                     Regex("""\d{2,}(\.\d+)?\s?(usd|inr| dollars| per)""", RegexOption.IGNORE_CASE).containsMatchIn(t) ||
                     Regex("""\d[\d,]*(\.\d+)?\s*(usd|dollars|per oz|ounce)""", RegexOption.IGNORE_CASE).containsMatchIn(t) ||
-                    Regex("""(price|oz|ounce|gold)[^\n]{0,40}\d[\d,]*\.\d""", RegexOption.IGNORE_CASE).containsMatchIn(t) ||
-                    t.startsWith("Top web results") ||
-                    t.startsWith("Latest news")
-            }
+                    Regex("""(price|oz|ounce|gold)[^\n]{0,40}\d[\d,]*\.\d""", RegexOption.IGNORE_CASE).containsMatchIn(t)
+            },
+            settleMs = 8_000
         )
         shoot("cap7_gold_reply")
         assertNotNull(
-            "gold-price ask produced neither real price data nor the search listing " +
-                "within 600s (and the malformed-response card must never appear)",
+            "gold-price ask produced no answer with a price figure within 600s " +
+                "(and the malformed-response card must never appear)",
             reply
         )
         assertTrue(
             "the MALFORMED/unreadable-response card appeared — the tool-call answer " +
                 "path regressed to failing the turn",
             !(reply!!.contains("Unreadable response", true) || reply.contains("MALFORMED", true))
+        )
+        assertFalse(
+            "the reply was the RAW search listing — the exact 2026-10-03 field " +
+                "failure the answer engine exists to kill: ${reply.take(200)}",
+            looksLikeRawDump(reply)
         )
         println("TSF-E2E gold reply: ${reply.take(200)}")
     }
@@ -1081,6 +1083,109 @@ class AgentCapabilityE2EInstrumentedTest {
                 answer.contains("is not a web address", true)
         )
         println("TSF-E2E xauusd reply: ${answer.take(200)}")
+    }
+
+    // ---------- v1.4.0: the 2026-10-03 field screenshots (the answer engine bars) ----------
+    // The user's screenshots, verbatim: BOTH asks executed the right tools,
+    // gathered real data ($4,199.40/oz was IN a snippet), and then pasted
+    // the raw "Top web results" link listing as the reply. The Hermes
+    // answer engine must turn tool results into a synthesized answer;
+    // these tests replay the EXACT sentences with the bar set at the
+    // ANSWER, not the data.
+
+    /**
+     * The exact first screenshot sentence — must land as a synthesized
+     * answer with the price, never the raw listing.
+     */
+    @Test(timeout = 1_200_000)
+    fun xauusdCurrentPrice_synthesizedAnswer_notRawDump() {
+        reachDashboard()
+        val baseline = sendTask(
+            "what is the current price of xauusd",
+            "cap23_xauusd_answer",
+            planningWindowMs = 600_000
+        )
+        assertNoBrowserFallback(baseline, "cap23_xauusd")
+        val reply = waitNewText(
+            baseline, 600_000,
+            predicate = { t ->
+                // The answer shape: a price figure (gold trades in the
+                // thousands) carried in prose that is NOT the listing.
+                Regex("""\d{3,}([\.,]\d+)?""").containsMatchIn(t) &&
+                    !t.startsWith("Top web results") &&
+                    !t.startsWith("Latest news")
+            },
+            settleMs = 8_000
+        )
+        shoot("cap23_xauusd_reply")
+        assertNotNull(
+            "the exact screenshot ask produced no synthesized answer within 600s — " +
+                "the answer engine regressed to the raw-listing reply",
+            reply
+        )
+        val answer = reply!!
+        assertFalse(
+            "the reply is a raw dump, not an answer: ${answer.take(200)}",
+            looksLikeRawDump(answer)
+        )
+        assertFalse(
+            "the reply states no price figure: ${answer.take(200)}",
+            !Regex("""\d{3,}([\.,]\d+)?""").containsMatchIn(answer)
+        )
+        println("TSF-E2E v1.4.0 xauusd synthesized answer: ${answer.take(200)}")
+    }
+
+    /**
+     * The exact second screenshot sentence — a 5-year analysis ask must
+     * produce ANALYSIS (data-informed prose), never the raw listing.
+     */
+    @Test(timeout = 1_200_000)
+    fun fiveYearStockAnalysis_analysis_notDump() {
+        reachDashboard()
+        val baseline = sendTask(
+            "can give me 5y of India vixen stock details with analysis",
+            "cap24_india_vix",
+            planningWindowMs = 600_000
+        )
+        assertNoBrowserFallback(baseline, "cap24_india_vix")
+        val reply = waitNewText(
+            baseline, 600_000,
+            predicate = { t ->
+                // Analysis shape: substantive length, carries data, uses
+                // analysis vocabulary, and is not the link listing.
+                t.length > 200 &&
+                    Regex("""\d""").containsMatchIn(t) &&
+                    !t.startsWith("Top web results") &&
+                    !t.startsWith("Latest news") &&
+                    Regex("""(year|yr\b|%|return|trend|high|low|volatil|range|average|close|level)""",
+                        RegexOption.IGNORE_CASE).containsMatchIn(t)
+            },
+            settleMs = 10_000
+        )
+        shoot("cap24_vix_reply")
+        assertNotNull(
+            "the 5-year India VIX analysis ask produced no synthesized analysis " +
+                "within 600s — the answer engine regressed",
+            reply
+        )
+        val answer = reply!!
+        assertFalse(
+            "the 5-year analysis reply is a raw dump: ${answer.take(200)}",
+            looksLikeRawDump(answer)
+        )
+        println("TSF-E2E v1.4.0 India VIX analysis reply: ${answer.take(200)}")
+    }
+
+    /** v1.4.0 AnswerEngine bar, mirrored test-side (androidTest cannot see app internals). */
+    private fun looksLikeRawDump(t: String): Boolean {
+        val lower = t.lowercase().trim()
+        if (lower.startsWith("top web results") || lower.startsWith("search results") ||
+            lower.startsWith("latest news") || lower.startsWith("top results")
+        ) return true
+        val urls = Regex("""https?://\S+""").findAll(t).toList()
+        if (urls.size >= 3) return true
+        val numberedLines = t.lines().filter { it.matches(Regex("""\s*\d+[.)]\s.*""")) }
+        return numberedLines.size >= 3 && numberedLines.count { Regex("""https?://""").containsMatchIn(it) } >= 3
     }
 
     // ---------- v1.1.1: the 2026-09-27 field screenshot failures ----------
@@ -1176,6 +1281,27 @@ class AgentCapabilityE2EInstrumentedTest {
                 "$pageMarkers pages) — the content engine likely wrote from memory alone",
             bytes.size > 8_000 || pageMarkers >= 2
         )
+        // v1.4.0 (the end-of-chat file card bar): the created PDF must ride
+        // the turn's final reply as a ChatGPT-style attachment card — OPEN +
+        // SHARE buttons on the card, rendered in the chat itself — not a
+        // "saved at /storage/..." path dumped as reply text.
+        val cardOnScreen = device.wait(Until.hasObject(By.text("OPEN")), 180_000) == true
+        if (cardOnScreen) {
+            val hasShare = runCatching {
+                device.findObjects(By.text("SHARE")).isNotEmpty()
+            }.getOrDefault(false)
+            shoot("cap9_file_card")
+            assertTrue(
+                "the file card rendered OPEN without SHARE — half a card",
+                hasShare
+            )
+        }
+        assertTrue(
+            "the created PDF never surfaced as an end-of-chat file card (OPEN/SHARE) " +
+                "within 180s of the file landing — the ChatGPT-style card delivery regressed",
+            cardOnScreen
+        )
+        println("TSF-E2E v1.4.0 file card verified for ${pdf!!.name}")
     }
 
     // ---------- v1.2.0: the OpenCode-grade harness features ----------

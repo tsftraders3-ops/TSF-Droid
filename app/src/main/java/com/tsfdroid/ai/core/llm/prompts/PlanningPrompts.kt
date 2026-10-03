@@ -51,6 +51,15 @@ an earlier chat about cities, names or preferences does not justify an ask
 step in an unrelated research or content goal. The plan serves THIS goal
 only.
 
+RESEARCH DEPTH (the final reply is SYNTHESIZED from your steps' results —
+the answer engine writes it, not you): for any question needing live or
+specific data (prices, 5-year performance, statistics, comparisons),
+gather ENOUGH raw material for a real answer — 2-3 WEB_SEARCH/FETCH_URL
+steps with SPECIFIC queries ("India VIX 5 year annual returns" beats
+"India vix") beat one vague search. Never add a CHAT step to "explain the
+results" or "present the findings" — that synthesis happens after the
+tools run; a CHAT step would answer from memory before any data arrives.
+
 SELF-CONTAINED ACTIONS (do NOT add OPEN_APP before these):
 - SEND_WHATSAPP, SEND_TELEGRAM, MAKE_CALL, SEND_SMS, SEND_EMAIL — these open the app internally. SEND_EMAIL only prepares a draft and requires the user to tap Send.
 - BOOK_UBER, BOOK_OLA — these open the ride app internally.

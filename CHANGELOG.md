@@ -4,6 +4,72 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## v1.4.0 — The Hermes answer engine: tools gather, the model answers
+
+The second field-tested release. Two screenshots from a live session
+(2026-10-03) exposed the same root failure in both turns: the agent executed
+the RIGHT tools (WEB_SEARCH on XAUUSD, an India VIX lookup), gathered real
+data — the snippets carried "$4,199.40/oz" — and then pasted the RAW results
+as the chat reply: numbered titles, snippets, URLs, no answer sentence, and
+for file tasks a "/storage/..." path dump. The missing stage: a final-answer
+synthesis between the tools and the user. This release installs it.
+
+### The answer engine — raw tool output is context, never the deliverable
+
+- **The synthesis stage** ([AnswerEngine] + AgentLoop.speakAndSaveSummary):
+  every completed data plan (WEB_SEARCH / FETCH_URL / CHECK_STOCK / GET_NEWS
+  / GET_WEATHER / CURRENCY_CONVERT / SUMMARIZE_URL / long results) ends with
+  a bounded LLM call that WRITES the final answer from the step results under
+  an answer contract: the very first sentence is the concrete fact (the
+  number, the price, the verdict), numbers carry units and a compact source
+  tag, analysis asks get actual analytical prose, files are named by name
+  only — never a path. One retry with a harder nudge if the first draft
+  echoes a listing; a dedicated 75s bound; device-state turns (alarms,
+  toggles) keep their instant canned path — no added latency where nothing
+  needs synthesizing.
+- **The quality guard**: [looksLikeRawDump] detects listing prefixes,
+  bare-URL density, and numbered-link dumps — a synthesized draft that
+  looks like a dump is rejected and retried; the raw listing can no longer
+  surface as a final reply even when the model tries.
+- **The deterministic fallback**: when the synthesis tier is unreachable
+  (rate limits, network), the extractive layer assembles the answer from
+  the same results — the price-bearing sentence with the source domains
+  ("XAU/USD is at $4,199.40/oz ... Sources: nowprice.io") — no LLM call, no
+  raw listing. The plan-stall salvage quotes this layer too.
+- **Planner alignment**: research goals are told to gather ENOUGH raw
+  material (2-3 specific searches beat one vague one) and to never add a
+  CHAT step to "present the findings" — synthesis happens after the tools.
+
+### The file card rides the reply — ChatGPT-style end-of-chat delivery
+
+Created files (WRITE_FILE / CREATE_PDF) no longer land as a mid-conversation
+side message while the summary dumps the path as text. Artifacts are
+collected during the turn and attach to the FINAL reply itself as a real
+attachment card (icon, name, size, OPEN/SHARE via FileProvider); extras
+follow as their own cards. If the turn fails after the file was created,
+the card still surfaces — the file belongs to the user either way.
+
+### The open reply — an assistant answers in the open
+
+Agent messages render full-width on the canvas with no bubble box, exactly
+like ChatGPT / Claude / Gemini; only the user's messages keep the rounded
+right-aligned bubble. The chat no longer reads like two people texting in
+an inbox. The reply badge now names WHO wrote the answer (the model when
+synthesis ran, System on deterministic paths).
+
+### Tests
+
+- 16 new unit tests pin the engine's deterministic layers (dump detection,
+  extraction, digest shaping, the contract).
+- 2 new E2E tests replay the EXACT field sentences — "what is the current
+  price of xauusd" and "can give me 5y of India vixen stock details with
+  analysis" — with the bar set at the ANSWER, not the data: a price figure
+  in prose for the first, substantive data-carrying analysis for the second,
+  and the raw listing FAILS both.
+- The gold-price E2E bar is raised: the raw listing that used to count as
+  a pass now fails the test.
+- The deep-research PDF test now also requires the end-of-chat file card.
+
 ## v1.3.1 — The xauusd field report: no more dead ends, no more thinking flicker
 
 The first user-field-tested release. Two screenshots from a live session

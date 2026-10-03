@@ -1219,19 +1219,31 @@ fun ChatBubble(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = if (isAgent) Arrangement.Start else Arrangement.End
         ) {
+            // v1.4.0 OPEN REPLIES (the 2026-10-03 field feedback): agent
+            // answers render ChatGPT/Claude/Gemini-style — full-width, on the
+            // canvas, no bubble box. Only the USER's messages keep the
+            // rounded bubble (right-aligned, primary fill). The old boxed
+            // agent reply read like two people texting each other in an
+            // inbox; an assistant answers in the open.
             Column(
-                modifier = Modifier
-                    .widthIn(max = 340.dp)
-                    .clip(
-                        RoundedCornerShape(
-                            topStart = 30.dp,
-                            topEnd = 30.dp,
-                            bottomStart = if (isAgent) 6.dp else 30.dp,
-                            bottomEnd = if (isAgent) 30.dp else 6.dp
+                modifier = if (isAgent) {
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp)
+                } else {
+                    Modifier
+                        .widthIn(max = 340.dp)
+                        .clip(
+                            RoundedCornerShape(
+                                topStart = 30.dp,
+                                topEnd = 30.dp,
+                                bottomStart = 30.dp,
+                                bottomEnd = 6.dp
+                            )
                         )
-                    )
-                    .background(bubbleColor)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .background(bubbleColor)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                }
             ) {
                 if (isAgent && message.modelBadge != null) {
                     val displayName = when (message.modelBadge) {

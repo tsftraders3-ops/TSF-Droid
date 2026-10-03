@@ -236,6 +236,15 @@ private const val PLAN_STALL_CHECK_INTERVAL_MS = 30_000L
  */
 private const val ASK_CONFIRM_TIMEOUT_MS = 30_000L
 /**
+ * v1.4.0: dedicated bound for the Hermes answer-engine synthesis call. A
+ * real answer (up to 900 tokens) needs more than the ask-confirm sentence,
+ * but a stalling free tier must never delay the final bubble past this —
+ * the deterministic extractive fallback answers from the same step results.
+ * Two attempts (retry nudge) fit inside the E2E 600s windows alongside the
+ * rest of the turn.
+ */
+private const val SYNTHESIS_TIMEOUT_MS = 75_000L
+/**
  * v1.2.0: bounded rounds for the chat-path tool loop now live in
  * [HarnessLoop] (OpenCode-style: tool rounds + continuation + doom guard).
  * The plan-path budget is unchanged.
@@ -842,6 +851,11 @@ class AgentLoop @Inject constructor(
                 // the forced search and shipping a memory-answer with no trace
                 // (cap15 failed both passes of run 36629953091 this way).
                 _activitySteps.value = emptyList()
+
+                // v1.4.0: artifact cards are TURN-SCOPED — a file collected
+                // by a turn that died before its reply save must never ride
+                // the NEXT turn's final message.
+                collectedArtifacts.clear()
 
                 // v1.2.0 CHAT MODE: the read-only conversational mode skips the
                 // whole action-routing cascade (complexity → alias shortcuts →
@@ -1566,10 +1580,17 @@ class AgentLoop @Inject constructor(
                 thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
                 // v1.2.1: persist the visible step trace on the reply so the
                 // ACTIVITY section survives app restarts.
-                stepsJson = stepsEncoded
+                stepsJson = stepsEncoded,
+                // v1.4.0: a file created mid-turn rides the final reply as a
+                // ChatGPT-style end-of-chat card (extras follow as their own
+                // card messages below).
+                attachmentJson = drainCollectedArtifact()?.also {
+                    android.util.Log.i("AgentLoop", "artifact card attached to harness reply: ${it.take(80)}")
+                }
             )
             conversationRepository.insertMessage(sessionId, finalReplyMsg)
             memoryManager.storeMessage(finalReplyMsg, sessionId)
+            emitCollectedArtifactCards(sessionId)
             _chatError.value = null
             _agentState.value = AgentState.Speaking(finalReplyMsg.text)
             onSpeakCallback?.invoke(finalReplyMsg.text)
@@ -1581,6 +1602,9 @@ class AgentLoop @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: LLMException) {
+            // v1.4.0: files created before the failure still belong to the
+            // user — surface their cards before the error state lands.
+            runCatching { emitCollectedArtifactCards(sessionId) }
             publishChatError(
                 ChatErrorUiState.fromException(
                     sessionId = sessionId,
@@ -1590,6 +1614,7 @@ class AgentLoop @Inject constructor(
                 )
             )
         } catch (e: Exception) {
+            runCatching { emitCollectedArtifactCards(sessionId) }
             _agentState.value = AgentState.Error(NetworkErrorFormatter.toUserMessage(e))
         }
     }
@@ -2414,10 +2439,46 @@ class AgentLoop @Inject constructor(
     }
 
     /**
-     * v1.0.6: after a WRITE_FILE / CREATE_PDF step succeeds, insert an agent
-     * chat message carrying the file as an attachment card. The card renders
+     * v1.4.0: artifacts created during the CURRENT turn, collected by
+     * [collectArtifactCard] and drained by the final reply save — the first
+     * attaches to the summary message itself (ChatGPT-style end-of-chat
+     * card), extras become follow-up card messages. Queue-based so the
+     * plan path and the harness path share one mechanism.
+     */
+    private val collectedArtifacts = java.util.concurrent.ConcurrentLinkedQueue<String>()
+
+    /** Pops the first collected artifact (for the summary message itself). */
+    private fun drainCollectedArtifact(): String? = collectedArtifacts.poll()
+
+    /** Emits any leftover artifacts as standalone card messages. */
+    private suspend fun emitCollectedArtifactCards(sessionId: String) {
+        while (true) {
+            val json = collectedArtifacts.poll() ?: break
+            try {
+                val name = org.json.JSONObject(json).optString("name", "file")
+                val cardMsg = ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    text = "Also created $name — open it below.",
+                    sender = ChatMessage.Sender.AGENT,
+                    modelBadge = "Agent",
+                    attachmentJson = json
+                )
+                conversationRepository.insertMessage(sessionId, cardMsg)
+            } catch (e: Exception) {
+                android.util.Log.w("AgentLoop", "leftover artifact card failed: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    /**
+     * v1.0.6 → v1.4.0: after a WRITE_FILE / CREATE_PDF step succeeds, the
+     * file becomes an attachment card on the turn's FINAL reply (was: an
+     * immediate separate message — the card appeared mid-conversation and
+     * the summary still dumped the file path as text). The card renders
      * with the real file name/size and Open/Share actions backed by
-     * FileProvider — "show the file inside the chat like a file".
+     * FileProvider; collection is validated NOW (file exists) and the
+     * drain happens at the reply save, so the card sits at the end of the
+     * chat exactly like ChatGPT / Claude / Gemini deliver created files.
      */
     private suspend fun emitArtifactCardIfNeeded(
         canonicalAction: String,
@@ -2449,14 +2510,8 @@ class AgentLoop @Inject constructor(
                 .put("mime", mime)
                 .put("size", file.length())
                 .toString()
-            val cardMsg = ChatMessage(
-                id = UUID.randomUUID().toString(),
-                text = "Created ${file.name} (${formatFileSize(file.length())}) in your workspace — open it below.",
-                sender = ChatMessage.Sender.AGENT,
-                modelBadge = "Agent",
-                attachmentJson = attachmentJson
-            )
-            conversationRepository.insertMessage(sessionId, cardMsg)
+            collectedArtifacts.add(attachmentJson)
+            android.util.Log.i("AgentLoop", "artifact collected for end-of-chat card: ${file.name}")
         } catch (e: Exception) {
             android.util.Log.w("AgentLoop", "Artifact card emission failed: ${e.localizedMessage}")
         }
@@ -2468,11 +2523,8 @@ class AgentLoop @Inject constructor(
 
     private fun contextOrNull(): android.content.Context? = appContext
 
-    private fun formatFileSize(bytes: Long): String = when {
-        bytes >= 1_048_576 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0)
-        bytes >= 1024 -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0)
-        else -> "$bytes B"
-    }
+    // (formatFileSize was removed in v1.4.0 — the card sizes come from the
+    // FileAttachmentCard renderer, not the collector.)
 
     private fun proposePlan(plan: Plan, sessionId: String) {
         proposedPlanSessionId = sessionId
@@ -3021,7 +3073,8 @@ class AgentLoop @Inject constructor(
                 // coroutine may be suspended inside `withLock` holding it.
                 planManager.forceStatusFromWatchdog(PlanStatus.FAILED)
 
-                val results = PlanResponseSanitizer.stepResultSummary(plan.steps)
+                val results = AnswerEngine.extractiveAnswer(plan.goal, plan.steps)
+                    ?: PlanResponseSanitizer.stepResultSummary(plan.steps)
                 val summaryText = if (!results.isNullOrBlank()) {
                     "I hit a stall mid-turn and had to recover, but I had already gathered this:\n\n$results"
                 } else {
@@ -3377,6 +3430,9 @@ class AgentLoop @Inject constructor(
     }
 
     private suspend fun speakAndSaveSummary(plan: Plan, isSuccess: Boolean, sessionId: String) {
+        // v1.4.0: the reply badge reflects WHO wrote the final answer —
+        // the model when synthesis ran, System for deterministic paths.
+        var summaryBadge = "System"
         val summaryText = if (isSuccess) {
             // v1.3.0 round-7: when the plan asked the user something, the
             // answer must round-trip back through the MODEL for the final
@@ -3386,7 +3442,26 @@ class AgentLoop @Inject constructor(
             // was swallowed by string heuristics. Try the LLM confirmation
             // first; any failure falls to the deterministic assembly, which
             // now quotes the answers too.
-            askConfirmedSummary(plan) ?: cannedSuccessSummary(plan)
+            //
+            // v1.4.0 Hermes answer engine (the 2026-10-03 field screenshots):
+            // for every OTHER plan the final reply is SYNTHESIZED by the
+            // model from the step results — raw tool output (search
+            // listings, "PDF created: /storage/..." paths) is context,
+            // never the deliverable. Ladder: ask-confirmation → synthesis →
+            // extractive fallback → canned listing (last resort).
+            val confirmed = askConfirmedSummary(plan)
+            if (confirmed != null) {
+                confirmed
+            } else {
+                val synthesized = synthesizedSummary(plan)
+                if (synthesized != null) {
+                    summaryBadge = synthesized.second
+                    synthesized.first
+                } else {
+                    AnswerEngine.extractiveAnswer(plan.goal, plan.steps)
+                        ?: cannedSuccessSummary(plan)
+                }
+            }
         } else {
             // Log the technical errors but DON'T show them to the user
             val failedSteps = plan.steps.filter { it.status == StepStatus.FAILED }
@@ -3415,13 +3490,23 @@ class AgentLoop @Inject constructor(
             id = UUID.randomUUID().toString(),
             text = summaryText,
             sender = ChatMessage.Sender.AGENT,
-            modelBadge = "System",
+            modelBadge = summaryBadge,
+            // v1.4.0: created files ride the summary as a ChatGPT-style
+            // card at the END of the chat — the first artifact attaches to
+            // this message itself; extras land as follow-up card messages.
+            attachmentJson = drainCollectedArtifact()?.also {
+                android.util.Log.i("AgentLoop", "artifact card attached to summary: ${it.take(80)}")
+            },
             // v1.2.1: the plan's full visible-step trace rides the summary so
             // the ACTIVITY section in chat shows exactly what the todo list did.
             stepsJson = com.tsfdroid.ai.core.harness.ActivitySteps.encode(currentStepsSnapshot())
         )
         memoryManager.storeMessage(assistantMsg, sessionId)
         conversationRepository.insertMessage(sessionId, assistantMsg)
+        // v1.4.0: any artifacts beyond the first land as their own card
+        // messages immediately after the summary — ChatGPT-style end-of-
+        // chat file cards, never a path dumped as prose.
+        emitCollectedArtifactCards(sessionId)
         // v1.3.0 round-7: the ask bookkeeping is consumed with the summary —
         // the NEXT plan (or chat turn) starts from a clean slate.
         askedUserDuringPlan = false
@@ -3432,6 +3517,79 @@ class AgentLoop @Inject constructor(
         // often carry durable facts ("my cat Luna...", "for my shop...").
         scope.launch {
             memoryLearner.learnFromExchange(plan.goal, summaryText)
+        }
+    }
+
+    /**
+     * v1.4.0 Hermes answer engine: the post-tool SYNTHESIS call. When a
+     * completed plan produced data (search results, quotes, fetches, files),
+     * the final reply is WRITTEN BY THE MODEL from the step digest under the
+     * answer contract — answer-first, numbers with units, no raw dumps, no
+     * file-system paths. One retry with the harder nudge if the first draft
+     * echoes a listing back. Returns (answer, modelBadge) or null on any
+     * failure/timeout — the caller then falls to the deterministic ladder.
+     *
+     * Field evidence (2026-10-03): "what is the current price of xauusd"
+     * executed WEB_SEARCH correctly, the snippets carried $4,199.40/oz, and
+     * the user still got the raw link listing — the data arrived, the
+     * answer never did.
+     */
+    private suspend fun synthesizedSummary(plan: Plan): Pair<String, String>? {
+        if (!AnswerEngine.needsSynthesis(plan.steps)) return null
+        val digest = AnswerEngine.stepDigest(plan.steps)
+        if (digest.isBlank()) return null
+        return try {
+            val provider = llmProviderFactory.getActiveProvider()
+            val userPayload = "User's request: ${plan.goal.take(400)}\n\nTool results (raw):\n$digest"
+            var answer: String? = null
+            for (attempt in 1..2) {
+                val response = withTimeout(SYNTHESIS_TIMEOUT_MS) {
+                    provider.complete(
+                        LLMRequest(
+                            systemPrompt = AnswerEngine.ANSWER_CONTRACT +
+                                if (attempt == 1) "" else "\n\n" + AnswerEngine.SYNTHESIS_RETRY_NUDGE,
+                            messages = listOf(
+                                ChatMessage(
+                                    id = UUID.randomUUID().toString(),
+                                    text = userPayload,
+                                    sender = ChatMessage.Sender.USER
+                                )
+                            ),
+                            temperature = 0.3f,
+                            maxTokens = 900,
+                            responseFormat = ResponseFormat.TEXT
+                        )
+                    )
+                }
+                val text = PlanResponseSanitizer.stripReasoningBlocks(response.content).trim()
+                if (text.length >= 12 && !AnswerEngine.looksLikeRawDump(text)) {
+                    answer = text
+                    break
+                }
+                android.util.Log.w(
+                    "AgentLoop",
+                    "synthesis attempt $attempt rejected (len=${text.length} dump=${AnswerEngine.looksLikeRawDump(text)}) — ${
+                        if (attempt == 1) "retrying with harder nudge" else "falling to extractive"
+                    }"
+                )
+            }
+            answer?.takeIf { it.isNotBlank() }?.let { it to provider.name }
+                ?.also {
+                    android.util.Log.i(
+                        "AgentLoop",
+                        "synthesized summary: steps=${plan.steps.size} len=${it.first.length} model=${it.second}"
+                    )
+                }
+        } catch (tce: TimeoutCancellationException) {
+            // The synthesis must never delay the final bubble unboundedly —
+            // the extractive fallback answers from the same results.
+            android.util.Log.w("AgentLoop", "synthesized summary timed out — extractive fallback")
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("AgentLoop", "synthesized summary failed: ${e.localizedMessage}")
+            null
         }
     }
 
