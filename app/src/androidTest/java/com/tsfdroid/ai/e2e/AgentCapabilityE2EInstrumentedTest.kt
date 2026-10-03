@@ -2098,11 +2098,19 @@ class AgentCapabilityE2EInstrumentedTest {
         // Round-102: settle before deciding — the pass-2 failure asserted
         // 380ms after the bubble insert, while the auto-scroll animation and
         // the final rich re-render were still catching up.
+        // Round-23: the predicate must ALSO be immune to pre-reply texts —
+        // the TYPED MESSAGE ITSELF contains "USD" and matched the old loose
+        // check, so the settle timer returned it ~20s before the synthesis
+        // landed and the SOURCES-row check raced a reply that wasn't there.
+        // An actual FIGURE (digit with currency) only exists in the reply
+        // (or the raw listing fallback); no plan-card or user text carries one.
         val reply = waitNewText(
             baseline,
             420_000,
             predicate = { t ->
-                (t.contains("USD", ignoreCase = true) || t.contains("$")) &&
+                (Regex("""\$\s?\d""").containsMatchIn(t) ||
+                    Regex("""\d[\d,.]*\s*(USD|usd)""").containsMatchIn(t) ||
+                    Regex("""\d{3,}(\.\d+)?""").containsMatchIn(t)) &&
                     t.length > 40
             },
             settleMs = 8_000
