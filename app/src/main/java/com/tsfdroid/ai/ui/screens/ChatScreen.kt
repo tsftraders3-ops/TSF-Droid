@@ -1476,13 +1476,6 @@ fun ChatBubble(
                     }
                 }
 
-                // v1.0.6: file attachment card — agent-created artifacts are
-                // REAL files the user can open/share directly from the chat.
-                if (isAgent && message.attachmentJson != null) {
-                    FileAttachmentCard(attachmentJson = message.attachmentJson!!)
-                    Spacer(modifier = Modifier.height(6.dp))
-                }
-
                 // v1.3.0 (Phase 14, Wave B): agent replies render through the
                 // markdown-lite rich renderer — headings, bullets, code fences,
                 // tappable links — plus a numbered SOURCES chip row when the
@@ -1508,6 +1501,16 @@ fun ChatBubble(
                         color = bubbleTextColor,
                         lineHeight = 21.sp
                     )
+                }
+
+                // v1.0.6 → v1.4.0: file attachment card — agent-created
+                // artifacts are REAL files the user can open/share directly from
+                // the chat. v1.4.0 moved it BELOW the reply text + sources:
+                // ChatGPT/Claude/Gemini deliver the created file at the END of
+                // the answer, never above it.
+                if (isAgent && message.attachmentJson != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FileAttachmentCard(attachmentJson = message.attachmentJson!!)
                 }
 
                 // v1.3.0 ask_user bubble: tappable option chips under the

@@ -60,8 +60,10 @@ internal object AnswerEngine {
             "2. NUMBERS WITH UNITS: prices/rates/percentages carry their unit and a compact source " +
             "tag, e.g. \"XAU/USD is at \$4,199/oz right now (NowPrice)\".\n" +
             "3. NO RAW DUMPS: never paste the listing. No numbered result lists, no bare URLs in " +
-            "the body, no \"Top web results for...\". Cite sources inline as (SiteName) or in one " +
-            "final \"Sources: a.com, b.com\" line.\n" +
+            "the body, no \"Top web results for...\". When the answer used web results, cite the " +
+            "sites inline as (SiteName) AND end with one final line exactly like " +
+            "'Sources: https://site1.com, https://site2.com' — full https:// URLs, comma-separated " +
+            "(they render as tappable source chips in the chat).\n" +
             "4. ANALYSIS ASKS GET ANALYSIS: when the user asked for history/trends/analysis, write " +
             "actual analytical prose from the data (trajectory, ranges, volatility, notable moves) " +
             "— 2-4 short paragraphs or tight bullets, not a data dump.\n" +
@@ -160,7 +162,7 @@ internal object AnswerEngine {
             .firstOrNull()
 
         if (best != null) {
-            val source = if (domains.isEmpty()) "" else " Sources: ${domains.joinToString(", ")}."
+            val source = if (domains.isEmpty()) "" else " Sources: ${domains.joinToString(", ") { "https://$it" }}."
             return best + source
         }
 
@@ -176,7 +178,7 @@ internal object AnswerEngine {
         }
         if (informative.isEmpty()) return null
         val digest = informative.take(3).joinToString(" ")
-        val source = if (domains.isEmpty()) "" else " Sources: ${domains.joinToString(", ")}."
+        val source = if (domains.isEmpty()) "" else " Sources: ${domains.joinToString(", ") { "https://$it" }}."
         return digest + source
     }
 
