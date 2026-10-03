@@ -256,4 +256,83 @@ class StepRepairTest {
             )
         )
     }
+
+    // ---------- v1.4.0: the second xauusd field lesson (run-37111962938) ----------
+
+    @Test
+    fun `google finance quote page with price goal becomes check stock`() {
+        val repaired = StepRepair.fetchToQuote(
+            "FETCH_URL",
+            mapOf("url" to "https://www.google.com/finance/quote/XAU-USD"),
+            "Fetch the current price of XAUUSD"
+        )
+        assertNotNull(repaired)
+        assertEquals("CHECK_STOCK", repaired!!.first)
+        assertEquals("XAUUSD", repaired.second["symbol"])
+    }
+
+    @Test
+    fun `tradingview symbol url becomes check stock`() {
+        val repaired = StepRepair.fetchToQuote(
+            "FETCH_URL",
+            mapOf("url" to "https://www.tradingview.com/symbols/XAUUSD/"),
+            "web fetch the price of xauusd"
+        )
+        assertNotNull(repaired)
+        assertEquals("CHECK_STOCK", repaired!!.first)
+        assertEquals("XAUUSD", repaired.second["symbol"])
+    }
+
+    @Test
+    fun `investing currency pair becomes check stock`() {
+        val repaired = StepRepair.fetchToQuote(
+            "SUMMARIZE_URL",
+            mapOf("url" to "https://www.investing.com/currencies/xau-usd"),
+            "what is the current rate of gold"
+        )
+        assertNotNull(repaired)
+        assertEquals("XAUUSD", repaired!!.second["symbol"])
+    }
+
+    @Test
+    fun `non-quote urls are untouched by the quote repair`() {
+        assertNull(
+            StepRepair.fetchToQuote(
+                "FETCH_URL",
+                mapOf("url" to "https://example.com/info"),
+                "fetch the current price of gold"
+            )
+        )
+        assertNull(
+            StepRepair.fetchToQuote(
+                "FETCH_URL",
+                mapOf("url" to "https://www.google.com/search?q=gold"),
+                "fetch the current price of gold"
+            )
+        )
+    }
+
+    @Test
+    fun `quote page without data goal is untouched`() {
+        assertNull(
+            StepRepair.fetchToQuote(
+                "FETCH_URL",
+                mapOf("url" to "https://www.google.com/finance/quote/XAU-USD"),
+                "explain how google finance pages are structured"
+            )
+        )
+    }
+
+    @Test
+    fun `path-word tail means no repair - never guess a wrong ticker`() {
+        // tail "finance" is blacklisted and goal-derived guessing is FORBIDDEN
+        // ("price of gold" -> GOLD = Barrick Gold Corp, a real but WRONG ticker)
+        assertNull(
+            StepRepair.fetchToQuote(
+                "FETCH_URL",
+                mapOf("url" to "https://www.google.com/finance"),
+                "fetch the current price of XAUUSD"
+            )
+        )
+    }
 }

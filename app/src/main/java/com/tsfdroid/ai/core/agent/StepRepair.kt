@@ -87,6 +87,60 @@ object StepRepair {
     }
 
     /**
+     * v1.4.0 (run-37111962938, the second xauusd field lesson): a FETCH on a
+     * JS-rendered finance quote page against a live-data goal. Google Finance,
+     * TradingView and Investing.com paint their prices with scripts — the
+     * fetched static HTML carries no digits, so the turn ends with the honest
+     * "the numeric quote wasn't included in the retrieved content" while the
+     * user asked for a number. Rewrite the step to CHECK_STOCK, whose Yahoo
+     * JSON endpoints return real digits (with its own search fallback).
+     *
+     * Disjoint from [fetchToSearch]: that repairs PHRASE-in-url (not
+     * url-shaped); this repairs REAL quote-page urls.
+     *
+     * @return the repaired (action, params), or null when no repair applies.
+     */
+    fun fetchToQuote(
+        action: String,
+        params: Map<String, String>,
+        goal: String
+    ): Pair<String, Map<String, String>>? {
+        if (action.uppercase() !in setOf("FETCH_URL", "SUMMARIZE_URL")) return null
+        val url = params["url"]?.trim().orEmpty()
+        if (url.isEmpty() || !isUrlShaped(url)) return null
+        val host = url
+            .replace(Regex("^https?://", RegexOption.IGNORE_CASE), "")
+            .substringBefore('/')
+            .lowercase()
+        val isQuotePage =
+            (host.endsWith("google.com") && url.contains("/finance", ignoreCase = true)) ||
+                host.contains("tradingview.com") ||
+                host.contains("investing.com")
+        if (!isQuotePage) return null
+        if (!PlanResponseSanitizer.goalWantsWebData(goal)) return null
+
+        // The symbol: ONLY the URL's tail (XAU-USD, BTC-USD, AAPL). A
+        // goal-derived guess ("price of gold" → GOLD = Barrick Gold Corp,
+        // a REAL but WRONG ticker) mis-quotes; no tail means no repair —
+        // the fetch runs as planned with its honest outcome.
+        val tail = url.trimEnd('/').substringAfterLast('/')
+            .substringBefore('?').substringBefore('#')
+            .replace("-", "").replace("_", "")
+        val symbol = tail
+            .takeIf { it.length in 3..10 && Regex("^[A-Za-z^=.]{1,10}$").matches(it) }
+            ?.takeIf { it.lowercase() !in NON_TICKER_TAIL_WORDS }
+            ?: return null
+        return "CHECK_STOCK" to mapOf("symbol" to symbol.uppercase())
+    }
+
+    /** URL path segments that are NOT tickers (google.com/finance/quote/...). */
+    private val NON_TICKER_TAIL_WORDS = setOf(
+        "finance", "quote", "quotes", "symbol", "symbols", "currencies",
+        "markets", "chart", "charts", "equities", "indices", "commodities",
+        "forex", "crypto", "news", "search", "watchlist", "portfolio"
+    )
+
+    /**
      * WEB_SEARCH with a missing or blank `query` — including the fallback
      * dispatch case where the query is hiding in an alias slot (`url`,
      * `topic`, ...) or nowhere at all. Returns repaired params with `query`

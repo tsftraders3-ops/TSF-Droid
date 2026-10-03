@@ -118,6 +118,13 @@ class PlanValidator @Inject constructor(
             // phrase-in-`url` params and dead-end on the missing `query`.
             // Rewrite it deterministically into a real search.
             val fetchRepair = StepRepair.fetchToSearch(updatedStep.action, updatedStep.params, plan.goal)
+                // v1.4.0 (run-37111962938, the second xauusd lesson): the url
+                // was REAL (google.com/finance/quote/XAU-USD) but the page
+                // paints its price with scripts — the fetched static HTML
+                // carries no digits and the turn honestly reported "the
+                // numeric quote wasn't included". A live-data goal fetching
+                // a JS-rendered quote page is a CHECK_STOCK in disguise.
+                ?: StepRepair.fetchToQuote(updatedStep.action, updatedStep.params, plan.goal)
             if (fetchRepair != null) {
                 android.util.Log.w(
                     "PlanValidator",
