@@ -4,7 +4,7 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
-## Unreleased — the chat export: every turn, full fidelity, one tap (rounds 25-27, on v1.4.0)
+## v1.5.0 — The chat export: every turn, full fidelity, one tap (+ the 2026-10-03 field-failure closures)
 
 The user's debugging loop needed the WHOLE turn in a shareable file: what the
 model thought, how long it thought, every tool call with the arguments it sent,
@@ -86,13 +86,13 @@ guarantee, both snag paths, stopped partials, and plan summaries.
   documented free-tier variance — every failure class runs BEFORE the export
   test, and the export test passed green while they failed, twice.
 
-## Unreleased — round 21 (on v1.4.0): the wrapper-form slop hole and the spoken-text/markdown polish
+### The 2026-10-03 field-failure closures (round 21): the wrapper-form slop hole and the spoken-text/markdown polish
 
 Three live-device screenshots and a screen recording (20:11–20:28) showed the
 agent claiming it had no tools while web_search sat unused. Every failure is
 root-caused and closed with deterministic gates, not prompt hope.
 
-### The CHAT-slop plan hole (the Nvidia/PDF screenshots)
+#### The CHAT-slop plan hole (the Nvidia/PDF screenshots)
 
 - **Root cause**: the wrapper-form plan answer `{"action":"CHAT","params":{...}}`
   was the ONE parse path with no deferral gate — the planner wrote the CHAT
@@ -115,7 +115,7 @@ root-caused and closed with deterministic gates, not prompt hope.
   GET_SYSTEM_INFO join the data-action whitelist (the planning prompt's own
   dependency rule always listed them).
 
-### The answer-formation stage for data plans
+#### The answer-formation stage for data plans
 
 - Superseded by v1.4.0's AnswerEngine (synthesis ladder + extractive
   fallback) — this round's own variant was dropped in the merge in its
@@ -124,7 +124,7 @@ root-caused and closed with deterministic gates, not prompt hope.
   response verbatim — which is exactly what the wrapper-form gate above
   now closes.
 
-### The gold give-up nudge (the 20:11 screenshot)
+#### The gold give-up nudge (the 20:11 screenshot)
 
 - When a number-seeking ask ran tools and the model answers "I wasn't able
   to pull an actual live XAU/USD number…", the harness pushes ONE guided
@@ -132,27 +132,27 @@ root-caused and closed with deterministic gates, not prompt hope.
   surrender. Likewise, a WEB_SEARCH that returns no figure on a price-like
   ask gets one round of fetch guidance. Grounded answers are never nudged.
 
-### Spoken text is clean (the "Speaking: **Taparia…" screenshot)
+#### Spoken text is clean (the "Speaking: **Taparia…" screenshot)
 
 - Every text handed to TTS or the "Speaking:" status line passes through
   `SpeechText.forSpeech`: markdown markers stripped, URLs spoken as "link",
   code blocks as "(code block)". The phone no longer says "asterisk
   asterisk".
 
-### Sources chips dedup (the nseindia.com + www.nseindia.com screenshot)
+#### Sources chips dedup (the nseindia.com + www.nseindia.com screenshot)
 
 - The SOURCES chip row deduplicates by normalized host (www stripped, scheme
   and trailing slash ignored) — www-variants of the same page collapse to
   one chip, first-seen URL as the target.
 
-### Prompt hardening
+#### Prompt hardening
 
 - CHAT mode must end file/creation asks with the exact line "Switch to Agent
   mode (the toggle at the top) and I'll do it for you." and never claim
   tools are missing. The planner is told live-data and artifact asks are
   NEVER conversational CHAT steps.
 
-### Tests
+#### Tests
 
 - New unit suites: AnswerQualityTest, SpeechTextTest; extended
   PlanResponseSanitizerTest (wrapper/refusal/precision cases), MarkdownLiteTest
