@@ -44,6 +44,12 @@ EVIDENCE_PATTERNS = [
     (re.compile(r"synthesized summary (timed out|failed)"), "synthesis fallback"),
     (re.compile(r"artifact (collected|card attached)"), "file cards"),
     (re.compile(r"ask-confirmed summary"), "ask confirmation"),
+    # v1.4.0 chat-export signals: the exporter's own telemetry (file, message
+    # count, size) and the capture's per-save evidence (tools recorded,
+    # thinking ms) — the export feature's forensics.
+    (re.compile(r"chat exported:"), "chat export"),
+    (re.compile(r"final reply save: .*tools="), "export capture"),
+    (re.compile(r"chat export failed"), "chat export failure"),
 ]
 
 
