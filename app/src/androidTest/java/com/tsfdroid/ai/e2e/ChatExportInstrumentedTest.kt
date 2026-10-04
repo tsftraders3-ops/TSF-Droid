@@ -288,7 +288,8 @@ class ChatExportInstrumentedTest {
                     val t = runCatching { obj.text.trim() }.getOrDefault("")
                     t.startsWith("Analyzing") || t.startsWith("Requires Plan") ||
                         t.startsWith("Executing") || t.startsWith("Speaking") ||
-                        t.startsWith("Planning")
+                        t.startsWith("Planning") || t.startsWith("Thinking") ||
+                        t.startsWith("Running")
                 }
             if (!busy) return
             runCatching { Thread.sleep(3_000) }
@@ -372,7 +373,12 @@ class ChatExportInstrumentedTest {
             )
         }
 
-        val task = "Fetch https://example.com and tell me the exact main heading of the page."
+        // 2026 example.com reality check (round-26 forensics): the page no
+        // longer carries an <h1> — it is one paragraph stating what the
+        // domain is for. Asking for "the main heading" produced an HONEST
+        // "there is no heading in the fetched result" reply. The task asks
+        // for what the page actually says; the assert quotes its real body.
+        val task = "Fetch https://example.com and tell me exactly what the page says this domain is for."
         assertTrue("could not type the export task", typeChatMessage(task))
         shoot("export_02_typed")
         assertTrue("could not send the export task", tapSendAndVerify(task))
@@ -383,20 +389,23 @@ class ChatExportInstrumentedTest {
         // answer while the status still read "Analyzing intent & planning…".
         val baseline = visibleTexts()
 
-        // The reply must be grounded in the real fetch (stream-settled so a
-        // mid-stream snapshot never passes; the sent bubble is in the baseline
-        // so only genuinely NEW text counts).
-        val reply = waitNewText(baseline, timeoutMs = 420_000, settleMs = 15_000)
-        shoot("export_03_reply")
+        // Round-26 lesson: the turn must be FINISHED before any reply is
+        // trusted or exported — the settle timer alone can fire mid-stream
+        // during a free-tier pause and capture a partial bubble (the 120-char
+        // prefix had not yet reached the grounded quote). The agent's own
+        // busy-state is the completion signal; the export taken after it
+        // carries the whole turn, never a slice.
+        waitAgentIdle(420_000)
+        shoot("export_03_idle")
+
+        // The final, complete reply — grounded in the REAL fetched body.
+        val reply = waitNewText(baseline, timeoutMs = 120_000, settleMs = 10_000)
+        shoot("export_04_reply")
         assertNotNull("the fetch task never produced a reply", reply)
         assertTrue(
-            "reply is not grounded in the fetched page (got: ${reply!!.take(120)})",
-            reply.contains("Example", ignoreCase = true) && reply != task
+            "reply is not grounded in the fetched page (got: ${reply!!.take(160)})",
+            reply.contains("documentation examples", ignoreCase = true) && reply != task
         )
-        // The turn must actually be FINISHED before exporting — an in-flight
-        // turn's records would be incomplete (the export must carry the whole
-        // turn, not a slice of it).
-        waitAgentIdle(180_000)
 
         // The export itself, through the real UI. The actions lead the menu
         // (round-25 UI fix) so they are visible without scrolling past the
@@ -566,8 +575,8 @@ class ChatExportInstrumentedTest {
         )
         if (!call.isNull("result")) {
             assertTrue(
-                "FETCH result must actually contain the page text",
-                call.getString("result").contains("Example", ignoreCase = true)
+                "FETCH result must actually contain the page's real body text",
+                call.getString("result").contains("documentation examples", ignoreCase = true)
             )
         }
 
