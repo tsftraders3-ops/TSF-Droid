@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Warning
@@ -139,6 +140,9 @@ fun ChatScreen(
     // v1.3.0: the live ask_user question this chat's task is parked on — drives
     // the dedicated answer surface (accent input bar + option chips).
     val pendingAsk by viewModel.pendingAsk.collectAsState()
+    // v1.4.0: the most recent chat export — opens the share sheet for the file
+    // the moment it exists, then consumes the slot.
+    val exportResult by viewModel.exportResult.collectAsState()
     val chatMode = ChatMode.fromNullable(llmConfig.chatMode)
     var showAttachSheet by remember { mutableStateOf(false) }
     val galleryLauncher = rememberLauncherForActivityResult(
@@ -234,6 +238,21 @@ fun ChatScreen(
             val lastIndex = listState.layoutInfo.totalItemsCount - 1
             if (lastIndex >= 0) listState.animateScrollToItem(lastIndex, Int.MAX_VALUE)
         }
+    }
+
+    // v1.4.0 chat export: the file lands in workspace/Exports/, the share
+    // sheet opens with it, and a toast confirms what was written. Consumed
+    // immediately so exporting the same chat again re-fires the sheet.
+    LaunchedEffect(exportResult) {
+        val result = exportResult ?: return@LaunchedEffect
+        viewModel.consumeExportResult()
+        android.widget.Toast.makeText(
+            context,
+            "Chat exported — ${result.messageCount} messages, " +
+                "${android.text.format.Formatter.formatShortFileSize(context, result.byteSize)}",
+            android.widget.Toast.LENGTH_LONG
+        ).show()
+        shareChatExport(context, result.file)
     }
 
     val speechRecognizer = remember { SpeechRecognitionEngine(context) }
@@ -473,6 +492,26 @@ fun ChatScreen(
                             // (the plan card's approve button ended up behind the
                             // input overlay). Same action, same target chat.
                             HorizontalDivider(color = TextSecondary.copy(alpha = 0.2f))
+                            // v1.4.0 chat export: the raw-text (JSON) debugging
+                            // artifact — every message, the full thinking trace,
+                            // every tool call with params/results/durations,
+                            // written to workspace/Exports/ and offered to the
+                            // share sheet in one tap.
+                            DropdownMenuItem(
+                                text = { Text("Export chat", color = TextPrimary, fontSize = 13.sp) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Save,
+                                        contentDescription = null,
+                                        tint = AccentCyan,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showChatMenu = false
+                                    viewModel.exportChat()
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Clear chat", color = TextPrimary, fontSize = 13.sp) },
                                 onClick = {
@@ -1768,6 +1807,43 @@ private fun shareArtifact(context: android.content.Context, attachment: org.json
             context,
             "Couldn't open the share sheet: ${e.localizedMessage}",
             android.widget.Toast.LENGTH_SHORT
+        ).show()
+    }
+}
+
+/**
+ * v1.4.0 chat export: shares the raw-text (JSON) export file through the
+ * system share sheet — same FileProvider grant path as agent artifacts, so
+ * the file is handable to any app (email, drive, chat) in one tap. Never
+ * `EXTRA_TEXT` (Binder limit); always `EXTRA_STREAM` with the real file.
+ */
+private fun shareChatExport(context: android.content.Context, file: java.io.File) {
+    val uri = try {
+        androidx.core.content.FileProvider.getUriForFile(
+            context,
+            context.packageName + ".fileprovider",
+            file
+        )
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(
+            context,
+            "Export saved at ${file.absolutePath}",
+            android.widget.Toast.LENGTH_LONG
+        ).show()
+        return
+    }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/json"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        context.startActivity(Intent.createChooser(intent, "Share chat export"))
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(
+            context,
+            "Export saved at ${file.absolutePath}",
+            android.widget.Toast.LENGTH_LONG
         ).show()
     }
 }

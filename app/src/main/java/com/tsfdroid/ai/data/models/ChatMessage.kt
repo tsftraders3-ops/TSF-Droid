@@ -46,7 +46,34 @@ data class ChatMessage(
      * surface). Persisted to Room (v14) so the tappable chips survive
      * process death and reload with the history.
      */
-    val askOptionsJson: String? = null
+    val askOptionsJson: String? = null,
+    /**
+     * v1.4.0 chat export: the measured reasoning phase of this reply in
+     * milliseconds (first reasoning delta -> first content delta, plus any
+     * harness tool phase, Claude-style). The UI renders it as the
+     * "Thought for Xs" step label; the number itself is persisted so the
+     * raw-text export carries it without label parsing. Null when the turn
+     * had no measured thinking phase.
+     */
+    val thinkingDurationMs: Long? = null,
+    /**
+     * v1.4.0 chat export: the concrete model id that answered this turn
+     * (e.g. "qwen/qwen3-coder"). [modelBadge] stays the provider name for
+     * the UI chip; this is the machine-readable identity for the export.
+     */
+    val modelId: String? = null,
+    /** v1.4.0 chat export: tokens reported by the provider for this turn's model calls (null when the streamed path did not surface usage). */
+    val tokensUsed: Int? = null,
+    /** v1.4.0 chat export: total model-call latency of the turn's harness phase in ms (null when the streamed path produced the answer alone). */
+    val turnLatencyMs: Long? = null,
+    /**
+     * v1.4.0 chat export: JSON array of [ToolCallRecord] — the FULL log of
+     * every tool call behind this reply (raw arguments, mapped params,
+     * capped-but-real results, per-call duration). The 160-char UI trace
+     * stays in [stepsJson]; this is the debugging-fidelity record the
+     * raw-text export is built on.
+     */
+    val toolCallsJson: String? = null
 ) {
     enum class Sender {
         USER, AGENT
@@ -67,6 +94,10 @@ data class ChatMessage(
         imageBase64?.let(::add)
         attachments()?.images?.let { addAll(it) }
     }
+
+    /** Parsed tool-call log for this reply; empty when none was recorded. */
+    fun toolCallRecords(): List<com.tsfdroid.ai.core.harness.ToolCallRecord> =
+        com.tsfdroid.ai.core.harness.ToolCallRecords.decode(toolCallsJson)
 }
 
 /** v1.2.0: user-uploaded content carried on a [ChatMessage]. */

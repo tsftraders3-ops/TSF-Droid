@@ -1,6 +1,9 @@
 package com.tsfdroid.ai.core.agent
 
 import com.tsfdroid.ai.actions.base.ActionResult
+import com.tsfdroid.ai.core.crash.CrashLogRedactor
+import com.tsfdroid.ai.core.harness.ToolCallRecord
+import com.tsfdroid.ai.core.harness.ToolCallRecords
 import com.tsfdroid.ai.core.llm.LLMProvider
 import com.tsfdroid.ai.core.llm.LLMRequest
 import com.tsfdroid.ai.core.llm.LLMStreamEvent
@@ -143,7 +146,15 @@ class HarnessLoop @Inject constructor(
          * the chat-side ACTIVITY trace (Claude/OpenCode step list).
          */
         val onToolEvent: (suspend (action: String, success: Boolean, detail: String) -> Unit)? = null,
-        val onContinuation: (suspend (partNumber: Int) -> Unit)? = null
+        val onContinuation: (suspend (partNumber: Int) -> Unit)? = null,
+        /**
+         * v1.4.0 chat export: the FULL record of one executed tool call —
+         * raw arguments, mapped params, redacted + capped result, per-call
+         * duration — fed to the caller's persistent tool-call log (the
+         * debugging-fidelity counterpart of the one-line [onToolEvent]
+         * trace). Null for callers that don't collect records.
+         */
+        val onToolRecord: (suspend (ToolCallRecord) -> Unit)? = null
     )
 
     data class TurnResult(
@@ -155,6 +166,10 @@ class HarnessLoop @Inject constructor(
         val finishReason: String?,
         /** True when even after all continuations the answer stayed length-cut. */
         val stillTruncated: Boolean,
+        /** v1.4.0 chat export: provider-reported tokens across this turn's model calls (0 when unsurfaced). */
+        val tokensUsed: Int = 0,
+        /** v1.4.0 chat export: summed model-call latency of this turn's harness phase, ms. */
+        val latencyMs: Long = 0,
         /**
          * v1.3.0: non-null when [TurnConfig.surfaceAsks] is set and the model
          * called ask_user — the caller must park the user, collect the
@@ -184,6 +199,10 @@ class HarnessLoop @Inject constructor(
         var toolCallsExecuted = 0
         var continuationSegments = 0
         var lastFinishReason: String? = null
+        // v1.4.0 chat export: accumulated model-call usage of THIS turn —
+        // tokens and latency summed across every provider.complete below.
+        var totalTokensUsed = 0
+        var totalLatencyMs = 0L
         val recentSignatures = ArrayDeque<String>()
         var doomWarned = false
         // v1.3.0 round 21 (the 2026-10-03 20:11 gold screenshot): give-up
@@ -252,6 +271,8 @@ class HarnessLoop @Inject constructor(
                 "round $round model-call done content=${response.content.length}c tools=${response.toolCalls.size} finish=${response.finishReason}"
             )
             lastFinishReason = response.finishReason ?: lastFinishReason
+            totalTokensUsed += response.tokensUsed
+            totalLatencyMs += response.latencyMs
 
             // v1.2.1 round-8 field fix (cap7 gold): a response carrying BOTH
             // content and tool calls is MID-WORK narration ("The searches came
@@ -298,7 +319,8 @@ class HarnessLoop @Inject constructor(
                     return appendContinuations(
                         provider, config, messages, response.content,
                         roundsUsed = round, executed = toolCallsExecuted,
-                        segments = 0, onStatus = onStatus
+                        segments = 0, onStatus = onStatus,
+                        tokensUsed = totalTokensUsed, latencyMs = totalLatencyMs
                     )
                 }
 
@@ -350,7 +372,9 @@ class HarnessLoop @Inject constructor(
                     toolCallsExecuted = toolCallsExecuted,
                     continuationSegments = continuationSegments,
                     finishReason = lastFinishReason,
-                    stillTruncated = response.finishReason == FINISH_LENGTH
+                    stillTruncated = response.finishReason == FINISH_LENGTH,
+                    tokensUsed = totalTokensUsed,
+                    latencyMs = totalLatencyMs
                 )
             }
 
@@ -454,6 +478,7 @@ class HarnessLoop @Inject constructor(
                 }
                 val mapping = ToolCallBridge.map(call)
                 val mapped = mapping.mapped
+                val execStartAt = System.currentTimeMillis()
                 val result: ActionResult = when {
                     mapped == null -> ActionResult.Failure(
                         mapping.unsupportedReason ?: "Tool not available"
@@ -474,6 +499,26 @@ class HarnessLoop @Inject constructor(
                         ActionResult.Failure(e.localizedMessage ?: "Tool execution failed")
                     }
                 }
+                val execDurationMs = System.currentTimeMillis() - execStartAt
+                // v1.4.0 chat export: the full-fidelity record — raw arguments,
+                // mapped params, redacted + capped result, real duration.
+                val cappedResult = ToolCallRecords.capResult(
+                    result.data?.let(CrashLogRedactor::redact)
+                )
+                config.onToolRecord?.invoke(
+                    ToolCallRecord(
+                        tool = call.name,
+                        action = mapped?.action ?: "",
+                        argumentsRaw = call.arguments,
+                        params = mapped?.params ?: emptyMap(),
+                        success = result.success,
+                        result = cappedResult.first,
+                        truncated = cappedResult.second,
+                        error = result.error?.let(CrashLogRedactor::redact),
+                        startedAt = execStartAt,
+                        durationMs = execDurationMs
+                    )
+                )
                 if (result.success && mapped != null && !config.readOnly &&
                     (mapped.action == "WRITE_FILE" || mapped.action == "CREATE_PDF")
                 ) {
@@ -482,7 +527,7 @@ class HarnessLoop @Inject constructor(
                 toolCallsExecuted++
                 android.util.Log.i(
                     "HarnessLoop",
-                    "round $round ${call.name} -> ${mapped?.action ?: "unsupported"}: success=${result.success}"
+                    "round $round ${call.name} -> ${mapped?.action ?: "unsupported"}: success=${result.success} (${execDurationMs}ms)"
                 )
                 config.onToolEvent?.invoke(
                     mapped?.action ?: call.name,
@@ -658,7 +703,8 @@ class HarnessLoop @Inject constructor(
         return if (response.finishReason == FINISH_LENGTH) {
             appendContinuations(
                 provider, config, expansionMessages, response.content,
-                roundsUsed = 1, executed = 0, segments = 0, onStatus = null
+                roundsUsed = 1, executed = 0, segments = 0, onStatus = null,
+                tokensUsed = response.tokensUsed, latencyMs = response.latencyMs
             )
         } else {
             TurnResult(
@@ -667,7 +713,9 @@ class HarnessLoop @Inject constructor(
                 toolCallsExecuted = 0,
                 continuationSegments = 0,
                 finishReason = response.finishReason,
-                stillTruncated = false
+                stillTruncated = false,
+                tokensUsed = response.tokensUsed,
+                latencyMs = response.latencyMs
             )
         }
     }
@@ -702,7 +750,9 @@ class HarnessLoop @Inject constructor(
         roundsUsed: Int,
         executed: Int,
         segments: Int,
-        onStatus: (suspend (String) -> Unit)?
+        onStatus: (suspend (String) -> Unit)?,
+        tokensUsed: Int = 0,
+        latencyMs: Long = 0
     ): TurnResult {
         var current = messages
         var joined = firstSegment
@@ -710,6 +760,10 @@ class HarnessLoop @Inject constructor(
         var lastFinish: String? = null
         var round = roundsUsed
         var toolCallsExecuted = executed
+        // v1.4.0 chat export: carried over from the caller's rounds plus every
+        // continuation call this function makes.
+        var totalTokensUsed = tokensUsed
+        var totalLatencyMs = latencyMs
 
         while (totalSegments < config.maxContinuations && round < config.maxRounds) {
             val response = try {
@@ -739,6 +793,8 @@ class HarnessLoop @Inject constructor(
             }
             round++
             lastFinish = response.finishReason ?: lastFinish
+            totalTokensUsed += response.tokensUsed
+            totalLatencyMs += response.latencyMs
             if (response.toolCalls.isNotEmpty() && response.content.isBlank()) {
                 // The model answered the continuation with tool calls — run
                 // them and keep continuing afterwards.
@@ -772,6 +828,7 @@ class HarnessLoop @Inject constructor(
                     }
                     val mapping = ToolCallBridge.map(call)
                     val mapped = mapping.mapped
+                    val execStartAt = System.currentTimeMillis()
                     val result: ActionResult = when {
                         mapped == null -> ActionResult.Failure(
                             mapping.unsupportedReason ?: "Tool not available"
@@ -788,6 +845,26 @@ class HarnessLoop @Inject constructor(
                             ActionResult.Failure(e.localizedMessage ?: "Tool execution failed")
                         }
                     }
+                    val execDurationMs = System.currentTimeMillis() - execStartAt
+                    // v1.4.0 chat export: mid-continuation tool calls are
+                    // recorded with the same fidelity as main-loop ones.
+                    val cappedResult = ToolCallRecords.capResult(
+                        result.data?.let(CrashLogRedactor::redact)
+                    )
+                    config.onToolRecord?.invoke(
+                        ToolCallRecord(
+                            tool = call.name,
+                            action = mapped?.action ?: "",
+                            argumentsRaw = call.arguments,
+                            params = mapped?.params ?: emptyMap(),
+                            success = result.success,
+                            result = cappedResult.first,
+                            truncated = cappedResult.second,
+                            error = result.error?.let(CrashLogRedactor::redact),
+                            startedAt = execStartAt,
+                            durationMs = execDurationMs
+                        )
+                    )
                     toolCallsExecuted++
                     config.onToolEvent?.invoke(
                         mapped?.action ?: call.name,
@@ -828,7 +905,9 @@ class HarnessLoop @Inject constructor(
             toolCallsExecuted = toolCallsExecuted,
             continuationSegments = totalSegments,
             finishReason = lastFinish,
-            stillTruncated = lastFinish == FINISH_LENGTH
+            stillTruncated = lastFinish == FINISH_LENGTH,
+            tokensUsed = totalTokensUsed,
+            latencyMs = totalLatencyMs
         )
     }
 
@@ -863,6 +942,7 @@ class HarnessLoop @Inject constructor(
     ): TurnResult? {
         val query = userQuery.trim().take(240).ifBlank { return null }
         onStatus?.invoke("[harness] running the search directly…")
+        val execStartAt = System.currentTimeMillis()
         val result = try {
             toolExecutor.execute("WEB_SEARCH", mapOf("query" to query), config.context)
         } catch (e: CancellationException) {
@@ -870,6 +950,26 @@ class HarnessLoop @Inject constructor(
         } catch (e: Exception) {
             ActionResult.Failure(e.localizedMessage ?: "Search execution failed")
         }
+        val execDurationMs = System.currentTimeMillis() - execStartAt
+        // v1.4.0 chat export: the harness's own deterministic search is a
+        // first-class recorded call too — params, result, duration.
+        val cappedResult = ToolCallRecords.capResult(
+            result.data?.let(CrashLogRedactor::redact)
+        )
+        config.onToolRecord?.invoke(
+            ToolCallRecord(
+                tool = "web_search",
+                action = "WEB_SEARCH",
+                argumentsRaw = "{\"query\":\"$query\"}",
+                params = mapOf("query" to query),
+                success = result.success,
+                result = cappedResult.first,
+                truncated = cappedResult.second,
+                error = result.error?.let(CrashLogRedactor::redact),
+                startedAt = execStartAt,
+                durationMs = execDurationMs
+            )
+        )
         config.onToolEvent?.invoke(
             "WEB_SEARCH",
             result.success,

@@ -22,6 +22,14 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE sessionId = :sessionId ORDER BY timestamp ASC")
     fun getMessagesForSession(sessionId: String): Flow<List<ConversationEntity>>
 
+    /**
+     * v1.4.0 chat export: one-shot snapshot of a whole session, oldest
+     * first — the exporter reads a stable picture of the chat, not a live
+     * flow that could emit mid-turn while a reply is still streaming in.
+     */
+    @Query("SELECT * FROM conversations WHERE sessionId = :sessionId ORDER BY timestamp ASC")
+    suspend fun getMessagesForSessionOnce(sessionId: String): List<ConversationEntity>
+
     /** Newest-first, capped at [limit]; callers wanting chronological order should reverse it. */
     @Query("SELECT * FROM conversations WHERE sessionId = :sessionId ORDER BY timestamp DESC LIMIT :limit")
     suspend fun getLastMessagesForSession(sessionId: String, limit: Int): List<ConversationEntity>

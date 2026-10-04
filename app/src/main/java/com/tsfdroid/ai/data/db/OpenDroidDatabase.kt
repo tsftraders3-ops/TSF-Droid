@@ -69,7 +69,7 @@ import androidx.room.TypeConverters
         SocialAutomationRuleEntity::class,
         SocialAuditLogEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -306,6 +306,24 @@ abstract class OpenDroidDatabase : RoomDatabase() {
                 // the agent asked mid-turn. Purely additive — existing rows
                 // read NULL (not an ask) and render exactly as before.
                 database.execSQL("ALTER TABLE conversations ADD COLUMN askOptionsJson TEXT DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // v1.4.0 chat export: the debugging-fidelity columns — the
+                // measured thinking duration as a NUMBER (it previously lived
+                // only inside the "Thought for Xs" label), the concrete model
+                // id behind the provider badge, provider-reported token usage,
+                // harness model-call latency, and the full tool-call log
+                // (params, capped-but-real results, per-call durations). All
+                // purely additive — existing rows read NULL/empty and render
+                // exactly as before.
+                database.execSQL("ALTER TABLE conversations ADD COLUMN thinkingDurationMs INTEGER DEFAULT NULL")
+                database.execSQL("ALTER TABLE conversations ADD COLUMN modelId TEXT DEFAULT NULL")
+                database.execSQL("ALTER TABLE conversations ADD COLUMN tokensUsed INTEGER DEFAULT NULL")
+                database.execSQL("ALTER TABLE conversations ADD COLUMN turnLatencyMs INTEGER DEFAULT NULL")
+                database.execSQL("ALTER TABLE conversations ADD COLUMN toolCallsJson TEXT DEFAULT NULL")
             }
         }
 

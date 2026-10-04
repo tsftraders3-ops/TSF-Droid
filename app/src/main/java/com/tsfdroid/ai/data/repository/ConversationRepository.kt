@@ -67,6 +67,14 @@ class ConversationRepository @Inject constructor(
             entities.map { it.toChatMessage() }
         }
 
+    /**
+     * v1.4.0 chat export: one-shot snapshot of a whole session, oldest
+     * first — a stable picture of the chat for the exporter, never a live
+     * flow that could change under it while a turn is still streaming.
+     */
+    suspend fun getMessagesOnce(sessionId: String): List<ChatMessage> =
+        conversationDao.getMessagesForSessionOnce(sessionId).map { it.toChatMessage() }
+
     /** Inserts [message] into the current session, lazily creating one if needed. */
     suspend fun insertMessage(message: ChatMessage) {
         insertMessage(ensureCurrentSessionId(), message)
@@ -202,7 +210,12 @@ class ConversationRepository @Inject constructor(
         attachmentJson = attachmentJson,
         attachmentsJson = attachmentsJson,
         stepsJson = stepsJson,
-        askOptionsJson = askOptionsJson
+        askOptionsJson = askOptionsJson,
+        thinkingDurationMs = thinkingDurationMs,
+        modelId = modelId,
+        tokensUsed = tokensUsed,
+        turnLatencyMs = turnLatencyMs,
+        toolCallsJson = toolCallsJson
     )
 
     private fun ChatMessage.toEntity(sessionId: String) = ConversationEntity(
@@ -217,6 +230,11 @@ class ConversationRepository @Inject constructor(
         attachmentsJson = attachmentsJson,
         stepsJson = stepsJson,
         askOptionsJson = askOptionsJson,
+        thinkingDurationMs = thinkingDurationMs,
+        modelId = modelId,
+        tokensUsed = tokensUsed,
+        turnLatencyMs = turnLatencyMs,
+        toolCallsJson = toolCallsJson,
         sessionId = sessionId
     )
 

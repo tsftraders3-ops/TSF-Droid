@@ -10,6 +10,7 @@ import com.tsfdroid.ai.core.agent.ChatErrorPrimaryAction
 import com.tsfdroid.ai.core.agent.ChatErrorUiState
 import com.tsfdroid.ai.core.agent.primaryAction
 import com.tsfdroid.ai.core.attachments.AttachmentProcessor
+import com.tsfdroid.ai.core.export.ChatExporter
 import com.tsfdroid.ai.data.models.AutoMode
 import com.tsfdroid.ai.data.models.ChatMessage
 import com.tsfdroid.ai.data.models.ChatMode
@@ -33,7 +34,8 @@ class ChatViewModel @Inject constructor(
     private val agentLoop: AgentLoop,
     private val conversationRepository: ConversationRepository,
     private val settingsRepository: SettingsRepository,
-    private val attachmentProcessor: AttachmentProcessor
+    private val attachmentProcessor: AttachmentProcessor,
+    private val chatExporter: ChatExporter
 ) : ViewModel() {
 
     val llmConfig: StateFlow<LLMConfig> = settingsRepository.llmConfig
@@ -359,6 +361,42 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             conversationRepository.clearCurrentSession()
         }
+    }
+
+    // ── v1.4.0 chat export ───────────────────────────────────────────
+
+    /**
+     * The most recent export result — non-null exactly until the UI opens
+     * the share sheet for it, then consumed so the same file can be re-shared
+     * by tapping Export again.
+     */
+    private val _exportResult = MutableStateFlow<ChatExporter.ExportResult?>(null)
+    val exportResult: StateFlow<ChatExporter.ExportResult?> = _exportResult.asStateFlow()
+
+    /**
+     * Exports a chat to raw JSON in the workspace Exports/ folder and
+     * surfaces the file for sharing. Null [sessionId] (or an id that is not
+     * current) exports the CURRENTLY OPEN chat.
+     */
+    fun exportChat(sessionId: String? = null) {
+        val target = sessionId ?: sessions.value.firstOrNull { it.isCurrent }?.id ?: return
+        viewModelScope.launch {
+            val result = runCatching { chatExporter.exportSession(target) }.getOrNull()
+            if (result == null) {
+                android.util.Log.w("ChatViewModel", "chat export failed for session $target")
+            } else {
+                android.util.Log.i(
+                    "ChatViewModel",
+                    "chat exported: ${result.file.name} (${result.messageCount} msgs, ${result.byteSize}B)"
+                )
+            }
+            _exportResult.value = result
+        }
+    }
+
+    /** UI consumed the export result (share sheet opened); clears the slot. */
+    fun consumeExportResult() {
+        _exportResult.value = null
     }
 
     /**

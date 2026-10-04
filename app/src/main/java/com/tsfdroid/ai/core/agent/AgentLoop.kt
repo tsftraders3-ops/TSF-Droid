@@ -18,6 +18,8 @@ import com.tsfdroid.ai.data.models.ChatMode
 import com.tsfdroid.ai.data.models.selectedModelFor
 import com.tsfdroid.ai.core.harness.ActivityStep
 import com.tsfdroid.ai.core.harness.ContextCompactor
+import com.tsfdroid.ai.core.harness.ToolCallRecord
+import com.tsfdroid.ai.core.harness.ToolCallRecords
 import com.tsfdroid.ai.core.memory.UserMemoryLearner
 import com.tsfdroid.ai.core.llm.providers.ModelsDevRegistry
 import com.tsfdroid.ai.data.models.ChatMessage
@@ -487,6 +489,18 @@ class AgentLoop @Inject constructor(
             }
         )
     )
+
+    // v1.4.0 chat export: the tool-call log of the ACTIVE plan loop — one
+    // record per dispatched action with raw params, redacted + capped result,
+    // and wall-clock duration. Cleared at every executePlanLoop start; the
+    // summary save (speakAndSaveSummary) persists the snapshot onto the
+    // summary message. The plan-execution epoch serializes plan loops, so
+    // this collector never carries two plans' calls at once.
+    private val activePlanToolRecords =
+        java.util.Collections.synchronizedList(mutableListOf<ToolCallRecord>())
+
+    /** v1.4.0 chat export: the concrete model id that planned/executed the active plan loop. */
+    @Volatile private var activePlanModelId: String? = null
 
     // A single pending awaitUserResponse() prompt, identified by [requestId] - not just a
     // session id, so that even a second prompt opened for the SAME session can never be
@@ -1142,6 +1156,15 @@ class AgentLoop @Inject constructor(
             var inserted = false
             var lastDbWriteAt = 0L
             var lastFinishReason: String? = null
+            // v1.4.0 chat export: the FULL per-turn tool-call log (raw args,
+            // mapped params, capped results, durations) collected from every
+            // harness path this turn takes (handoff, research guarantee,
+            // continuation, forced search) and persisted on the final reply.
+            val turnToolRecords =
+                java.util.Collections.synchronizedList(mutableListOf<ToolCallRecord>())
+            // v1.4.0 chat export: usage of the harness phase, when it ran.
+            var turnTokensUsed: Int? = null
+            var turnLatencyTotal: Long? = null
             // v1.3.0: thinking-duration measurement for the Claude-style
             // "Thought for X seconds" header — from the first reasoning delta
             // to the first content delta (the visible thinking phase).
@@ -1151,7 +1174,10 @@ class AgentLoop @Inject constructor(
                 id = replyId,
                 text = currentReplyText,
                 sender = ChatMessage.Sender.AGENT,
-                modelBadge = provider.name
+                modelBadge = provider.name,
+                // v1.4.0 chat export: the concrete model id behind the badge —
+                // the machine-readable identity the export carries.
+                modelId = activeModelId
             )
 
             // v1.0.5: DB writes are throttled — reasoning deltas can arrive
@@ -1166,7 +1192,11 @@ class AgentLoop @Inject constructor(
                     sessionId,
                     replyMsg.copy(
                         text = currentReplyText,
-                        thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                        thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
+                        // v1.4.0 chat export: the running tool-call log rides
+                        // every throttled write so an interrupted turn still
+                        // carries whatever executed before the interruption.
+                        toolCallsJson = ToolCallRecords.encode(turnToolRecords.toList())
                     )
                 )
                 inserted = true
@@ -1210,7 +1240,10 @@ class AgentLoop @Inject constructor(
                             detail = "Output limit reached — the answer flows across calls (part $part)"
                         )
                     )
-                }
+                },
+                // v1.4.0 chat export: full tool-call records from every harness
+                // path this turn takes — the debugging log behind the export.
+                onToolRecord = { record -> turnToolRecords.add(record) }
             )
 
             // v1.2.1 round-10/11: the STREAMED first call is bounded by the
@@ -1282,7 +1315,10 @@ class AgentLoop @Inject constructor(
                             replyMsg.copy(
                                 text = currentReplyText,
                                 modelBadge = "Stopped",
-                                thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                                thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
+                                // v1.4.0 chat export: the stopped partial keeps
+                                // whatever tool calls completed before the stop.
+                                toolCallsJson = ToolCallRecords.encode(turnToolRecords.toList())
                             )
                         )
                     }
@@ -1299,8 +1335,12 @@ class AgentLoop @Inject constructor(
                 // cannot produce an answer. Partial text + other errors keep
                 // the actionable error card (Retry/Dismiss).
                 if (streamError.error == LLMError.MalformedResponse && currentReplyText.isBlank()) {
-                    val harnessAnswer = harnessFallbackTurn(provider, turnConfig, lastMsgs)
+                    val harnessTurn = harnessFallbackTurn(provider, turnConfig, lastMsgs)
+                    val harnessAnswer = harnessTurn?.content
                     if (!harnessAnswer.isNullOrBlank()) {
+                        // v1.4.0 chat export: usage from this recovery path.
+                        turnTokensUsed = harnessTurn?.tokensUsed?.takeIf { it > 0 }
+                        turnLatencyTotal = harnessTurn?.latencyMs?.takeIf { it > 0 }
                         // v1.2.1 round-17 (run 36698428126, BOTH passes failed
                         // cap15 the same way): the streamed first call of a
                         // research ask comes back as ONLY tool calls + zero
@@ -1338,7 +1378,17 @@ class AgentLoop @Inject constructor(
                             timestamp = System.currentTimeMillis(),
                             thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
                             // v1.2.1: persist the visible step trace on the reply.
-                            stepsJson = loopStepsEncoded
+                            stepsJson = loopStepsEncoded,
+                            // v1.4.0 chat export: measured thinking phase + the
+                            // full tool-call log on this recovery path too.
+                            thinkingDurationMs = if (firstReasoningAt > 0L) {
+                                (if (firstContentAt > 0L) firstContentAt else System.currentTimeMillis()) - firstReasoningAt
+                            } else {
+                                null
+                            },
+                            toolCallsJson = ToolCallRecords.encode(turnToolRecords.toList()),
+                            tokensUsed = turnTokensUsed,
+                            turnLatencyMs = turnLatencyTotal
                         )
                         conversationRepository.insertMessage(sessionId, loopMsg)
                         memoryManager.storeMessage(loopMsg, sessionId)
@@ -1355,7 +1405,9 @@ class AgentLoop @Inject constructor(
                         thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
                         stepsJson = com.tsfdroid.ai.core.harness.ActivitySteps.encode(
                             currentStepsSnapshot()
-                        )
+                        ),
+                        // v1.4.0 chat export: the failed work is recorded too.
+                        toolCallsJson = ToolCallRecords.encode(turnToolRecords.toList())
                     )
                     conversationRepository.insertMessage(sessionId, snagMsg)
                     memoryManager.storeMessage(snagMsg, sessionId)
@@ -1365,7 +1417,14 @@ class AgentLoop @Inject constructor(
                 }
                 val partialId = if (inserted && currentReplyText.isNotBlank()) {
                     incompleteMessageIds.add(replyId)
-                    conversationRepository.insertMessage(sessionId, replyMsg.copy(text = currentReplyText))
+                    conversationRepository.insertMessage(
+                        sessionId,
+                        replyMsg.copy(
+                            text = currentReplyText,
+                            // v1.4.0 chat export: partial keeps its executed calls.
+                            toolCallsJson = ToolCallRecords.encode(turnToolRecords.toList())
+                        )
+                    )
                     replyId
                 } else {
                     null
@@ -1420,13 +1479,17 @@ class AgentLoop @Inject constructor(
                     "blank/monologue streamed reply (len=${currentReplyText.length}) — handing the turn to the harness"
                 )
                 val harnessStartAt = System.currentTimeMillis()
-                val harnessAnswer = harnessFallbackTurn(provider, turnConfig, lastMsgs)
+                val harnessTurn = harnessFallbackTurn(provider, turnConfig, lastMsgs)
+                val harnessAnswer = harnessTurn?.content
                 if (!harnessAnswer.isNullOrBlank()) {
+                    // v1.4.0 chat export: usage stats from the harness phase.
+                    turnTokensUsed = harnessTurn?.tokensUsed?.takeIf { it > 0 }
+                    turnLatencyTotal = harnessTurn?.latencyMs?.takeIf { it > 0 }
                     // v1.3.0 round-8: the harness tool phase counts toward the
                     // thinking duration — Claude-style, tool time included.
-                    val handoffSteps = currentStepsWithThinking(
-                        thinkingDurationMs + (System.currentTimeMillis() - harnessStartAt)
-                    )
+                    val harnessDurationMs = thinkingDurationMs +
+                        (System.currentTimeMillis() - harnessStartAt)
+                    val handoffSteps = currentStepsWithThinking(harnessDurationMs)
                     val handoffEncoded = com.tsfdroid.ai.core.harness.ActivitySteps.encode(handoffSteps)
                     android.util.Log.i(
                         "AgentLoop",
@@ -1439,7 +1502,13 @@ class AgentLoop @Inject constructor(
                         text = harnessAnswer,
                         thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
                         // v1.2.1: persist the visible step trace on the reply.
-                        stepsJson = handoffEncoded
+                        stepsJson = handoffEncoded,
+                        // v1.4.0 chat export: measured thinking (incl. harness
+                        // phase), usage, and the full tool-call log.
+                        thinkingDurationMs = harnessDurationMs.takeIf { it > 0 },
+                        toolCallsJson = ToolCallRecords.encode(turnToolRecords.toList()),
+                        tokensUsed = turnTokensUsed,
+                        turnLatencyMs = turnLatencyTotal
                     )
                     conversationRepository.insertMessage(sessionId, loopMsg)
                     memoryManager.storeMessage(loopMsg, sessionId)
@@ -1454,7 +1523,9 @@ class AgentLoop @Inject constructor(
                 val snagMsg = replyMsg.copy(
                     text = "I hit a snag completing that one — the model's reply came back " +
                         "in a shape I couldn't use. Please try again in a moment.",
-                    thinkingText = currentThinkingText.takeIf { it.isNotBlank() }
+                    thinkingText = currentThinkingText.takeIf { it.isNotBlank() },
+                    // v1.4.0 chat export: whatever ran before the snag is kept.
+                    toolCallsJson = ToolCallRecords.encode(turnToolRecords.toList())
                 )
                 conversationRepository.insertMessage(sessionId, snagMsg)
                 memoryManager.storeMessage(snagMsg, sessionId)
@@ -1477,7 +1548,13 @@ class AgentLoop @Inject constructor(
             ) {
                 android.util.Log.i("AgentLoop", "research guarantee: fresh-data ask answered with zero tool events — running the harness search")
                 val researchStartAt = System.currentTimeMillis()
-                val grounded = harnessFallbackTurn(provider, turnConfig, lastMsgs)
+                val groundedTurn = harnessFallbackTurn(provider, turnConfig, lastMsgs)
+                val grounded = groundedTurn?.content
+                if (groundedTurn != null) {
+                    // v1.4.0 chat export: usage from the re-ask phase.
+                    turnTokensUsed = groundedTurn.tokensUsed.takeIf { it > 0 } ?: turnTokensUsed
+                    turnLatencyTotal = groundedTurn.latencyMs.takeIf { it > 0 } ?: turnLatencyTotal
+                }
                 // v1.2.1 round-6 fix (cap15 failed both CI passes): the model
                 // can DODGE the re-ask and answer from memory again (zero tool
                 // events — exactly the field evidence). When it does — or when
@@ -1494,6 +1571,12 @@ class AgentLoop @Inject constructor(
                         history = lastMsgs,
                         userQuery = userMsg.text
                     ) { status -> _liveThinking.value = status }
+                    if (forced != null) {
+                        // v1.4.0 chat export: the deterministic search's model
+                        // calls count toward the turn's usage too.
+                        turnTokensUsed = (turnTokensUsed ?: 0) + forced.tokensUsed
+                        turnLatencyTotal = (turnLatencyTotal ?: 0L) + forced.latencyMs
+                    }
                     forced?.content?.takeIf { it.isNotBlank() } ?: grounded
                 } else {
                     grounded
@@ -1589,7 +1672,8 @@ class AgentLoop @Inject constructor(
             val stepsEncoded = com.tsfdroid.ai.core.harness.ActivitySteps.encode(stepsSnapshot)
             android.util.Log.i(
                 "AgentLoop",
-                "final reply save: steps=${stepsSnapshot.size} jsonLen=${stepsEncoded?.length ?: -1} id=$replyId"
+                "final reply save: steps=${stepsSnapshot.size} jsonLen=${stepsEncoded?.length ?: -1} id=$replyId " +
+                    "tools=${turnToolRecords.size} thinkingMs=$thinkingDurationMs"
             )
             val finalReplyMsg = replyMsg.copy(
                 // v1.3.0: save-time stamp — a reply that answered an ask_user
@@ -1606,7 +1690,16 @@ class AgentLoop @Inject constructor(
                 // card messages below).
                 attachmentJson = drainCollectedArtifact()?.also {
                     android.util.Log.i("AgentLoop", "artifact card attached to harness reply: ${it.take(80)}")
-                }
+                },
+                // v1.4.0 chat export: the debugging-fidelity payload — the
+                // measured thinking phase, the concrete model id (already on
+                // replyMsg), harness usage when that phase ran, and the full
+                // tool-call log (raw args, mapped params, capped-but-real
+                // results, per-call durations).
+                thinkingDurationMs = thinkingDurationMs.takeIf { it > 0 },
+                toolCallsJson = ToolCallRecords.encode(turnToolRecords.toList()),
+                tokensUsed = turnTokensUsed,
+                turnLatencyMs = turnLatencyTotal
             )
             conversationRepository.insertMessage(sessionId, finalReplyMsg)
             memoryManager.storeMessage(finalReplyMsg, sessionId)
@@ -2040,11 +2133,16 @@ class AgentLoop @Inject constructor(
      * gets its own fresh bound, and the user can take as long as they like
      * to answer. Bounded by [MAX_ASKS_PER_TURN] resumes.
      */
+    /**
+     * v1.4.0 chat export: now returns the harness's FULL [HarnessLoop.TurnResult]
+     * (content + accumulated tokens/latency), not just the answer string —
+     * the caller persists the usage numbers on the reply for the export.
+     */
     private suspend fun harnessFallbackTurn(
         provider: LLMProvider,
         turnConfig: HarnessLoop.TurnConfig,
         history: List<ChatMessage>
-    ): String? {
+    ): HarnessLoop.TurnResult? {
         android.util.Log.i("AgentLoop", "harnessFallbackTurn begin (history=${history.size} msgs)")
         var currentHistory = history
         var asks = 0
@@ -2106,7 +2204,7 @@ class AgentLoop @Inject constructor(
             _liveThinking.value = null
             val answer = result.content.takeIf { it.isNotBlank() }
             android.util.Log.i("AgentLoop", "harnessFallbackTurn returned len=${answer?.length ?: -1}")
-            return answer
+            return result.takeIf { answer != null }
         }
     }
 
@@ -2718,6 +2816,17 @@ class AgentLoop @Inject constructor(
         } else {
             plan
         }
+        // v1.4.0 chat export: fresh tool-call log per plan run — the full
+        // record of every dispatched action (params, results, durations)
+        // rides the final summary message for the raw-text export. The
+        // epoch mechanism guarantees one active plan loop at a time, so an
+        // instance-level collector is race-safe under the same invariant
+        // the rest of this loop already relies on.
+        activePlanToolRecords.clear()
+        activePlanModelId = runCatching {
+            val cfg = settingsRepository.llmConfig.first()
+            cfg.selectedModelFor(cfg.activeProvider)
+        }.getOrNull()
         var currentPlanState = planManager.currentPlan.value ?: return
         if (effectivePlan !== plan) {
             planManager.startNewPlan(effectivePlan, context, PlanStatus.RUNNING)
@@ -2888,6 +2997,8 @@ class AgentLoop @Inject constructor(
             // and must stay unbounded.
             val isUserInteractionStep =
                 stepToExecute.action.trim().uppercase() == "ASK_USER"
+            // v1.4.0 chat export: wall-clock start for the per-step record.
+            val stepExecStartAt = System.currentTimeMillis()
             var actionResult = try {
                 var result = if (isUserInteractionStep) {
                     actionSequenceExecutor.dispatch(stepToExecute.action, resolvedParams, context)
@@ -2934,6 +3045,32 @@ class AgentLoop @Inject constructor(
             // not the raw plan action string — the dispatcher accepts non-canonical
             // names (e.g. "EMAIL", "send-email") that still execute as SEND_EMAIL.
             val canonicalActionName = actionDispatcher.canonicalActionName(stepToExecute.action)
+
+            // v1.4.0 chat export: the full per-step record — resolved params
+            // (sanitized like task_history), redacted + capped result, real
+            // duration. Same fidelity as the chat-path harness records, so the
+            // export's toolCalls array reads identically for plan-mode turns.
+            run {
+                val capped = ToolCallRecords.capResult(
+                    actionResult.data?.let(com.tsfdroid.ai.core.crash.CrashLogRedactor::redact)
+                )
+                activePlanToolRecords.add(
+                    ToolCallRecord(
+                        tool = stepToExecute.action,
+                        action = canonicalActionName,
+                        argumentsRaw = stepToExecute.params.entries.joinToString(", ") {
+                            "${it.key}=${it.value.take(120)}"
+                        },
+                        params = ExecutionHistoryPrivacy.sanitizeParams(canonicalActionName, resolvedParams),
+                        success = actionResult.success,
+                        result = capped.first,
+                        truncated = capped.second,
+                        error = actionResult.error?.let(com.tsfdroid.ai.core.crash.CrashLogRedactor::redact),
+                        startedAt = stepExecStartAt,
+                        durationMs = System.currentTimeMillis() - stepExecStartAt
+                    )
+                )
+            }
 
             try {
                 withTimeout(MEMORY_LOG_TIMEOUT_MS) {
@@ -3704,7 +3841,13 @@ class AgentLoop @Inject constructor(
             },
             // v1.2.1: the plan's full visible-step trace rides the summary so
             // the ACTIVITY section in chat shows exactly what the todo list did.
-            stepsJson = com.tsfdroid.ai.core.harness.ActivitySteps.encode(currentStepsSnapshot())
+            stepsJson = com.tsfdroid.ai.core.harness.ActivitySteps.encode(currentStepsSnapshot()),
+            // v1.4.0 chat export: the plan's tool-call log (one record per
+            // dispatched action: resolved params, redacted + capped results,
+            // real durations) plus the model id that ran the loop — the
+            // plan-mode counterpart of the chat path's persistence.
+            modelId = activePlanModelId,
+            toolCallsJson = ToolCallRecords.encode(activePlanToolRecords.toList())
         )
         memoryManager.storeMessage(assistantMsg, sessionId)
         conversationRepository.insertMessage(sessionId, assistantMsg)

@@ -30,6 +30,18 @@ data class ConversationEntity(
     // v1.3.0: ask_user question options (AskOptions JSON) — persisted so the
     // tappable chips survive process death and history reloads.
     val askOptionsJson: String? = null,
+    // v1.4.0 chat export: the measured reasoning phase of this reply in ms
+    // (null when unmeasured). Numeric counterpart of the "Thought for Xs" label.
+    val thinkingDurationMs: Long? = null,
+    // v1.4.0 chat export: the concrete model id that answered this turn.
+    val modelId: String? = null,
+    // v1.4.0 chat export: provider-reported token usage for this turn (nullable).
+    val tokensUsed: Int? = null,
+    // v1.4.0 chat export: total harness model-call latency for this turn, ms (nullable).
+    val turnLatencyMs: Long? = null,
+    // v1.4.0 chat export: JSON array of ToolCallRecord — the full tool-call
+    // log behind this reply (params, capped results, per-call durations).
+    val toolCallsJson: String? = null,
     // Which chat history this message belongs to. See ChatSessionEntity.
     val sessionId: String
 )
