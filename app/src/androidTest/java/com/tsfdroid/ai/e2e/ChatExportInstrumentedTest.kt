@@ -273,6 +273,28 @@ class ChatExportInstrumentedTest {
         device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))
             .any { runCatching { it.applicationPackage }.getOrNull() == appPackage }
 
+    /**
+     * v1.4.0 export E2E: waits until the top-bar status leaves the busy
+     * states (their capability suite's agentBusyOnScreen contract) — an
+     * export taken mid-turn would slice the turn's tool log.
+     */
+    private fun waitAgentIdle(timeoutMs: Long) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            device.runWatchers()
+            val busy = device.findObjects(By.text(Pattern.compile(".+")))
+                .filter { runCatching { it.applicationPackage }.getOrNull() == appPackage }
+                .any { obj ->
+                    val t = runCatching { obj.text.trim() }.getOrDefault("")
+                    t.startsWith("Analyzing") || t.startsWith("Requires Plan") ||
+                        t.startsWith("Executing") || t.startsWith("Speaking") ||
+                        t.startsWith("Planning")
+                }
+            if (!busy) return
+            runCatching { Thread.sleep(3_000) }
+        }
+    }
+
     private fun keyboardUp(): Boolean = runCatching {
         InstrumentationRegistry.getInstrumentation().uiAutomation.windows
             .any { w -> w.root?.packageName?.toString()?.contains("inputmethod") == true }
@@ -351,28 +373,41 @@ class ChatExportInstrumentedTest {
         }
 
         val task = "Fetch https://example.com and tell me the exact main heading of the page."
-        val baseline = visibleTexts()
         assertTrue("could not type the export task", typeChatMessage(task))
         shoot("export_02_typed")
         assertTrue("could not send the export task", tapSendAndVerify(task))
+        // Round-25 lesson (their cap22 round-23 fix applies here too): the
+        // baseline is captured AFTER the send so the TYPED MESSAGE ITSELF can
+        // never match as the reply — this task's text contains "example.com",
+        // and the settle timer returned it ~a minute before the real grounded
+        // answer while the status still read "Analyzing intent & planning…".
+        val baseline = visibleTexts()
 
         // The reply must be grounded in the real fetch (stream-settled so a
-        // mid-stream snapshot never passes).
+        // mid-stream snapshot never passes; the sent bubble is in the baseline
+        // so only genuinely NEW text counts).
         val reply = waitNewText(baseline, timeoutMs = 420_000, settleMs = 15_000)
         shoot("export_03_reply")
         assertNotNull("the fetch task never produced a reply", reply)
         assertTrue(
             "reply is not grounded in the fetched page (got: ${reply!!.take(120)})",
-            reply.contains("Example", ignoreCase = true)
+            reply.contains("Example", ignoreCase = true) && reply != task
         )
+        // The turn must actually be FINISHED before exporting — an in-flight
+        // turn's records would be incomplete (the export must carry the whole
+        // turn, not a slice of it).
+        waitAgentIdle(180_000)
 
-        // The export itself, through the real UI.
+        // The export itself, through the real UI. The actions lead the menu
+        // (round-25 UI fix) so they are visible without scrolling past the
+        // session list — the suite's earlier classes leave 8+ chats behind.
         assertTrue("Chats menu button not found", clickDesc("Chats", 15_000))
+        shoot("export_04_menu_open")
         assertTrue(
             "Export chat item not found in the Chats menu",
             clickTextContains("Export chat", 10_000)
         )
-        shoot("export_04_tapped")
+        shoot("export_05_tapped")
 
         // The share chooser covers the app on success — dismiss it ONLY while
         // it is actually up (a blind second back could exit the app to the
@@ -388,7 +423,7 @@ class ChatExportInstrumentedTest {
         val exportsDir = File(ctx.getExternalFilesDir(null), "workspace/Exports")
         val exportFile = waitForExportFile(exportsDir, 30_000)
         assertNotNull("no export JSON appeared in ${exportsDir.absolutePath}", exportFile)
-        shoot("export_05_file_present")
+        shoot("export_06_file_present")
 
         // Parse ON DEVICE and assert completeness — the whole point.
         val doc = JSONObject(exportFile!!.readText())
@@ -407,7 +442,7 @@ class ChatExportInstrumentedTest {
                 )
             }
         }
-        shoot("export_06_done")
+        shoot("export_07_done")
 
         // Restore AGENT mode — the stored setting is global and later classes
         // in the suite (and the next installs) expect the default. If a share

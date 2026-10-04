@@ -404,6 +404,39 @@ fun ChatScreen(
                             onDismissRequest = { showChatMenu = false },
                             modifier = Modifier.background(DarkSurface)
                         ) {
+                            // v1.4.0 round 25: the chat ACTIONS lead the menu —
+                            // a user with many sessions (or the E2E suite's 8+)
+                            // must not scroll a capped-height dropdown past the
+                            // whole session list just to export or clear. Same
+                            // placement pattern as WhatsApp's menu actions.
+                            HorizontalDivider(color = TextSecondary.copy(alpha = 0.2f))
+                            // v1.4.0 chat export: the raw-text (JSON) debugging
+                            // artifact — every message, the full thinking trace,
+                            // every tool call with params/results/durations,
+                            // written to workspace/Exports/ and offered to the
+                            // share sheet in one tap.
+                            DropdownMenuItem(
+                                text = { Text("Export chat", color = TextPrimary, fontSize = 13.sp) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Save,
+                                        contentDescription = null,
+                                        tint = AccentCyan,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showChatMenu = false
+                                    viewModel.exportChat()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Clear chat", color = TextPrimary, fontSize = 13.sp) },
+                                onClick = {
+                                    showChatMenu = false
+                                    viewModel.clearChat()
+                                }
+                            )
                             if (sessions.isEmpty()) {
                                 DropdownMenuItem(
                                     text = { Text("No chats yet", color = TextSecondary, fontSize = 13.sp) },
@@ -486,39 +519,6 @@ fun ChatScreen(
                                     }
                                 )
                             }
-                            // v1.2.0: moved out of the top-bar actions — the bar
-                            // hosts mode/effort/approval chips too, and on narrow
-                            // screens the extra TextButton overflowed the layout
-                            // (the plan card's approve button ended up behind the
-                            // input overlay). Same action, same target chat.
-                            HorizontalDivider(color = TextSecondary.copy(alpha = 0.2f))
-                            // v1.4.0 chat export: the raw-text (JSON) debugging
-                            // artifact — every message, the full thinking trace,
-                            // every tool call with params/results/durations,
-                            // written to workspace/Exports/ and offered to the
-                            // share sheet in one tap.
-                            DropdownMenuItem(
-                                text = { Text("Export chat", color = TextPrimary, fontSize = 13.sp) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Save,
-                                        contentDescription = null,
-                                        tint = AccentCyan,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                },
-                                onClick = {
-                                    showChatMenu = false
-                                    viewModel.exportChat()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Clear chat", color = TextPrimary, fontSize = 13.sp) },
-                                onClick = {
-                                    showChatMenu = false
-                                    viewModel.clearChat()
-                                }
-                            )
                         }
                     }
                 },
