@@ -4,6 +4,88 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## Unreleased — the chat export: every turn, full fidelity, one tap (rounds 25-27, on v1.4.0)
+
+The user's debugging loop needed the WHOLE turn in a shareable file: what the
+model thought, how long it thought, every tool call with the arguments it sent,
+the params actually dispatched, the real results, and the answer it gave. The
+DB persisted none of that as numbers — thinking duration lived inside a UI label,
+tool results were 160-char snippets, and the concrete model id was nowhere. This
+round enriches persistence first, then builds the exporter on top.
+
+### The persistence (Room v15 — five additive columns)
+
+- `thinkingDurationMs` — the measured reasoning phase as a NUMBER (the
+  "Thought for Xs" label is its rendering, the number is the truth).
+- `modelId` — the concrete model behind the provider badge
+  (`mimo-v2.6-flash-free`, not just "OpenCode Zen").
+- `tokensUsed` / `turnLatencyMs` — provider-reported usage for the turn's
+  harness calls.
+- `toolCallsJson` — a `ToolCallRecord` per executed call: the model's RAW
+  arguments verbatim, the mapped params actually dispatched (plan-vs-dispatch
+  divergence visible in one glance), the redacted + capped result (20k chars
+  with an honest `truncated` flag), the error text, and per-call wall-clock
+  duration.
+
+Captured at all three harness execution sites (main loop, mid-continuation,
+forced search), at the plan-executor dispatch site, and persisted on EVERY
+save path — streaming writes, the blank/monologue handoff, the research
+guarantee, both snag paths, stopped partials, and plan summaries.
+
+### The export (ChatExporter + pure ChatExportFormat)
+
+- One pretty-printed JSON document per chat, written to
+  `workspace/Exports/chat-<title>-<timestamp>.json` — the same
+  adb-pullable, FileProvider-shareable root the agent's own artifacts use.
+- Self-describing header (format id + version, app version), ISO8601 + epoch
+  timestamps, session metadata, honest nulls, and fidelity notes IN the file:
+  image payloads are metadata-only (base64 excluded), tool results capped at
+  20k per call, credential material stripped at capture time.
+- **"Export chat" in the Chats menu** — the actions (Export, Clear) now LEAD
+  the menu so they stay reachable with dozens of sessions; the file lands on
+  disk and the share sheet opens with it in one tap.
+- The QA report generator learned the export's signals (`chat exported:`,
+  `final reply save: ...tools=`, `chat export failed`).
+
+### The verification (the gauntlet's measurable half)
+
+- `ChatExportInstrumentedTest` (the 46th E2E test): a real fetch turn through
+  the actual chat UI → "Export chat" tapped through the real menu → the JSON
+  parsed ON DEVICE → every required field asserted (user message verbatim,
+  model id, thinking + duration, the FETCH_URL record with params + real
+  result + duration, the activity timeline) → the verified file shipped as a
+  CI artifact. **Green in both gate runs' retry passes.**
+- 6 JVM rig tests (format round-trip, honest nulls, cap boundaries, codec,
+  filename sanitize) — green locally before every push and in Remote CI.
+- A fresh-context critic blind-compared the exported file against ChatGPT's
+  `conversations.json` and OpenCode's session storage and picked ours ("it
+  isn't close — the only candidate that is both one portable self-describing
+  file and actually instrumented"). Its named gaps — input-side invisibility
+  (no system-prompt/config snapshot), token provenance (some providers
+  estimate), un-ordered parts, no edit/regen message tree — are recorded as
+  the next round's bars.
+
+### The E2E forensics that shaped the round (brutal-honesty file)
+
+- Two androidTest compile typos (`isNotBlank` without parens, a missing
+  `asStateFlow` import) escaped the local rig — the rig compiles MAIN sources
+  only; androidTest deps are unavailable locally. CI caught both in minutes.
+- The settle race: the typed message self-matched as the reply (the task text
+  contained "example.com") — baseline now captured AFTER the send, and the
+  export waits for the agent's busy states to clear (an export taken mid-turn
+  would slice the log).
+- The dropdown fold: with 8+ sessions the footer actions sat below the
+  dropdown's visible area — fixed by moving the actions to the top.
+- 2026 example.com reality: IANA dropped the old `<h1>Example Domain</h1>`;
+  the app fetched correctly, the model answered honestly "there is no
+  heading in the fetched result", and the TEST was wrong. It now asks what
+  the page actually says (their cap3's v1.2.0 note documented the same
+  change).
+- The suite's residual red (rotating capability-test failures:
+  fiveYear/personalMemory/researchedAnswer/xauusd/gold across passes) is the
+  documented free-tier variance — every failure class runs BEFORE the export
+  test, and the export test passed green while they failed, twice.
+
 ## Unreleased — round 21 (on v1.4.0): the wrapper-form slop hole and the spoken-text/markdown polish
 
 Three live-device screenshots and a screen recording (20:11–20:28) showed the
