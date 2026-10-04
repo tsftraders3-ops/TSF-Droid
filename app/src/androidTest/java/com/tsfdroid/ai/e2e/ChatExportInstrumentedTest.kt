@@ -374,13 +374,14 @@ class ChatExportInstrumentedTest {
         )
         shoot("export_04_tapped")
 
-        // The share chooser covers the app on success — dismiss it; the FILE
-        // is the deliverable being verified.
+        // The share chooser covers the app on success — dismiss it ONLY while
+        // it is actually up (a blind second back could exit the app to the
+        // launcher); the FILE is the deliverable being verified either way.
         device.waitForIdle(2_000)
-        runCatching { device.pressBack() }
-        device.waitForIdle(1_500)
-        runCatching { device.pressBack() }
-        device.waitForIdle(1_500)
+        if (device.wait(Until.hasObject(By.textContains("Share")), 6_000) == true) {
+            runCatching { device.pressBack() }
+            device.waitForIdle(1_500)
+        }
 
         // The file must exist in workspace/Exports/ (the CI-pulled dir).
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
@@ -409,8 +410,15 @@ class ChatExportInstrumentedTest {
         shoot("export_06_done")
 
         // Restore AGENT mode — the stored setting is global and later classes
-        // in the suite (and the next installs) expect the default.
+        // in the suite (and the next installs) expect the default. If a share
+        // chooser is still covering the app, dismiss it first.
         runCatching {
+            if (device.findObject(By.text("CHAT")) == null &&
+                device.findObject(By.textContains("Share")) != null
+            ) {
+                device.pressBack()
+                device.waitForIdle(1_500)
+            }
             device.findObject(By.text("CHAT"))?.click()
             device.waitForIdle(1_000)
         }
