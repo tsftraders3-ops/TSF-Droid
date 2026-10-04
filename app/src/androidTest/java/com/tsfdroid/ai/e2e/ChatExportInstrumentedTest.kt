@@ -447,7 +447,7 @@ class ChatExportInstrumentedTest {
         assertEquals("format id", "tsfdroid-chat-export", doc.getString("format"))
         assertEquals("format version", 1, doc.getInt("version"))
         assertTrue("exportedAt stamp missing", doc.getJSONObject("exportedAt").has("iso8601"))
-        assertTrue("app version missing", doc.getJSONObject("app").getString("versionName").isNotBlank)
+        assertTrue("app version missing", doc.getJSONObject("app").getString("versionName").isNotBlank())
 
         val session = doc.getJSONObject("session")
         val messages = doc.getJSONArray("messages")
