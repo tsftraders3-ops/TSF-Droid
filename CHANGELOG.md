@@ -4,6 +4,134 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
+## Unreleased (v1.6.0) - The field-failure fixes: every family from the 2026-10-05 field report
+
+The user zipped a day of real v1.5.0 usage (7 chat exports, 13 created files) and
+the field analysis (docs/field-reports/2026-10-05-v1.5.0-field-analysis.md) named
+8 root-cause families, 30 issues, and 7 proposed bars. This release fixes them
+all, with the exports as the regression corpus: every unit test in the fix suite
+replays VERBATIM field evidence (the six leading `web_search {` syntax lines, the
+"I used web_search(...) to work on this." stub, the `{"speech":...}` wrapper,
+the `[today 24k price]` template PDF, the fabricated cab booking, the 28-minute
+needs-input trap, the overwritten script question, the 403-char privacy-leak
+query). The bars live in docs/gauntlet/phase21-bars.md.
+
+### B1 Truthfulness - no reply may claim an outcome nothing produced (P0-1)
+
+- Ask-only plans (ASK_USER/CHAT steps only) can never earn a completion claim:
+  the deterministic `honestAskOnlySummary` outranks the LLM confirmation and
+  says plainly what the device cannot do ("nothing has been booked - I don't
+  have a booking action... I can open the app for you").
+- The ask-confirmation prompt itself is honesty-first: "only claim a task was
+  completed if one of the steps actually performed it."
+- The capability note rides the auto-approval trace at plan time.
+- The summary claim audit: filenames the reply PROMISES are checked against the
+  artifacts the plan actually wrote - "Here are both files" now gets an honesty
+  note when the second file was never written (P1-6).
+
+### B2 Answer hygiene - nothing internal reaches the user (P0-4/5/6)
+
+- New `AnswerHygiene` - the ONE answer-shape gate at the harness exit, the
+  continuation joins, and the chat final save: tool-syntax runs stripped
+  (including fragments glued to content on the same line), harness round-stub
+  answers replaced (one FINAL_ANSWER_NUDGE re-ask, then the fallback ladder),
+  JSON `{"speech":...}` envelopes unwrapped to their payload, oversized inline
+  file dumps collapsed to a save-it note.
+- The mid-work narration context is cleaned too, so the expansion pass can no
+  longer inherit the syntax lines into the final text.
+- Clean answers from the same corpus pass through UNCHANGED (tested).
+
+### B3 Deliverables - the file the user named, with content that passes the gate (P0-2/P0-3/P1-1/P1-6)
+
+- `GoalContract.parseRequestedFilenames`: "a report called X.md ... save it as
+  Y.csv" yields BOTH files; multi-file asks synthesize one step per file.
+- The content gate (narration shapes, unfilled `[placeholder]` brackets,
+  markdown-in-a-.json kind mismatches) runs before EVERY write - the
+  synthesizer, AND the CREATE_PDF action (defense in depth). One bounded
+  repair re-ask; content that still fails delivers an honest chat answer
+  instead of a garbage file.
+- No more hardcoded Documents/report.pdf: the requested name wins, the
+  MarketReports folder is honored, unnamed deliverables get a goal slug with
+  the right extension.
+- Storage collision auto-rename: writing an existing name lands as
+  `report-2.pdf` and SAYS so - the field's double report.pdf silently
+  destroyed the first report, and a question once overwrote scrap_titles.py.
+
+### B4 One storage - every created file lands where the user chose, with a card (P1-2/P1-3)
+
+- `writeBinaryFile` (CREATE_PDF output) now routes through the same SAF custom
+  folder text writes use - no more PDFs in Android/data while the user's
+  chosen folder stays empty.
+- WRITE_FILE reports its resolved location as a `path` key; artifact cards
+  accept `content://` URIs - 12/12 field WRITE_FILE turns had no card, now
+  cards fire for both write kinds.
+
+### B5 Respect the user - "stop" stops, prompts speak human (P0-8/P1-4/P1-5)
+
+- The cancel lexicon: "stop", "stop don't need to do anything", "cancel",
+  "never mind" abort the parked plan with an honest stopped summary; real
+  parameter answers ("forward", "kolkata") never trip it.
+- Needs-input prompts are rewritten to user language ("Which text should I
+  tap?" - never "I need the searchText").
+- Per-PLAN prompt budget (8): the per-action cap never bit in the field
+  because broken steps cycled prompts ACROSS steps for 28 minutes.
+- TAP/CLICK/PRESS/INPUT_TEXT/SWIPE/SCROLL_* alias mapping - the planner's
+  invented action names resolve; actions that resolve to NOTHING fail at
+  validation time (an honest chat note), not 19 minutes into execution.
+- User replies during needs-input waits are persisted exactly once (10
+  duplicate USER rows in the field exports).
+- SEND_SMS: digit-string recipients ("sms hi to the number 123") bypass
+  contact lookup entirely.
+
+### B6 Routing - questions are answered, not turned into file-writes (P0-7/P1-7/P1-8)
+
+- The interrogative guard: storage questions ("can you tell me the location
+  where the export chats are saved") route to the chat path, never a WRITE_FILE
+  plan - and the harness prompt now carries the app's REAL storage facts, so
+  the answer is grounded instead of a WhatsApp hallucination.
+- The read-and-remember alias is verb-phrase anchored: "read my emails...
+  save the details" no longer trips the screen-read shortcut ahead of real
+  planning.
+- Private first-person queries never reach a public search engine: the
+  403-char morning-briefing ask is replaced by its public clause ("fetch the
+  current weather forecast for kolkata").
+
+### B7 Export completeness - the next field report can answer what this one couldn't (P2-4/5/6/8)
+
+- Export schema v2 (Room v16): every message carries its `mode` (CHAT/AGENT -
+  the #1 limitation of the v1.5.0 analysis) and the reply carries
+  `usage.wallMs` (the turn's wall clock - the ~9-minute unaccounted expansion
+  window).
+- Thinking segments join with newlines ("Let me start.Let me plan this." is
+  gone).
+- Session titles derive from the first user message - no more seven "New Chat"
+  exports.
+
+### Also fixed (the P2s worth it)
+
+- PDF rendering: markdown-lite (headings, bold, tables, rulers, bullets),
+  char-level wrap, sanitized titles; the raw query no longer becomes the title.
+- Failed-URL circuit breaker: a URL that already failed this turn is skipped
+  with an honest result (the field re-fetched the same dead ai.google.dev URL
+  four times, ~80s wasted).
+- CALCULATE expressions are sanitized to pure arithmetic (the gold turn died
+  on "..., using prices found in steps s1 and s2").
+- Reminder goal-coverage: a reminder ask whose plan lacks SET_REMINDER gains
+  the step (the gold turn's 5pm reminder vanished silently).
+- The auto-approval trace reads like a person ("On it - <goal>") and carries
+  the capability note.
+- CHAT-mode refusals against artifact goals always carry the switch-mode line.
+
+### The verification
+
+- 77/77 pure-logic tests green in the local kotlinc rig BEFORE push - the
+  fixtures are the verbatim field evidence.
+- Remote CI green: full unit suite (715 + the new field-corpus tests).
+- `FieldFixesInstrumentedTest` (3 E2E tests on the live model): B3 named-file
+  created with content + collision rename verified on device; B6 the storage
+  question answers in chat with no file written; B7 the exported JSON is
+  schema v2 with mode + wallMs.
+
 ## v1.5.0 — The chat export: every turn, full fidelity, one tap (+ the 2026-10-03 field-failure closures)
 
 The user's debugging loop needed the WHOLE turn in a shareable file: what the

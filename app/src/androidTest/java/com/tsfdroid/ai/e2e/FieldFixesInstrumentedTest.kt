@@ -301,13 +301,13 @@ class FieldFixesInstrumentedTest {
 
     /**
      * AGENT-mode plans under the default approval policy surface the
-     * "Approve & Run" modal; poll for it for a bounded window and approve.
-     * Exits early when the agent is already executing (auto-approved or no
-     * plan needed) so the no-modal path costs nothing.
+     * "Approve & Run" modal; poll for it and approve. Exits early ONLY on
+     * POST-approval states (Executing/Running/On it) — "Analyzing" and
+     * "Thinking" PRECEDE the modal (run 37315400374: an early exit on
+     * those left the plan unapproved and the turn timed out).
      */
     private fun approvePlanIfAsked(windowMs: Long) {
         val deadline = System.currentTimeMillis() + windowMs
-        var busySightings = 0
         while (System.currentTimeMillis() < deadline) {
             device.runWatchers()
             val approve = device.findObject(By.textContains("Approve & Run"))
@@ -317,20 +317,15 @@ class FieldFixesInstrumentedTest {
                 shoot("fieldfix_approved")
                 return
             }
-            val busy = device.findObjects(By.text(Pattern.compile(".+")))
+            // Only genuinely post-approval states mean no modal is coming.
+            val executing = device.findObjects(By.text(Pattern.compile(".+")))
                 .filter { runCatching { it.applicationPackage }.getOrNull() == appPackage }
                 .any { obj ->
                     val t = runCatching { obj.text.trim() }.getOrDefault("")
-                    t.startsWith("Executing") || t.startsWith("Analyzing") ||
-                        t.startsWith("Thinking") || t.startsWith("Running") ||
+                    t.startsWith("Executing") || t.startsWith("Running") ||
                         t.startsWith("On it")
                 }
-            if (busy) {
-                busySightings++
-                if (busySightings >= 2) return
-            } else {
-                busySightings = 0
-            }
+            if (executing) return
             runCatching { Thread.sleep(2_000) }
         }
     }
@@ -503,13 +498,16 @@ class FieldFixesInstrumentedTest {
         shoot("fieldfix_b6_reply")
         assertNotNull("the storage question never produced a reply", reply)
 
-        // Grounded in the app's real facts: the answer names the Exports
-        // location - never a WhatsApp hallucination, never a file-write.
+        // Grounded in the app's real facts: the answer names the real storage
+        // (the Exports folder, the workspace, or the private Android/data
+        // path the app itself documents) - never a WhatsApp hallucination,
+        // never a file-write.
         assertTrue(
-            "the storage answer is not grounded in the app's real Exports location " +
+            "the storage answer is not grounded in the app's real storage facts " +
                 "(got: ${reply!!.take(200)})",
             reply.contains("Exports", ignoreCase = true) ||
-                reply.contains("workspace", ignoreCase = true)
+                reply.contains("workspace", ignoreCase = true) ||
+                reply.contains("Android/data", ignoreCase = true)
         )
         assertTrue(
             "the storage question became a file-write (field P0-7 regression)",

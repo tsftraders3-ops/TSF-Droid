@@ -144,25 +144,29 @@ internal object GoalContract {
      * evidence (P0-2): the dispatched PDF content was exactly
      * "I'll first check the environment and whether I can gather any real
      * data." — a 70-char mid-work status line that became a 201KB PDF.
+     *
+     * E2E evidence (run 37315400374, cap4): the first version of this gate
+     * rejected a SHORT DECLARATIVE report as "narration" (no digits, few
+     * lines) and broke the capability suite. The gate is now CONSERVATIVE:
+     * narration requires a COMMITMENT OPENER (or narration vocabulary in a
+     * structureless short text) — never mere brevity.
      */
     fun isNarrationShaped(content: String): Boolean {
-        val lower = content.trim().lowercase()
+        val trimmedContent = content.trim()
+        val lower = trimmedContent.lowercase()
         if (lower.isEmpty()) return true
+        val hasStructure = trimmedContent.contains("#") ||
+            trimmedContent.contains("|") ||
+            trimmedContent.lines().count { it.isNotBlank() } > 4 ||
+            Regex("\\d").containsMatchIn(trimmedContent)
+        // A commitment opener ("I'll first check...") is narration when no
+        // real document body follows it.
+        if (NARRATION_OPENERS.any { lower.startsWith(it) } && !hasStructure) return true
         if (lower.length < 240) {
-            // Short content is narration when it opens with a commitment or
-            // contains no structure (headings/lists) and no hard data.
-            if (NARRATION_OPENERS.any { lower.startsWith(it) }) return true
-            val hasStructure = content.contains("\n#") || content.contains("\n##") ||
-                content.lines().count { it.isNotBlank() } > 4 ||
-                Regex("\\d").containsMatchIn(content)
-            if (NARRATION_OPENERS.any { lower.contains(it) } && !hasStructure) return true
-            return !hasStructure
+            // Short text with narration vocabulary anywhere and no structure.
+            return !hasStructure && NARRATION_OPENERS.any { lower.contains(it) }
         }
-        // Long content: narration only when it opens with a commitment line
-        // AND carries no structure at all.
-        val hasStructure = content.contains("#") || content.contains("|") ||
-            content.lines().count { it.isNotBlank() } > 8
-        return NARRATION_OPENERS.any { lower.startsWith(it) } && !hasStructure
+        return false
     }
 
     /**

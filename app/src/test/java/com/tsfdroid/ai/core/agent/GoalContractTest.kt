@@ -75,6 +75,21 @@ class GoalContractTest {
     }
 
     @Test
+    fun `E2E cap4 regression - short declarative report is NOT narration`() {
+        // Run 37315400374: the first gate version rejected a legitimate
+        // short report (no digits, few lines) and broke createPdf on the
+        // capability suite. Brevity is never narration.
+        val shortReport = "The history of artificial intelligence spans seven decades. " +
+            "Early symbolic systems gave way to statistical learning methods, and " +
+            "recent transformer architectures have transformed what machines can do " +
+            "with language and images."
+        assertNull(GoalContract.contentGate(shortReport))
+        val shortEssay = "Gold has been valued across civilizations for its rarity and " +
+            "luster. Modern markets treat it as a hedge against inflation."
+        assertNull(GoalContract.contentGate(shortEssay))
+    }
+
+    @Test
     fun `field garbage content - placeholder template is rejected`() {
         val template = "GOLD RATE REPORT - KOLKATA\n\nCOMPARISON TABLE\n" +
             "24K | [today 24k price] | [last week 24k price] | [calc %]\n" +

@@ -489,7 +489,7 @@ class ChatExportInstrumentedTest {
      */
     private fun assertExportCompleteness(doc: JSONObject, sentText: String) {
         assertEquals("format id", "tsfdroid-chat-export", doc.getString("format"))
-        assertEquals("format version", 1, doc.getInt("version"))
+        assertEquals("format version", 2, doc.getInt("version"))
         assertTrue("exportedAt stamp missing", doc.getJSONObject("exportedAt").has("iso8601"))
         assertTrue("app version missing", doc.getJSONObject("app").getString("versionName").isNotBlank())
 
