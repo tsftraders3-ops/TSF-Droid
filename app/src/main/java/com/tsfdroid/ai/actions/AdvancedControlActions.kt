@@ -234,16 +234,22 @@ class AdvancedControlActions @Inject constructor() {
                     // folder when set) and reports the RESOLVED location —
                     // reuse its path instead of re-resolving against the
                     // workspace (the old re-resolution lied for SAF writes).
-                    val resolvedPath = result.dataMap["path"]
+                    val writeData = (result as? ActionResult.Success)?.dataMap ?: emptyMap()
+                    val writeMessage: String = writeData["message"]
+                        ?: result.data
+                        ?: "PDF created"
+                    val resolvedPath: String = writeData["path"]
                         ?: runCatching {
                             StorageWorkspaceProvider.resolveFile(context, filePath).absolutePath
                         }.getOrNull()
                         ?: filePath
+                    val resolvedName: String = writeData["name"]
+                        ?: filePath.substringAfterLast('/')
                     ActionResult.Success(
                         dataMap = mapOf(
-                            "message" to "PDF created: ${result.dataMap["message"] ?: result.data}",
+                            "message" to "PDF created: $writeMessage",
                             "path" to resolvedPath,
-                            "name" to (result.dataMap["name"] ?: filePath.substringAfterLast('/'))
+                            "name" to resolvedName
                         )
                     )
                 } else {

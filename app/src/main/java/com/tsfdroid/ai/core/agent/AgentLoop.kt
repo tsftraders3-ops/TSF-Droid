@@ -4110,9 +4110,7 @@ class AgentLoop @Inject constructor(
             .findAll(summaryText).map { it.value.lowercase() }.toSet()
         val missingFiles = claimedFiles - writtenThisPlan
         val finalSummary = if (missingFiles.isNotEmpty()) {
-            summaryText + "
-
-(Honesty note: I mentioned " +
+            summaryText + "\n\n(Honesty note: I mentioned " +
                 missingFiles.joinToString(", ") { "'$it'" } +
                 " but didn't actually create " +
                 (if (missingFiles.size == 1) "it" else "them") +
