@@ -636,6 +636,7 @@ class AgentLoop @Inject constructor(
             text = question,
             sender = ChatMessage.Sender.AGENT,
             modelBadge = "ask_user",
+            mode = "AGENT",
             askOptionsJson = if (options.isNotEmpty()) {
                 com.tsfdroid.ai.data.models.serializeAskOptions(
                     com.tsfdroid.ai.data.models.AskOptions(options = options)
@@ -2197,17 +2198,32 @@ class AgentLoop @Inject constructor(
                 if (!repaired.isNullOrBlank() && GoalContract.contentGate(repaired, ext) == null) {
                     content = repaired
                 } else {
+                    // v1.6.0 round 3 (critic-21): one bad deliverable no
+                    // longer cancels the WHOLE shipment (the 2-file field
+                    // goal used to lose BOTH files when one failed the gate).
+                    // Drop the failing file, keep the ones that passed; the
+                    // summary's claim audit names what never shipped.
                     android.util.Log.w(
                         "AgentLoop",
-                        "content gate failed twice for $filePath — no file will be written; the chat answer carries the data"
+                        "content gate failed twice for $filePath - dropping that deliverable, keeping the rest"
                     )
-                    return null
+                    continue
                 }
             }
             generatedContents.add(filePath to content)
         }
 
         // Build one step per deliverable, in the order the goal named them.
+        // v1.6.0 round 3: when EVERY deliverable failed the gate, no file
+        // ships - return null so the caller's answer-engine ladder delivers
+        // the gathered research as an honest chat answer instead.
+        if (generatedContents.isEmpty()) {
+            android.util.Log.w(
+                "AgentLoop",
+                "every deliverable failed the content gate - no files; the chat answer carries the data"
+            )
+            return null
+        }
         val steps = generatedContents.mapIndexed { i, (filePath, content) ->
             PlanStep(
                 stepId = "s${i + 1}",
@@ -3166,10 +3182,15 @@ class AgentLoop @Inject constructor(
             // and "ok start" → "Let's build it!" was followed by silence).
             // Deliver the reply right here: chat bubble + TTS + COMPLETED.
             if (stepToExecute.action.trim().uppercase() == "CHAT") {
-                val response = stepToExecute.params["response"]
+                // v1.6.0 round 3 (critic-21): CHAT steps deliver model text
+                // verbatim - the answer-shape gate applies here too (a leading
+                // tool-syntax run in a plan's chat reply shipped as-is).
+                val rawResponse = stepToExecute.params["response"]
                     ?: stepToExecute.params["message"]
                     ?: stepToExecute.params["text"]
                     ?: ""
+                val response = AnswerHygiene.sanitizeFinalAnswer(rawResponse)
+                    ?: "I worked on that, but the reply came back in a shape I couldn't use. Could you ask me again?"
                 if (response.isNotBlank()) {
                     val chatMsg = ChatMessage(
                         id = UUID.randomUUID().toString(),
@@ -3483,6 +3504,20 @@ class AgentLoop @Inject constructor(
             currentPlanState = planManager.currentPlan.value ?: run {
                 android.util.Log.w("AgentLoop", "plan state vanished after step '${stepToExecute.action}' — ending plan silently")
                 break
+            }
+
+            // v1.6.0 round 3 (critic-21): a user-CANCELLED step is a HARD
+            // abort. The advisory re-eval LLM must never resurrect a plan the
+            // user stopped (the field's four ignored stop commands were
+            // exactly this class - a CONTINUE verdict after "stop").
+            val userCancelled = currentPlanState.steps.any {
+                it.status == StepStatus.FAILED && it.error?.contains("Cancelled by user") == true
+            }
+            if (userCancelled) {
+                android.util.Log.w("AgentLoop", "plan aborted by user stop - skipping re-evaluation entirely")
+                planManager.updatePlanStatus(PlanStatus.FAILED)
+                speakAndSaveSummary(currentPlanState, false, sessionId)
+                return
             }
 
             // Re-evaluate Plan Loop
@@ -3857,6 +3892,7 @@ class AgentLoop @Inject constructor(
             text = humanQuestion + optionsText,
             sender = ChatMessage.Sender.AGENT,
             modelBadge = "System",
+            mode = "AGENT",
             // v1.3.0: the plan-path ask gets the SAME tappable chips and the
             // SAME answer surface as the chat-path ask_user tool — the user
             // must never have to guess where to type the answer, whichever
@@ -4365,7 +4401,10 @@ class AgentLoop @Inject constructor(
                 )
             }
             val text = PlanResponseSanitizer.stripReasoningBlocks(response.content).trim()
-            text.takeIf { it.length in 4..400 }
+            // v1.6.0 round 3 (critic-21): the confirmation sentence itself
+            // passes the answer-shape gate - an LLM confirming in raw
+            // tool syntax or a JSON wrapper never ships.
+            AnswerHygiene.sanitizeFinalAnswer(text).takeIf { it.length in 4..400 }
                 ?.also {
                     android.util.Log.i(
                         "AgentLoop",

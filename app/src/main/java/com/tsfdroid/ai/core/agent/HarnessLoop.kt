@@ -389,8 +389,13 @@ class HarnessLoop @Inject constructor(
                     TAG,
                     "runTurn EXIT answer rounds=$round tools=$toolCallsExecuted cont=$continuationSegments finish=$lastFinishReason content=${response.content.length}c sanitized=${sanitizedExit?.length ?: -1}c"
                 )
+                // v1.6.0 round 3 (critic-21): a STILL-poisoned answer after
+                // the spent re-ask returns null - the caller's fallback
+                // ladder (forced search / honest note) is more truthful than
+                // shipping the raw stub.
+                if (sanitizedExit == null) return null
                 return TurnResult(
-                    content = sanitizedExit ?: response.content,
+                    content = sanitizedExit,
                     rounds = round,
                     toolCallsExecuted = toolCallsExecuted,
                     continuationSegments = continuationSegments,

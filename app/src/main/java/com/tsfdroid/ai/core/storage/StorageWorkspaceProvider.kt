@@ -451,9 +451,19 @@ object StorageWorkspaceProvider {
                             val name = GoalContractNames.collisionFree(existing, desired)
                             val doc = parent.createFile(guessMimeType(name), name)
                             if (doc != null) {
-                                context.contentResolver.openOutputStream(doc.uri, "wt")?.use { stream ->
-                                    stream.write(bytes)
+                                // v1.6.0 round 3 (critic-21): a NULL output
+                                // stream previously fell through the `?.use`
+                                // and still returned Success - a FALSE "PDF
+                                // created in your folder" with no file on
+                                // disk. Fail honestly like writeFile's twin.
+                                val stream = context.contentResolver.openOutputStream(doc.uri, "wt")
+                                if (stream == null) {
+                                    return ActionResult(
+                                        false, null,
+                                        "Could not open file stream to write: $filePath"
+                                    )
                                 }
+                                stream.use { it.write(bytes) }
                                 val renamedNote = if (name != desired)
                                     " (a file named '$desired' already existed, so I saved this as $name)"
                                 else ""
