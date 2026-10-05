@@ -1,0 +1,645 @@
+{
+    "format": "tsfdroid-chat-export",
+    "version": 1,
+    "exportedAt": {
+        "epochMs": 1791166350834,
+        "iso8601": "2026-10-05T02:12:30.834Z"
+    },
+    "app": {
+        "versionName": "1.5.0",
+        "versionCode": 15
+    },
+    "session": {
+        "id": "1ed62dfa-1758-45ee-abfc-3e718956afe0",
+        "title": "New Chat",
+        "createdAt": {
+            "epochMs": 1791129267550,
+            "iso8601": "2026-10-04T15:54:27.55Z"
+        },
+        "updatedAt": {
+            "epochMs": 1791130980256,
+            "iso8601": "2026-10-04T16:23:00.256Z"
+        },
+        "messageCount": 24
+    },
+    "fidelityNotes": [
+        "Image payloads are not embedded; counts and file metadata only.",
+        "Tool results are capped at 20000 chars per call; truncated=true flags the cut.",
+        "Credential material is stripped at capture time before storage."
+    ],
+    "messages": [
+        {
+            "id": "238efa8a-fd1a-4d64-a383-805dc409fb25",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791129270784,
+                "iso8601": "2026-10-04T15:54:30.784Z"
+            },
+            "text": "hi",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "30d64866-ef57-45dc-9c47-9809430c5645",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791129292222,
+                "iso8601": "2026-10-04T15:54:52.222Z"
+            },
+            "text": "Hey Tohid! What's up? Anything you'd like to get done tonight?",
+            "model": {
+                "provider": "OpenCode Zen",
+                "modelId": "mimo-v2.6-flash-free"
+            },
+            "thinking": {
+                "text": "Simple greeting — keep it short and natural.",
+                "durationMs": 2113
+            },
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [
+                {
+                    "kind": "thinking",
+                    "label": "Thought for 2s",
+                    "detail": "reasoning phase, measured from the first thinking delta to the first answer delta",
+                    "status": "done",
+                    "timestamp": {
+                        "epochMs": 1791129292220,
+                        "iso8601": "2026-10-04T15:54:52.22Z"
+                    }
+                }
+            ],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "a91d203d-0488-4941-8917-cc8e9212ffce",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791129318119,
+                "iso8601": "2026-10-04T15:55:18.119Z"
+            },
+            "text": "give me a python code to read all json files in a folder and merge into one",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "78e39b8d-3ee0-46f2-9b4d-a43319f77887",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791129337801,
+                "iso8601": "2026-10-04T15:55:37.801Z"
+            },
+            "text": "Here's a clean script that reads every `.json` file in a folder and merges them into one:\n\n```python\nimport json\nimport glob\nimport os\n\ndef merge_json_files(folder_path, output_file=\"merged.json\", mode=\"list\"):\n    \"\"\"\n    Merge all JSON files in a folder.\n    mode=\"list\"  -> result is a list of all elements\n    mode=\"dict\"  -> result is one dict (keys merged; later files overwrite earlier)\n    \"\"\"\n    files = sorted(glob.glob(os.path.join(folder_path, \"*.json\")))\n    if not files:\n        print(\"No JSON files found in\", folder_path)\n        return None\n\n    merged_list = []\n    merged_dict = {}\n\n    for path in files:\n        try:\n            with open(path, \"r\", encoding=\"utf-8\") as f:\n                data = json.load(f)\n        except json.JSONDecodeError as e:\n            print(f\"Skipping {os.path.basename(path)} (invalid JSON): {e}\")\n            continue\n\n        if isinstance(data, list):\n            merged_list.extend(data)\n            merged_dict.update({i: v for i, v in enumerate(data)})   # keep list items under numeric keys\n        elif isinstance(data, dict):\n            merged_list.append(data)\n            merged_dict.update(data)\n        else:\n            merged_list.append(data)\n\n        print(\"Loaded:\", os.path.basename(path))\n\n    result = merged_dict if mode == \"dict\" else merged_list\n\n    with open(output_file, \"w\", encoding=\"utf-8\") as f:\n        json.dump(result, f, indent=4, ensure_ascii=False)\n\n    print(f\"\\nMerged {len(files)} file(s) -> {output_file}\")\n    return result\n\n\nif __name__ == \"__main__\":\n    folder = input(\"Enter folder path (default: current dir): \").strip() or \".\"\n    merge_json_files(folder, output_file=\"merged.json\", mode=\"list\")\n```\n\n**How it works:**\n- `glob(\"*.json\")` grabs every JSON file in the folder (use `**/*.json` with `glob.glob(..., recursive=True)` if you want subfolders too).\n- Handles both shapes: files containing **lists** and files containing **objects** (dicts).\n- Skips broken files with a warning instead of crashing.\n- Output is pretty-printed with 4-space indent so it's readable.\n\n**Quick variants:**\n- Merge into a single dict with unique keys only: `merge_json_files(path, mode=\"dict\")`\n- Append everything as one flat list (default): `mode=\"list\"`\n- Combine with `pandas` if you'd rather get a DataFrame:\n  ```python\n  import pandas as pd\n  df = pd.concat([pd.read_json(f) for f in glob.glob(\"folder/*.json\")], ignore_index=True)\n  ```\n\nWant me to save this as a `.py` file in your workspace?",
+            "model": {
+                "provider": "OpenCode Zen",
+                "modelId": "mimo-v2.6-flash-free"
+            },
+            "thinking": {
+                "text": "The user wants a Python script. Just provide it — no need to write a file unless asked. Give a good, complete answer.",
+                "durationMs": 893
+            },
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [
+                {
+                    "kind": "thinking",
+                    "label": "Thought for 1s",
+                    "detail": "reasoning phase, measured from the first thinking delta to the first answer delta",
+                    "status": "done",
+                    "timestamp": {
+                        "epochMs": 1791166350836,
+                        "iso8601": "2026-10-05T02:12:30.836Z"
+                    }
+                }
+            ],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "f3b19f62-4463-46fd-a6ea-0b4c35a08368",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791129342896,
+                "iso8601": "2026-10-04T15:55:42.896Z"
+            },
+            "text": "yes",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "5745952d-40da-478f-b0e4-2512547bd596",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791129395203,
+                "iso8601": "2026-10-04T15:56:35.203Z"
+            },
+            "text": "Done — the script is saved as **`merge_json.py`** in your workspace.\n\nYou can run it with:\n```bash\npython merge_json.py\n```\nIt'll ask for a folder path (just press Enter to use the current directory), then produce `merged.json` with everything combined.\n\nWant any tweaks — like merging subfolders recursively, or combining into a single dict instead of a list?",
+            "model": {
+                "provider": "OpenCode Zen",
+                "modelId": "mimo-v2.6-flash-free"
+            },
+            "thinking": {
+                "text": "Write the file.Save the file.",
+                "durationMs": 32344
+            },
+            "usage": {
+                "tokens": 6182,
+                "latencyMs": 16117
+            },
+            "toolCalls": [
+                {
+                    "tool": "write_file",
+                    "action": "WRITE_FILE",
+                    "argumentsRaw": "{\"path\": \"merge_json.py\", \"content\": \"import json\\nimport glob\\nimport os\\n\\n\\ndef merge_json_files(folder_path, output_file=\\\"merged.json\\\", mode=\\\"list\\\"):\\n    \\\"\\\"\\\"\\n    Merge all JSON files in a folder.\\n\\n    mode=\\\"list\\\"  -> result is a list of all elements\\n    mode=\\\"dict\\\"  -> result is one dict (keys merged; later files overwrite earlier)\\n\\n    Args:\\n        folder_path (str): Folder to scan for *.json files.\\n        output_file (str): Path of the merged output file.\\n        mode (str): \\\"list\\\" or \\\"dict\\\".\\n\\n    Returns:\\n        The merged data (list or dict), or None if no files were found.\\n    \\\"\\\"\\\"\\n    files = sorted(glob.glob(os.path.join(folder_path, \\\"*.json\\\")))\\n    if not files:\\n        print(\\\"No JSON files found in\\\", folder_path)\\n        return None\\n\\n    merged_list = []\\n    merged_dict = {}\\n\\n    for path in files:\\n        try:\\n            with open(path, \\\"r\\\", encoding=\\\"utf-8\\\") as f:\\n                data = json.load(f)\\n        except json.JSONDecodeError as e:\\n            print(f\\\"Skipping {os.path.basename(path)} (invalid JSON): {e}\\\")\\n            continue\\n\\n        if isinstance(data, list):\\n            merged_list.extend(data)\\n            # keep list items under numeric keys when building the dict view\\n            offset = len(merged_dict)\\n            merged_dict.update({offset + i: v for i, v in enumerate(data)})\\n        elif isinstance(data, dict):\\n            merged_list.append(data)\\n            merged_dict.update(data)\\n        else:\\n            merged_list.append(data)\\n\\n        print(\\\"Loaded:\\\", os.path.basename(path))\\n\\n    result = merged_dict if mode == \\\"dict\\\" else merged_list\\n\\n    with open(output_file, \\\"w\\\", encoding=\\\"utf-8\\\") as f:\\n        json.dump(result, f, indent=4, ensure_ascii=False)\\n\\n    print(f\\\"\\\\nMerged {len(files)} file(s) -> {output_file}\\\")\\n    return result\\n\\n\\nif __name__ == \\\"__main__\\\":\\n    folder = input(\\\"Enter folder path (default: current dir): \\\").strip() or \\\".\\\"\\n    out = input(\\\"Output file name (default: merged.json): \\\").strip() or \\\"merged.json\\\"\\n    merge_json_files(folder, output_file=out, mode=\\\"list\\\")\\n\"}",
+                    "params": {
+                        "filePath": "merge_json.py",
+                        "content": "import json\nimport glob\nimport os\n\n\ndef merge_json_files(folder_path, output_file=\"merged.json\", mode=\"list\"):\n    \"\"\"\n    Merge all JSON files in a folder.\n\n    mode=\"list\"  -> result is a list of all elements\n    mode=\"dict\"  -> result is one dict (keys merged; later files overwrite earlier)\n\n    Args:\n        folder_path (str): Folder to scan for *.json files.\n        output_file (str): Path of the merged output file.\n        mode (str): \"list\" or \"dict\".\n\n    Returns:\n        The merged data (list or dict), or None if no files were found.\n    \"\"\"\n    files = sorted(glob.glob(os.path.join(folder_path, \"*.json\")))\n    if not files:\n        print(\"No JSON files found in\", folder_path)\n        return None\n\n    merged_list = []\n    merged_dict = {}\n\n    for path in files:\n        try:\n            with open(path, \"r\", encoding=\"utf-8\") as f:\n                data = json.load(f)\n        except json.JSONDecodeError as e:\n            print(f\"Skipping {os.path.basename(path)} (invalid JSON): {e}\")\n            continue\n\n        if isinstance(data, list):\n            merged_list.extend(data)\n            # keep list items under numeric keys when building the dict view\n            offset = len(merged_dict)\n            merged_dict.update({offset + i: v for i, v in enumerate(data)})\n        elif isinstance(data, dict):\n            merged_list.append(data)\n            merged_dict.update(data)\n        else:\n            merged_list.append(data)\n\n        print(\"Loaded:\", os.path.basename(path))\n\n    result = merged_dict if mode == \"dict\" else merged_list\n\n    with open(output_file, \"w\", encoding=\"utf-8\") as f:\n        json.dump(result, f, indent=4, ensure_ascii=False)\n\n    print(f\"\\nMerged {len(files)} file(s) -> {output_file}\")\n    return result\n\n\nif __name__ == \"__main__\":\n    folder = input(\"Enter folder path (default: current dir): \").strip() or \".\"\n    out = input(\"Output file name (default: merged.json): \").strip() or \"merged.json\"\n    merge_json_files(folder, output_file=out, mode=\"list\")\n"
+                    },
+                    "success": true,
+                    "result": "File saved at merge_json.py",
+                    "truncated": false,
+                    "error": null,
+                    "startedAt": {
+                        "epochMs": 1791129385414,
+                        "iso8601": "2026-10-04T15:56:25.414Z"
+                    },
+                    "durationMs": 505
+                }
+            ],
+            "activitySteps": [
+                {
+                    "kind": "thinking",
+                    "label": "Thought for 32s",
+                    "detail": "reasoning phase, measured from the first thinking delta to the first answer delta",
+                    "status": "done",
+                    "timestamp": {
+                        "epochMs": 1791129395202,
+                        "iso8601": "2026-10-04T15:56:35.202Z"
+                    }
+                },
+                {
+                    "kind": "tool",
+                    "label": "WRITE_FILE",
+                    "detail": "File saved at merge_json.py",
+                    "status": "done",
+                    "timestamp": {
+                        "epochMs": 1791129385944,
+                        "iso8601": "2026-10-04T15:56:25.944Z"
+                    }
+                }
+            ],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "25007431-e4b6-498f-9e54-1dce45e3d327",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791129409416,
+                "iso8601": "2026-10-04T15:56:49.416Z"
+            },
+            "text": "set a stop watch for 1 min",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "a80fee39-be12-43ae-a436-2036735d958b",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791129451336,
+                "iso8601": "2026-10-04T15:57:31.336Z"
+            },
+            "text": "Timer's running! 60 seconds.",
+            "model": {
+                "provider": "System",
+                "modelId": "mimo-v2.6-flash-free"
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [
+                {
+                    "tool": "SET_TIMER",
+                    "action": "SET_TIMER",
+                    "argumentsRaw": "duration=1 minute, label=Timer",
+                    "params": {
+                        "duration": "1 minute",
+                        "label": "Timer"
+                    },
+                    "success": true,
+                    "result": "Timer's running! 60 seconds.",
+                    "truncated": false,
+                    "error": null,
+                    "startedAt": {
+                        "epochMs": 1791129450978,
+                        "iso8601": "2026-10-04T15:57:30.978Z"
+                    },
+                    "durationMs": 331
+                }
+            ],
+            "activitySteps": [
+                {
+                    "kind": "plan_step",
+                    "label": "Start a 1 minute countdown timer",
+                    "detail": "Timer's running! 60 seconds.",
+                    "status": "done",
+                    "timestamp": {
+                        "epochMs": 1791129450978,
+                        "iso8601": "2026-10-04T15:57:30.978Z"
+                    }
+                }
+            ],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "979f41cc-88e6-4031-a392-d46a67447f5a",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791129472668,
+                "iso8601": "2026-10-04T15:57:52.668Z"
+            },
+            "text": "open yt and search tu hai kaha",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "79eef1d1-eb0f-472a-b562-e7e5493a59db",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791129488016,
+                "iso8601": "2026-10-04T15:58:08.016Z"
+            },
+            "text": "Opened YouTube searching for 'tu hai kaha'. Tap a video to start playback.",
+            "model": {
+                "provider": "System",
+                "modelId": "mimo-v2.6-flash-free"
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [
+                {
+                    "tool": "PLAY_YOUTUBE",
+                    "action": "PLAY_YOUTUBE",
+                    "argumentsRaw": "query=tu hai kaha",
+                    "params": {
+                        "query": "tu hai kaha"
+                    },
+                    "success": true,
+                    "result": "Opened YouTube searching for 'tu hai kaha'. Tap a video to start playback.",
+                    "truncated": false,
+                    "error": null,
+                    "startedAt": {
+                        "epochMs": 1791129487723,
+                        "iso8601": "2026-10-04T15:58:07.723Z"
+                    },
+                    "durationMs": 248
+                }
+            ],
+            "activitySteps": [
+                {
+                    "kind": "plan_step",
+                    "label": "Open YouTube and play/search for 'tu hai kaha'",
+                    "detail": "Opened YouTube searching for 'tu hai kaha'. Tap a video to start playback.",
+                    "status": "done",
+                    "timestamp": {
+                        "epochMs": 1791129487722,
+                        "iso8601": "2026-10-04T15:58:07.722Z"
+                    }
+                }
+            ],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "ccd8989f-34a1-4346-92fb-b725efb1dd15",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791129611747,
+                "iso8601": "2026-10-04T16:00:11.747Z"
+            },
+            "text": "open instagram and message dr bee",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "17260244-1e00-47a2-8e11-648c094dd8d6",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791129623116,
+                "iso8601": "2026-10-04T16:00:23.116Z"
+            },
+            "text": "I've opened Instagram for you. However, I don't have a direct \"send Instagram DM\" action available — I can only send messages on **WhatsApp**, **Telegram**, or **SMS**. Would you like me to: 1. Send the message to **dr bee** on **WhatsApp** or **Telegram** instead (just tell me what to say), or 2. Keep it on Instagram — you'll need to open the chat and send it manually after the app opens?",
+            "model": {
+                "provider": "ask_user",
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "78daacad-01b9-4309-8793-f0a9a2061e82",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791130675375,
+                "iso8601": "2026-10-04T16:17:55.375Z"
+            },
+            "text": "using sms msg 123 , hi",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "134b60b4-ed2f-4d1c-98a8-c49dfde63b6b",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791130819693,
+                "iso8601": "2026-10-04T16:20:19.693Z"
+            },
+            "text": "I couldn't find '123'. What's their phone number?",
+            "model": {
+                "provider": "System",
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "50e5ac8f-9007-4ac1-ba76-ee65ef5095c0",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791130854883,
+                "iso8601": "2026-10-04T16:20:54.883Z"
+            },
+            "text": "sms hi to the number 123",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "5ed4e24b-2883-4ed9-8bad-3a01f842850e",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791130854899,
+                "iso8601": "2026-10-04T16:20:54.899Z"
+            },
+            "text": "sms hi to the number 123",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "1a57b5c4-a711-4bdb-a465-3b3fa14224d5",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791130854980,
+                "iso8601": "2026-10-04T16:20:54.98Z"
+            },
+            "text": "I couldn't find 'sms hi to the number 123'. What's their phone number?",
+            "model": {
+                "provider": "System",
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "6e6aca73-f724-4cac-ac4f-96d368aabaa2",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791130895971,
+                "iso8601": "2026-10-04T16:21:35.971Z"
+            },
+            "text": "sms hi to the number 123",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "a4cc62a4-449b-44af-a00e-3c5706daa714",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791130896007,
+                "iso8601": "2026-10-04T16:21:36.007Z"
+            },
+            "text": "sms hi to the number 123",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "4d450499-383f-4bd3-850e-220d2b802b31",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791130896197,
+                "iso8601": "2026-10-04T16:21:36.197Z"
+            },
+            "text": "I couldn't find 'sms hi to the number 123'. What's their phone number?",
+            "model": {
+                "provider": "System",
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "61362874-f9de-4f4b-aab1-2f8dca2ed791",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791130912265,
+                "iso8601": "2026-10-04T16:21:52.265Z"
+            },
+            "text": "sms hi to jii helpline",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "592f491e-84fa-4d0a-a286-869fae7a7350",
+            "role": "user",
+            "timestamp": {
+                "epochMs": 1791130912289,
+                "iso8601": "2026-10-04T16:21:52.289Z"
+            },
+            "text": "sms hi to jii helpline",
+            "model": {
+                "provider": null,
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "fb1335b8-4935-4af0-880d-73a08fde6195",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791130912360,
+                "iso8601": "2026-10-04T16:21:52.36Z"
+            },
+            "text": "I couldn't find 'sms hi to jii helpline'. What's their phone number?",
+            "model": {
+                "provider": "System",
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        },
+        {
+            "id": "4dee664d-730a-43ed-a390-7d53ef575532",
+            "role": "assistant",
+            "timestamp": {
+                "epochMs": 1791130980256,
+                "iso8601": "2026-10-04T16:23:00.256Z"
+            },
+            "text": "I stopped waiting for your reply here since you started a new conversation elsewhere.",
+            "model": {
+                "provider": "System",
+                "modelId": null
+            },
+            "thinking": null,
+            "usage": null,
+            "toolCalls": [],
+            "activitySteps": [],
+            "artifact": null,
+            "attachments": null,
+            "screenshotAttached": false
+        }
+    ]
+}
