@@ -406,8 +406,8 @@ class FieldFixesInstrumentedTest {
      * requested content, and a second ask with the SAME name never
      * overwrites it (collision rename).
      */
-    @Test
-    fun `field B3 - named file created, content honored, no silent overwrite`() {
+    @Test(timeout = 900_000)
+    fun fieldFix_b3_namedFileCreatedNoOverwrite() {
         reachDashboard()
         assertTrue("New chat button not found", clickDesc("New chat", 15_000))
         device.waitForIdle(2_000)
@@ -483,8 +483,8 @@ class FieldFixesInstrumentedTest {
      * chat, grounded in the app's real storage facts - it never becomes a
      * file-write that could overwrite the user's data.
      */
-    @Test
-    fun `field B6 - storage question answered in chat, no file written`() {
+    @Test(timeout = 900_000)
+    fun fieldFix_b6_storageQuestionAnswersInChat() {
         reachDashboard()
         assertTrue("New chat button not found", clickDesc("New chat", 15_000))
         device.waitForIdle(2_000)
@@ -527,8 +527,8 @@ class FieldFixesInstrumentedTest {
      * B7 Export completeness: the exported JSON is schema v2 - every message
      * carries its mode, and the assistant reply carries usage.wallMs.
      */
-    @Test
-    fun `field B7 - export schema v2 carries mode and wallMs`() {
+    @Test(timeout = 900_000)
+    fun fieldFix_b7_exportSchemaV2ModeAndWallMs() {
         reachDashboard()
         assertTrue("New chat button not found", clickDesc("New chat", 15_000))
         device.waitForIdle(2_000)
