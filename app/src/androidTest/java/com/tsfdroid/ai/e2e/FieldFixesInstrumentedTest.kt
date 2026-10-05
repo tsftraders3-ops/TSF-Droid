@@ -300,33 +300,56 @@ class FieldFixesInstrumentedTest {
     }
 
     /**
-     * AGENT-mode plans under the default approval policy surface the
-     * "Approve & Run" modal; poll for it and approve. Exits early ONLY on
-     * POST-approval states (Executing/Running/On it) — "Analyzing" and
-     * "Thinking" PRECEDE the modal (run 37315400374: an early exit on
-     * those left the plan unapproved and the turn timed out).
+     * Combined approval + idle wait (run 37338298342 lesson): free-tier
+     * planning can exceed any fixed approval window, so the approval tap and
+     * the idle wait share ONE loop — tap "Approve & Run" whenever it shows
+     * (as many times as needed), self-heal when the app leaves the
+     * foreground, and return only when the agent is idle with no approval
+     * pending. [timeoutMs] is the TOTAL budget for the turn.
      */
-    private fun approvePlanIfAsked(windowMs: Long) {
-        val deadline = System.currentTimeMillis() + windowMs
+    private fun awaitTurnCompletionWithApproval(timeoutMs: Long) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var offAppScans = 0
         while (System.currentTimeMillis() < deadline) {
             device.runWatchers()
-            val approve = device.findObject(By.textContains("Approve & Run"))
+            // A lingering IME freezes the a11y tree (capability-suite loop-20
+            // evidence) — keep it down for the whole hunt.
+            dismissKeyboard()
+            if (!appNodesVisible()) {
+                if (++offAppScans >= 3) {
+                    runCatching {
+                        val target = InstrumentationRegistry.getInstrumentation().targetContext
+                        target.startActivity(
+                            Intent(target, MainActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        )
+                    }
+                    device.waitForIdle(3_000)
+                    offAppScans = 0
+                }
+            } else {
+                offAppScans = 0
+            }
+            val approve = runCatching {
+                device.findObject(By.textContains("Approve & Run"))
+            }.getOrNull()
             if (approve != null) {
                 runCatching { approve.click() }
-                device.waitForIdle(2_000)
                 shoot("fieldfix_approved")
-                return
+                device.waitForIdle(2_000)
+                continue
             }
-            // Only genuinely post-approval states mean no modal is coming.
-            val executing = device.findObjects(By.text(Pattern.compile(".+")))
+            val busy = device.findObjects(By.text(Pattern.compile(".+")))
                 .filter { runCatching { it.applicationPackage }.getOrNull() == appPackage }
                 .any { obj ->
                     val t = runCatching { obj.text.trim() }.getOrDefault("")
-                    t.startsWith("Executing") || t.startsWith("Running") ||
-                        t.startsWith("On it")
+                    t.startsWith("Analyzing") || t.startsWith("Requires Plan") ||
+                        t.startsWith("Executing") || t.startsWith("Speaking") ||
+                        t.startsWith("Planning") || t.startsWith("Thinking") ||
+                        t.startsWith("Running") || t.startsWith("arness]")
                 }
-            if (executing) return
-            runCatching { Thread.sleep(2_000) }
+            if (!busy) return
+            runCatching { Thread.sleep(2_500) }
         }
     }
 
@@ -414,8 +437,7 @@ class FieldFixesInstrumentedTest {
         shoot("fieldfix_b3_typed")
         assertTrue("could not send the file task", tapSendAndVerify(task1))
         val baseline = visibleTexts()
-        approvePlanIfAsked(90_000)
-        waitAgentIdle(420_000)
+        awaitTurnCompletionWithApproval(600_000)
         shoot("fieldfix_b3_idle")
         val reply1 = waitNewText(baseline, timeoutMs = 120_000, settleMs = 10_000)
         shoot("fieldfix_b3_reply")
@@ -445,8 +467,7 @@ class FieldFixesInstrumentedTest {
         assertTrue("could not type the second file task", typeChatMessage(task2))
         assertTrue("could not send the second file task", tapSendAndVerify(task2))
         val baseline2 = visibleTexts()
-        approvePlanIfAsked(90_000)
-        waitAgentIdle(420_000)
+        awaitTurnCompletionWithApproval(600_000)
         shoot("fieldfix_b3_second_idle")
         val reply2 = waitNewText(baseline2, timeoutMs = 120_000, settleMs = 10_000)
         assertNotNull("the second file task never produced a reply", reply2)
@@ -519,6 +540,13 @@ class FieldFixesInstrumentedTest {
             "a file was created by a question (field P0-7 regression)",
             filesAfter <= filesBefore
         )
+
+        // v1.6.0 round 4 (run 37338298342): my tests flip the mode chip and
+        // the app PERSISTS it — leaving CHAT mode behind poisoned the retry
+        // pass's AGENT-mode capability tests (askUserTool went through the
+        // chat harness: no plan card ever, 420s timeout). Every test restores
+        // AGENT mode (the suite's default) before finishing.
+        ensureMode("AGENT")
     }
 
     /**
@@ -582,5 +610,8 @@ class FieldFixesInstrumentedTest {
             val target = File(File(ctx.getExternalFilesDir(null), "e2e-screens"), "fieldfix_export_v2.json")
             newest.copyTo(target, overwrite = true)
         }
+
+        // v1.6.0 round 4: restore the suite's default mode (see B6).
+        ensureMode("AGENT")
     }
 }
