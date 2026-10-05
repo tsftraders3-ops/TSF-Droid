@@ -1,6 +1,6 @@
 {
   "project": "TSF Droid",
-  "current_phase": "PHASE_20_FIELD_ANALYSIS_V1_5_0",
+  "current_phase": "PHASE_21_FIELD_FIXES_V1_6_0",
   "completed_steps": [
     "PHASE_1_REPO_AND_CI",
     "PHASE_2.1_SANITIZE_REBRAND",
@@ -47,7 +47,7 @@
       "RELEASE_KEY_ALIAS",
       "RELEASE_KEY_PASSWORD"
     ],
-    "keystore_backup": "local only — user keeps offline copy"
+    "keystore_backup": "local only \u2014 user keeps offline copy"
   },
   "artifact": {
     "name": "tsf-droid-debug",
@@ -59,12 +59,20 @@
     "version_code": 15,
     "date": "2026-10-04",
     "release_workflow_run": "37212933772",
-    "note": "The chat-export release: every turn, full fidelity, one tap. Room v15 persistence (thinkingDurationMs, modelId, tokensUsed, turnLatencyMs, toolCallsJson), the ChatExporter + JSON format, and the Export-chat menu — E2E-verified green twice and critic-picked. Ships with the round-21 field-failure closures (wrapper-form slop hole, spoken-text cleanliness, sources dedup). User directive: release now; the residual E2E red is the documented free-tier variance in pre-existing capability tests, and the export test itself passed green in both retry passes.",
+    "note": "The chat-export release: every turn, full fidelity, one tap. Room v15 persistence (thinkingDurationMs, modelId, tokensUsed, turnLatencyMs, toolCallsJson), the ChatExporter + JSON format, and the Export-chat menu \u2014 E2E-verified green twice and critic-picked. Ships with the round-21 field-failure closures (wrapper-form slop hole, spoken-text cleanliness, sources dedup). User directive: release now; the residual E2E red is the documented free-tier variance in pre-existing capability tests, and the export test itself passed green in both retry passes.",
     "assets": [
       "TSF-Droid-v1.5.0-release.apk (55.7 MB, release-key signed, apksigner verified in CI)",
       "TSF-Droid-v1.5.0-debug.apk (71.7 MB)",
       "SHA256SUMS.txt"
     ],
     "url": "https://github.com/tsftraders3-ops/TSF-Droid/releases/tag/v1.5.0"
+  },
+  "phase_21": {
+    "bars_doc": "docs/gauntlet/phase21-bars.md",
+    "commit": "5e8fcee",
+    "unit_rig": "82/82 green (verbatim field fixtures + critic-round regressions)",
+    "remote_ci": "green on 5e8fcee",
+    "e2e": "run in flight; b3 deliverable bar + askUserTool already verified on-device (run 37351101916)",
+    "critic": "CRITIC-21: 4/7 won round-1, all 5 named gaps fixed in rounds 3-4"
   }
 }

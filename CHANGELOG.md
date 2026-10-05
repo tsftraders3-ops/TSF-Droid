@@ -144,12 +144,18 @@ and named the gaps. All closed:
 ### The verification
 
 - 82/82 pure-logic tests green in the local kotlinc rig (the verbatim field
-  fixtures + the critic-round regression tests).
-- Remote CI green: full unit suite (715 + the new field-corpus tests).
-- `FieldFixesInstrumentedTest` (3 E2E tests on the live model): B3 named-file
-  created with content + collision rename verified on device; B6 the storage
-  question answers in chat with no file written; B7 the exported JSON is
-  schema v2 with mode + wallMs.
+  fixtures + the critic-round regression tests), before every push.
+- Remote CI green: the full unit suite including the new field-corpus tests.
+- `FieldFixesInstrumentedTest` (3 E2E tests on the live model, verified
+  on-device in run 37351101916's artifacts): B3 — the named file
+  fieldfix_marker.md exists with the requested marker content AND the second
+  ask produced fieldfix_marker-2.md (collision rename, first file intact);
+  B6 — the storage question answered in chat, grounded in the app's real
+  storage, zero files created; B7 — the exported JSON is schema v2 with
+  mode on both messages and usage.wallMs on the reply.
+- The honesty machinery verified live: the capability suite's own PDF-turn
+  artifact shows "(Honesty note: I mentioned 'e2e_report.pdf' but didn't
+  actually create it...)" when a write genuinely failed.
 
 ## v1.5.0 — The chat export: every turn, full fidelity, one tap (+ the 2026-10-03 field-failure closures)
 
