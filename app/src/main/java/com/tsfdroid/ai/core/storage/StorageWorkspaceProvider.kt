@@ -310,12 +310,30 @@ object StorageWorkspaceProvider {
                 val root = DocumentFile.fromTreeUri(context, customUri)
                     ?: return writeFileLocal(context, filePath, content)
                 val cleanPath = cleanRelativePath(filePath)
-                val doc = findOrCreateDocumentByPath(root, cleanPath, isDirectory = false)
+                val parent = parentDocumentFor(root, cleanPath)
+                    ?: return writeFileLocal(context, filePath, content)
+                val desired = cleanPath.substringAfterLast('/')
+                // v1.6.0 (field P0-7): NEVER silently overwrite — the user's
+                // scrap_titles.py died to a same-name write. Auto-rename.
+                val existing = parent.listFiles().mapNotNull { it.name }.toSet()
+                val name = GoalContractNames.collisionFree(existing, desired)
+                val doc = parent.createFile(guessMimeType(name), name)
                     ?: return writeFileLocal(context, filePath, content)
                 context.contentResolver.openOutputStream(doc.uri, "wt")?.use { stream ->
                     stream.bufferedWriter().use { it.write(content) }
                 } ?: return ActionResult(false, null, "Could not open file stream to write: $filePath")
-                ActionResult(true, "File saved at ${doc.name ?: filePath}", null)
+                // v1.6.0 (field P1-3): the resolved location rides the result
+                // as a `path` key so artifact cards fire for WRITE_FILE too.
+                ActionResult.Success(
+                    dataMap = mapOf(
+                        "message" to (if (name == desired)
+                            "File saved at ${doc.name ?: name} in your folder"
+                        else
+                            "A file named '${doc.name ?: name}' already existed, so I saved this as $name in your folder"),
+                        "path" to doc.uri.toString(),
+                        "name" to (doc.name ?: name)
+                    )
+                )
             } catch (e: Exception) {
                 writeFileLocal(context, filePath, content)
             }
@@ -324,12 +342,44 @@ object StorageWorkspaceProvider {
         }
     }
 
+    /** Resolves the parent document (creating directories) for a relative path. */
+    private fun parentDocumentFor(root: DocumentFile, cleanPath: String): DocumentFile? {
+        val parts = cleanPath.split("/").filter { it.isNotEmpty() && it != "." }
+        if (parts.isEmpty()) return root
+        var current = root
+        for (i in 0 until parts.size - 1) {
+            var child = current.findFile(parts[i])
+            if (child == null) child = current.createDirectory(parts[i])
+            child ?: return null
+            current = child
+        }
+        return current
+    }
+
     private fun writeFileLocal(context: Context, filePath: String, content: String): ActionResult {
         return try {
             val file = resolveFile(context, filePath)
             file.parentFile?.mkdirs()
-            file.writeText(content)
-            ActionResult(true, "File saved at ${file.absolutePath}", null)
+            // v1.6.0 (field P0-7/P1-1): collision guard — the 02:31/03:14
+            // double report.pdf silently destroyed the first report; the
+            // user had to rescue one by hand. Writes to an EXISTING name
+            // land under a -2 name and say so.
+            val target = if (file.exists()) {
+                val siblings = file.parentFile?.listFiles()?.map { it.name }?.toSet() ?: emptySet()
+                val renamed = GoalContractNames.collisionFree(siblings, file.name)
+                java.io.File(file.parentFile, renamed)
+            } else file
+            target.writeText(content)
+            val renamedNote = if (target.name != file.name)
+                " (a file named '${file.name}' already existed, so I saved this as ${target.name})"
+            else ""
+            ActionResult.Success(
+                dataMap = mapOf(
+                    "message" to "File saved at ${target.absolutePath}$renamedNote",
+                    "path" to target.absolutePath,
+                    "name" to target.name
+                )
+            )
         } catch (e: Exception) {
             ActionResult(false, null, "Couldn't write to file: ${e.localizedMessage}")
         }
@@ -380,17 +430,63 @@ object StorageWorkspaceProvider {
 
     /**
      * v1.0.5: writes binary content (CREATE_PDF output) to the workspace.
-     * Resolves the same [resolveFile] sandbox as text writes — relative paths
-     * land in the agent workspace, absolute app paths are honored, system
-     * paths are rejected. Returns the absolute file path on success so the
-     * agent can tell the user exactly where the document is.
+     * v1.6.0 (field P1-2 — the storage split brain): honors the SAME custom
+     * SAF folder text writes do (createFile with the right mime, collision
+     * guard), so a PDF never lands in Android/data while the user's chosen
+     * folder stays empty (the empty MarketReports/ evidence). Falls back to
+     * the app workspace exactly like writeFile.
      */
     fun writeBinaryFile(context: Context, filePath: String, bytes: ByteArray): ActionResult {
+        if (shouldUseCustomFolder(context, filePath)) {
+            try {
+                val customUri = getCustomFolderUri(context)
+                if (customUri != null) {
+                    val root = DocumentFile.fromTreeUri(context, customUri)
+                    if (root != null) {
+                        val cleanPath = cleanRelativePath(filePath)
+                        val parent = parentDocumentFor(root, cleanPath)
+                        if (parent != null) {
+                            val desired = cleanPath.substringAfterLast('/')
+                            val existing = parent.listFiles().mapNotNull { it.name }.toSet()
+                            val name = GoalContractNames.collisionFree(existing, desired)
+                            val doc = parent.createFile(guessMimeType(name), name)
+                            if (doc != null) {
+                                context.contentResolver.openOutputStream(doc.uri, "wt")?.use { stream ->
+                                    stream.write(bytes)
+                                }
+                                val renamedNote = if (name != desired)
+                                    " (a file named '$desired' already existed, so I saved this as $name)"
+                                else ""
+                                return ActionResult.Success(
+                                    dataMap = mapOf(
+                                        "message" to "PDF created: ${doc.name ?: name} in your folder$renamedNote",
+                                        "path" to doc.uri.toString(),
+                                        "name" to (doc.name ?: name)
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // fall through to the local write
+            }
+        }
         return try {
             val file = resolveFile(context, filePath)
             file.parentFile?.mkdirs()
-            file.outputStream().use { it.write(bytes) }
-            ActionResult(true, "File saved at ${file.absolutePath}", null)
+            val target = if (file.exists()) {
+                val siblings = file.parentFile?.listFiles()?.map { it.name }?.toSet() ?: emptySet()
+                java.io.File(file.parentFile, GoalContractNames.collisionFree(siblings, file.name))
+            } else file
+            target.outputStream().use { it.write(bytes) }
+            ActionResult.Success(
+                dataMap = mapOf(
+                    "message" to "File saved at ${target.absolutePath}",
+                    "path" to target.absolutePath,
+                    "name" to target.name
+                )
+            )
         } catch (e: Exception) {
             ActionResult(false, null, "Couldn't write binary file: ${e.localizedMessage}")
         }
@@ -591,6 +687,24 @@ object StorageWorkspaceProvider {
             "png" -> "image/png"
             "pdf" -> "application/pdf"
             else -> "application/octet-stream"
+        }
+    }
+
+    /**
+     * v1.6.0: the collision-rename rule, in-storage copy (the pure version
+     * lives in GoalContract and is JVM-tested from the field fixtures; this
+     * indirection keeps StorageWorkspaceProvider free of agent-package
+     * imports).
+     */
+    private object GoalContractNames {
+        fun collisionFree(existing: Set<String>, desired: String): String {
+            if (desired !in existing) return desired
+            val dot = desired.lastIndexOf('.')
+            val base = if (dot > 0) desired.substring(0, dot) else desired
+            val ext = if (dot > 0) desired.substring(dot) else ""
+            var n = 2
+            while ("$base-$n$ext" in existing) n++
+            return "$base-$n$ext"
         }
     }
 

@@ -24,6 +24,7 @@ import androidx.core.content.ContextCompat
 import com.tsfdroid.ai.accessibility.GenericAppAutomator
 import com.tsfdroid.ai.actions.base.Action
 import com.tsfdroid.ai.actions.base.ActionResult
+import com.tsfdroid.ai.core.agent.GoalContract
 import com.tsfdroid.ai.core.storage.StorageWorkspaceProvider
 import com.tsfdroid.ai.core.util.DeviceCapabilities
 import java.io.File
@@ -211,22 +212,38 @@ class AdvancedControlActions @Inject constructor() {
                 ?: return ActionResult(false, null, "content parameter is missing")
             val title = params["title"]?.takeIf { it.isNotBlank() } ?: "Document"
 
+            // v1.6.0 (field P0-2/P0-3): the content gate — model narration
+            // ("I'll first check the environment…") and unfilled [placeholder]
+            // templates must NEVER ship as a document. Both field PDFs were
+            // garbage; failing the step honestly beats shipping a 201KB
+            // one-sentence "report".
+            val gateReason = GoalContract.contentGate(content, filePath.substringAfterLast('.', "").lowercase())
+            if (gateReason != null) {
+                return ActionResult.Failure(
+                    errorMsg = "PDF content rejected: $gateReason. Rewrite the FULL document content " +
+                        "with real data and try again — never a description, plan, or template."
+                )
+            }
+
             return try {
-                val bytes = renderPdf(title, content)
+                val bytes = renderPdf(sanitizePdfTitle(title), content)
                 val result = StorageWorkspaceProvider.writeBinaryFile(context, filePath, bytes)
                 if (result.success) {
-                    // v1.4.0 (run-37106169790 cap9 forensics): writeBinaryFile's
-                    // data is the "File saved at /path" MESSAGE — putting that in
-                    // dataMap["path"] made the artifact-card collector resolve a
-                    // sentence as a filesystem path, find nothing, and silently
-                    // skip the card. The card path is the RESOLVED real path.
-                    val cleanPath = runCatching {
-                        StorageWorkspaceProvider.resolveFile(context, filePath).absolutePath
-                    }.getOrNull() ?: filePath
+                    // v1.6.0 (field P1-2/P1-3): writeBinaryFile now routes
+                    // through the SAME storage root as text writes (SAF custom
+                    // folder when set) and reports the RESOLVED location —
+                    // reuse its path instead of re-resolving against the
+                    // workspace (the old re-resolution lied for SAF writes).
+                    val resolvedPath = result.dataMap["path"]
+                        ?: runCatching {
+                            StorageWorkspaceProvider.resolveFile(context, filePath).absolutePath
+                        }.getOrNull()
+                        ?: filePath
                     ActionResult.Success(
                         dataMap = mapOf(
-                            "message" to "PDF created: ${result.data}",
-                            "path" to cleanPath
+                            "message" to "PDF created: ${result.dataMap["message"] ?: result.data}",
+                            "path" to resolvedPath,
+                            "name" to (result.dataMap["name"] ?: filePath.substringAfterLast('/'))
                         )
                     )
                 } else {
@@ -235,6 +252,72 @@ class AdvancedControlActions @Inject constructor() {
             } catch (e: Exception) {
                 ActionResult(false, null, "PDF creation failed: ${e.localizedMessage}")
             }
+        }
+
+        /**
+         * v1.6.0 (field P2-1): the field PDFs carried raw user queries as
+         * titles ("do a market check on current gold prices (24k and 22k per
+         * gram)…" truncated mid-word) and literal markdown (** ## | --). Both
+         * fixed here: titles are cleaned to a short human phrase, and body
+         * markdown is rendered to PDF primitives instead of printed raw.
+         */
+        private fun sanitizePdfTitle(raw: String): String {
+            var t = raw.trim().trim('"', '\'')
+                .replace(Regex("\\s+"), " ")
+                .removePrefix("create ").removePrefix("make ").removePrefix("generate ")
+                .removeSuffix(" pdf").removeSuffix(" report")
+            if (t.length > 80) t = t.take(80).trim()
+            return t.ifBlank { "Document" }
+        }
+
+        /** One logical body line after markdown cleanup. */
+        private sealed class PdfLine {
+            data class Heading(val text: String) : PdfLine()
+            data class Body(val text: String) : PdfLine()
+            data class Ruler(val text: String) : PdfLine()
+        }
+
+        /** Markdown-lite → PDF lines (field P2-1). */
+        private fun markdownToLines(content: String): List<PdfLine> {
+            val out = mutableListOf<PdfLine>()
+            var inCodeFence = false
+            for (raw in content.lines()) {
+                val line = raw.trimEnd()
+                if (line.trimStart().startsWith("```")) {
+                    inCodeFence = !inCodeFence
+                    out.add(PdfLine.Body(if (inCodeFence) "[code]" else "[/code]"))
+                    continue
+                }
+                val trimmed = line.trim()
+                when {
+                    trimmed.isEmpty() -> out.add(PdfLine.Body(""))
+                    trimmed.startsWith("####") -> out.add(PdfLine.Heading(trimmed.removePrefix("####").trim()))
+                    trimmed.startsWith("###") -> out.add(PdfLine.Heading(trimmed.removePrefix("###").trim()))
+                    trimmed.startsWith("##") -> out.add(PdfLine.Heading(trimmed.removePrefix("##").trim()))
+                    trimmed.startsWith("#") -> out.add(PdfLine.Heading(trimmed.removePrefix("#").trim()))
+                    // Markdown table separator rows (|---|---|) print as noise.
+                    Regex("^\\|?[\\s:|-]+\\|?$").matches(trimmed) && trimmed.contains("-") ->
+                        out.add(PdfLine.Body(""))
+                    trimmed.matches(Regex("[-*_]{3,}")) -> out.add(PdfLine.Ruler("─".repeat(40)))
+                    trimmed.startsWith("|") -> {
+                        // Table row: keep the pipe structure, clean cell padding.
+                        val cells = trimmed.split("|").map { it.trim() }
+                        out.add(PdfLine.Body(cells.filterIndexed { i, c ->
+                            !(i == 0 && c.isEmpty())
+                        }.joinToString("  |  ")))
+                    }
+                    else -> {
+                        var text = trimmed
+                            .replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
+                            .replace(Regex("__(.+?)__"), "$1")
+                            .replace(Regex("(?<!\\w)\\*(.+?)\\*(?!\\w)"), "$1")
+                            .replace(Regex("`(.+?)`"), "$1")
+                        text = text.replace(Regex("^[-*+]\\s+"), "• ")
+                        out.add(PdfLine.Body(text))
+                    }
+                }
+            }
+            return out
         }
 
         /** A4 @ 72dpi: 595 x 842 points. */
@@ -247,31 +330,47 @@ class AdvancedControlActions @Inject constructor() {
                 textSize = 18f
                 color = 0xFF000000.toInt()
             }
+            val headingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                textSize = 14f
+                color = 0xFF1A1A2E.toInt()
+            }
             val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 typeface = Typeface.SANS_SERIF
                 textSize = 12f
                 color = 0xFF222222.toInt()
             }
 
-            // Word-wrap the body to the usable width, honor explicit newlines.
-            val usableWidth = pageWidth - 2 * margin
-            val lines = mutableListOf<String>()
-            for (rawLine in content.lines()) {
-                if (rawLine.isBlank()) {
-                    lines.add("")
-                    continue
-                }
+            // Word-wrap with CHAR-level fallback (field P2-1: whitespace-only
+            // wrap let long URLs/numbers clip off-page).
+            fun wrap(text: String, paint: Paint): List<String> {
+                val usableWidth = pageWidth - 2 * margin
+                val lines = mutableListOf<String>()
                 var current = StringBuilder()
-                for (word in rawLine.split(' ')) {
-                    val candidate = if (current.isEmpty()) word else "$current $word"
-                    if (bodyPaint.measureText(candidate) <= usableWidth) {
+                fun flush() {
+                    if (current.isNotEmpty()) lines.add(current.toString())
+                    current = StringBuilder()
+                }
+                for (word in text.split(' ')) {
+                    var w = word
+                    while (paint.measureText(w) > usableWidth && w.length > 1) {
+                        // Split the over-long token at the usable boundary.
+                        var cut = w.length
+                        while (cut > 1 && paint.measureText(w.substring(0, cut)) > usableWidth) cut--
+                        if (current.isNotEmpty()) flush()
+                        lines.add(w.substring(0, cut))
+                        w = w.substring(cut)
+                    }
+                    val candidate = if (current.isEmpty()) w else "$current $w"
+                    if (paint.measureText(candidate) <= usableWidth) {
                         current = StringBuilder(candidate)
                     } else {
-                        if (current.isNotEmpty()) lines.add(current.toString())
-                        current = StringBuilder(word)
+                        flush()
+                        current = StringBuilder(w)
                     }
                 }
-                if (current.isNotEmpty()) lines.add(current.toString())
+                flush()
+                return lines
             }
 
             val document = PdfDocument()
@@ -296,13 +395,35 @@ class AdvancedControlActions @Inject constructor() {
             canvas.drawText(title, margin, y, titlePaint)
             y += 28f
 
-            val lineHeight = 16f
-            for (line in lines) {
-                if (y + lineHeight > pageHeight - margin) newPage()
-                if (line.isNotEmpty()) {
-                    canvas.drawText(line, margin, y, bodyPaint)
+            val bodyLineHeight = 16f
+            val headingLineHeight = 22f
+            for (pdfLine in markdownToLines(content)) {
+                when (pdfLine) {
+                    is PdfLine.Heading -> {
+                        for (line in wrap(pdfLine.text, headingPaint)) {
+                            if (y + headingLineHeight > pageHeight - margin) newPage()
+                            canvas.drawText(line, margin, y, headingPaint)
+                            y += headingLineHeight
+                        }
+                        y += 4f
+                    }
+                    is PdfLine.Ruler -> {
+                        if (y + bodyLineHeight > pageHeight - margin) newPage()
+                        canvas.drawText(pdfLine.text, margin, y, bodyPaint)
+                        y += bodyLineHeight
+                    }
+                    is PdfLine.Body -> {
+                        if (pdfLine.text.isEmpty()) {
+                            y += bodyLineHeight / 2
+                            continue
+                        }
+                        for (line in wrap(pdfLine.text, bodyPaint)) {
+                            if (y + bodyLineHeight > pageHeight - margin) newPage()
+                            canvas.drawText(line, margin, y, bodyPaint)
+                            y += bodyLineHeight
+                        }
+                    }
                 }
-                y += lineHeight
             }
             document.finishPage(page)
 

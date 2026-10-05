@@ -93,6 +93,48 @@ class PlanValidator @Inject constructor(
                 }
             }
 
+            // v1.6.0 (field P0-8c): an action that resolves to NOTHING (not
+            // registered, not aliasable, not semantic) fails at VALIDATION time -
+            // the field's invented 'TAP' died at dispatch only after 19 minutes
+            // of accessibility execution. The step becomes an honest chat note
+            // the user actually reads.
+            if (!actionDispatcher.get().isRegistered(updatedStep.action) &&
+                actionDispatcher.get().previewResolvedAction(updatedStep.action) == null
+            ) {
+                android.util.Log.w(
+                    "PlanValidator",
+                    "step action '${updatedStep.action}' unresolvable - failing at validation, not dispatch"
+                )
+                updatedStep = updatedStep.copy(
+                    action = "CHAT",
+                    params = mapOf(
+                        "response" to "One step I planned ('${step.action}') doesn't exist " +
+                            "on this device, so I skipped it and continued with the rest."
+                    ),
+                    description = "Skipped unavailable action '${step.action}'"
+                )
+            }
+
+            // v1.6.0 (field P0-3): CALCULATE's expression must be pure
+            // arithmetic - the gold turn dispatched
+            // "14780 - 14200 * 100 / 14200, using prices found in steps s1
+            // and s2" and the calculation died on the prose.
+            if (updatedStep.action.uppercase() == "CALCULATE") {
+                val expr = updatedStep.params["expression"]
+                if (!expr.isNullOrBlank()) {
+                    val clean = GoalContract.sanitizeCalculateExpression(expr)
+                    if (clean != expr && clean.isNotBlank()) {
+                        android.util.Log.w(
+                            "PlanValidator",
+                            "CALCULATE expression sanitized: '${expr.take(50)}' -> '$clean'"
+                        )
+                        updatedStep = updatedStep.copy(
+                            params = updatedStep.params.toMutableMap().apply { put("expression", clean) }
+                        )
+                    }
+                }
+            }
+
             // v1.3.1 round 4 (the third gold lesson): a SINGLE defeatist
             // ASK_USER step — "I'm not able to pull live market data in this
             // session" — parks the turn on a question the user cannot
@@ -148,6 +190,21 @@ class PlanValidator @Inject constructor(
             // deterministically from the goal, which is always about the
             // substance of the ask.
             if (updatedStep.action.uppercase() == "WEB_SEARCH") {
+                // v1.6.0 (field P1-7): a query built from a raw first-person
+                // request NEVER ships to a public engine verbatim - the
+                // 403-char morning-briefing ask ("my calendar events... read
+                // my last 5 unread emails...") went out as one WEB_SEARCH.
+                val rawQuery = updatedStep.params["query"]?.trim().orEmpty()
+                val publicClause = GoalContract.publicSearchClause(rawQuery)
+                if (publicClause != null) {
+                    android.util.Log.w(
+                        "PlanValidator",
+                        "private first-person WEB_SEARCH query replaced with public clause '${publicClause.take(60)}'"
+                    )
+                    updatedStep = updatedStep.copy(
+                        params = updatedStep.params.toMutableMap().apply { put("query", publicClause) }
+                    )
+                }
                 // v1.3.1: first the missing/blank query (incl. alias slots) —
                 // a blank one can't even be judged degenerate yet.
                 val repairedQuery = StepRepair.repairSearchQuery(updatedStep.params, plan.goal)
@@ -217,6 +274,38 @@ class PlanValidator @Inject constructor(
         // kept answering while DDG/Bing served garbage (round-1 evidence:
         // GC=F digits through the same window), so the answer engine always
         // has a digit-bearing source for the synthesis.
+        // v1.6.0 (field P1-9): goal-coverage for reminders - "set a
+        // reminder for 5pm tomorrow" silently vanished from the gold plan (no
+        // step, no mention). A reminder phrase with no SET_REMINDER step gains
+        // one, appended last so its data dependencies already ran.
+        val reminderWanted = Regex(
+            "(?i)\\b(remind me|set a reminder|set me a reminder|reminder to|reminder for)\\b"
+        ).containsMatchIn(plan.goal)
+        val reminderStep = if (reminderWanted &&
+            cleanedSteps.none { it.action.uppercase() == "SET_REMINDER" }
+        ) {
+            val note = Regex("(?i)remind(?:er)? (?:me )?(?:to |for )(.{4,140})")
+                .find(plan.goal)?.groupValues?.get(1)?.trim()
+                ?: plan.goal.take(100)
+            android.util.Log.w(
+                "PlanValidator",
+                "goal asks for a reminder but no SET_REMINDER step exists - appending one"
+            )
+            PlanStep(
+                stepId = "reminder-coverage-${System.currentTimeMillis()}",
+                order = cleanedSteps.size + 1,
+                description = "Set the requested reminder ($note)",
+                action = "SET_REMINDER",
+                params = mapOf(
+                    "title" to note.take(80),
+                    "description" to "Created by TSF Droid from your request: ${plan.goal.take(120)}"
+                ),
+                fallback = ""
+            )
+        } else {
+            null
+        }
+
         val quoteAssist = StepRepair.priceGoalQuoteStep(plan.goal, cleanedSteps.map { it.action })
         val finalPlan = if (quoteAssist != null) {
             android.util.Log.w(
@@ -231,7 +320,9 @@ class PlanValidator @Inject constructor(
                 params = quoteAssist.second,
                 fallback = ""
             )
-            plan.copy(steps = cleanedSteps + quoteStep, estimatedSteps = cleanedSteps.size + 1)
+            plan.copy(steps = cleanedSteps + quoteStep + listOfNotNull(reminderStep), estimatedSteps = cleanedSteps.size + 1)
+        } else if (reminderStep != null) {
+            plan.copy(steps = cleanedSteps + reminderStep, estimatedSteps = cleanedSteps.size + 1)
         } else {
             plan.copy(steps = cleanedSteps, estimatedSteps = cleanedSteps.size)
         }

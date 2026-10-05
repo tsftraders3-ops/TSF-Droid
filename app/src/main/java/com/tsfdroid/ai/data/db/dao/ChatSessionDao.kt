@@ -39,6 +39,12 @@ interface ChatSessionDao {
     @Query("UPDATE chat_sessions SET title = :title, updatedAt = :timestamp WHERE id = :sessionId")
     suspend fun rename(sessionId: String, title: String, timestamp: Long)
 
+    @Query("SELECT * FROM chat_sessions WHERE id = :sessionId LIMIT 1")
+    suspend fun getSessionOnce(sessionId: String): ChatSessionEntity?
+
+    @Query("UPDATE chat_sessions SET title = :title WHERE id = :sessionId")
+    suspend fun renameSession(sessionId: String, title: String)
+
     @Query("DELETE FROM chat_sessions WHERE id = :sessionId")
     suspend fun delete(sessionId: String)
 }

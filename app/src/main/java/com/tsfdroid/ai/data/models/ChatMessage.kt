@@ -73,7 +73,22 @@ data class ChatMessage(
      * stays in [stepsJson]; this is the debugging-fidelity record the
      * raw-text export is built on.
      */
-    val toolCallsJson: String? = null
+    val toolCallsJson: String? = null,
+    /**
+     * v1.6.0 (field P2-6): the mode this turn ran in - "CHAT" or "AGENT".
+     * The v1.5.0 field analysis could not tell which mode produced a turn
+     * (its section 10 limitation #1); now every persisted message carries it.
+     * Null on legacy rows and non-turn messages (asks, traces).
+     */
+    val mode: String? = null,
+    /**
+     * v1.6.0 (field P2-5): the turn's WALL-CLOCK duration in ms - from the
+     * user's send to the final save, including every expansion/continuation
+     * phase. The field report's timing profile found ~9 minutes unaccounted
+     * on long turns because latencyMs only covers harness model calls; this
+     * closes that gap.
+     */
+    val turnWallMs: Long? = null
 ) {
     enum class Sender {
         USER, AGENT

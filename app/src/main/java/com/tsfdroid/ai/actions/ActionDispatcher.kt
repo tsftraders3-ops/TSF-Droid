@@ -109,6 +109,23 @@ class ActionDispatcher @Inject constructor(
 
     fun isRegistered(actionName: String): Boolean = hasAction(actionName)
 
+    /**
+     * v1.6.0 (field P0-8c): validation-time resolution preview - the final
+     * action this name would dispatch as (schema-direct, alias, or semantic),
+     * or null when NOTHING can serve it. PlanValidator uses this to fail
+     * unresolvable steps BEFORE execution instead of 19 minutes in.
+     */
+    fun previewResolvedAction(actionName: String): String? {
+        val normalized = autoMapper.normalizeActionName(actionName)
+        if (actionsMap.containsKey(normalized)) return normalized
+        val mapping = autoMapper.mapAction(
+            action = actionName,
+            params = emptyMap(),
+            registeredActions = actionsMap.keys
+        )
+        return mapping.mappedAction
+    }
+
     fun getAllRegisteredActions(): List<String> = actionsMap.keys.toList()
 
     fun getActionCount(): Int = actionsMap.size

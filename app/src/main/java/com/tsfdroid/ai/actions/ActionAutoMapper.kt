@@ -287,6 +287,35 @@ class ActionAutoMapper @Inject constructor() {
         "IME_ENTER"               to "PRESS_ENTER",
         "TAP_ENTER"               to "PRESS_ENTER",
 
+        // ── Tap/Click/Type variants (field P0-8c: the planner invented
+        // 'TAP' — not registered, not aliased — and it died at dispatch 19
+        // minutes into the flipkart automation. Planners naturally say TAP,
+        // CLICK, INPUT_TEXT; the mapper now speaks all of them) ──
+        "TAP"                    to "CLICK_TEXT",
+        "TAP_ELEMENT"            to "CLICK_TEXT",
+        "CLICK"                  to "CLICK_TEXT",
+        "CLICK_ELEMENT"          to "CLICK_TEXT",
+        "CLICK_ON"               to "CLICK_TEXT",
+        "PRESS"                  to "CLICK_TEXT",
+        "PRESS_BUTTON"           to "CLICK_TEXT",
+        "TOUCH"                  to "CLICK_TEXT",
+        "TAP_BUTTON"             to "CLICK_TEXT",
+        "TAP_TEXT"               to "CLICK_TEXT",
+        "CLICK_LINK"             to "CLICK_TEXT",
+        "TAP_COORDINATES"        to "CLICK_COORDINATES",
+        "TAP_POSITION"           to "CLICK_COORDINATES",
+        "CLICK_AT"               to "CLICK_COORDINATES",
+        "CLICK_POINT"            to "CLICK_COORDINATES",
+        "TYPE"                   to "TYPE_TEXT",
+        "INPUT_TEXT"             to "TYPE_TEXT",
+        "ENTER_TEXT"             to "TYPE_TEXT",
+        "WRITE_TEXT"             to "TYPE_TEXT",
+        "TYPE_INTO"              to "TYPE_ID",
+        "SWIPE_UP"               to "SCROLL",
+        "SWIPE_DOWN"             to "SCROLL",
+        "SCROLL_DOWN"            to "SCROLL",
+        "SCROLL_UP"              to "SCROLL",
+
         // ── Navigation/directions variants ──────────────────────────
         "NAVIGATE"                to "GET_DIRECTIONS",
         "DIRECTIONS"              to "GET_DIRECTIONS",

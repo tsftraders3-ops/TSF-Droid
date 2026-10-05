@@ -478,11 +478,23 @@ object AliasResolver {
         "read this message and save"
     )
 
+    /**
+     * v1.6.0 (field P1-7 — the morning-briefing misroute): the old loose
+     * clause (`read` + `save` + `details`) matched "read my last 5 unread
+     * emails ... save the important details" — a compound 6-part request —
+     * and the screen-read alias no-op'd ahead of real planning. The shortcut
+     * is now VERB-PHRASE ANCHORED: reading+saving must be about the SCREEN
+     * (or an explicit remembered phrase), never about messages, notes, or
+     * "details" in general.
+     */
     fun isReadAndRememberRequest(input: String): Boolean {
         val lower = input.lowercase().trim()
-        return readAndRememberPhrases.any { lower.contains(it) } ||
-               (lower.contains("screen") && (lower.contains("save") || lower.contains("remember") || lower.contains("notes"))) ||
-               (lower.contains("read") && (lower.contains("save") || lower.contains("remember")) && (lower.contains("screen") || lower.contains("message") || lower.contains("notes") || lower.contains("details")))
+        if (readAndRememberPhrases.any { lower.contains(it) }) return true
+        // Screen-anchored: reading AND saving about what is on screen.
+        if (lower.contains("screen") &&
+            (lower.contains("save") || lower.contains("remember"))
+        ) return true
+        return false
     }
 
     fun extractTopicForReadAndRemember(input: String): String {

@@ -73,6 +73,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val MAX_NEEDS_INPUT_PROMPTS = 5
+/**
+ * v1.6.0 (field P0-8e): the per-PLAN needs-input budget. The per-action cap
+ * of 5 never bit in the field - broken steps cycled prompts ACROSS steps
+ * (searchText -> content -> direction -> searchText) and burned 28 minutes.
+ */
+private const val MAX_NEEDS_INPUT_PROMPTS_PER_PLAN = 8
 private const val MAX_INCOMPLETE_MESSAGE_IDS = 100
 /** Tail length of the live thinking trace published during planning. */
 private const val LIVE_THINKING_TAIL = 1500
@@ -517,6 +523,21 @@ class AgentLoop @Inject constructor(
 
     @Volatile private var pendingUserInput: PendingUserInput? = null
 
+    /**
+     * v1.6.0 (field P0-8e): needs-input prompts spent by the CURRENT plan -
+     * reset at every executePlanLoop start, capped per-plan (the per-action
+     * cap of 5 never bit in the field; the loop cycled ACROSS steps).
+     */
+    @Volatile private var needsInputPromptsThisPlan = 0
+
+    /**
+     * v1.6.0 (field P2-5): wall-clock origin of the plan currently running,
+     * so the plan path's final summary can carry turnWallMs like the chat
+     * path does (the field report could not account for ~9 minutes of a
+     * 17-minute turn).
+     */
+    @Volatile private var activePlanWallStartAt = 0L
+
     // Session id of whichever task is currently parked inside awaitUserResponse(), or null
     // when nothing is waiting. Session-affiliated (not a bare boolean) so processQuery can
     // tell a genuine reply to THIS prompt (arriving from the same session) apart from an
@@ -746,13 +767,20 @@ class AgentLoop @Inject constructor(
                 }
 
                 // Save user message
+                // v1.6.0 (field P2-6): the mode this turn runs in rides the
+                // USER message too - the next field analysis must never have
+                // to guess CHAT vs AGENT again.
+                val userChatMode = runCatching {
+                    ChatMode.fromNullable(settingsRepository.llmConfig.first().chatMode)
+                }.getOrDefault(ChatMode.CHAT)
                 val userMsg = ChatMessage(
                     id = UUID.randomUUID().toString(),
                     text = query,
                     sender = ChatMessage.Sender.USER,
                     modelBadge = null,
                     imageBase64 = screenshotBase64,
-                    attachmentsJson = attachmentsJson
+                    attachmentsJson = attachmentsJson,
+                    mode = userChatMode.name
                 )
                 memoryManager.storeMessage(userMsg, sessionId)
                 conversationRepository.insertMessage(sessionId, userMsg)
@@ -1038,6 +1066,10 @@ class AgentLoop @Inject constructor(
     private suspend fun executeSimpleQuery(userMsg: ChatMessage, sessionId: String) {
         val runId = UUID.randomUUID().toString()
         val requestId = userMsg.id
+        // v1.6.0 (field P2-5): the turn's wall-clock origin - every phase
+        // (streaming, harness, expansion, continuation) is accounted for in
+        // turnWallMs at the final save.
+        val turnStartWallAt = System.currentTimeMillis()
         try {
             val provider = llmProviderFactory.getActiveProvider()
             val relevantContext = memoryManager.getRelevantContext(userMsg.text)
@@ -1287,7 +1319,7 @@ class AgentLoop @Inject constructor(
                             }
                             is LLMStreamEvent.Reasoning -> {
                                 if (firstReasoningAt == 0L) firstReasoningAt = System.currentTimeMillis()
-                                currentThinkingText += event.text
+                                currentThinkingText = AnswerHygiene.joinThinkingSegments(currentThinkingText, event.text)
                                 _liveThinking.value = currentThinkingText.takeLast(LIVE_THINKING_TAIL)
                                 persistReply(force = false)
                             }
@@ -1668,6 +1700,30 @@ class AgentLoop @Inject constructor(
                 }
             }
 
+            // v1.6.0 B2 THE ANSWER-SHAPE GATE (field P0-4/5/6): tool-syntax
+            // runs, harness stubs, raw JSON envelopes, and oversized inline
+            // dumps never reach the user. sanitizeFinalAnswer returns null
+            // for stub-only text - one harness rescue, then the honest note.
+            val sanitizedReply = AnswerHygiene.sanitizeFinalAnswer(currentReplyText)
+            if (sanitizedReply == null) {
+                val rescued = harnessFallbackTurn(provider, turnConfig, lastMsgs)?.content
+                currentReplyText = rescued?.takeIf { it.isNotBlank() }
+                    ?: "I worked on that, but the reply came back in a shape I couldn't use. Could you ask me again?"
+            } else {
+                currentReplyText = sanitizedReply
+            }
+
+            // v1.6.0 (field P1-8): a CHAT-mode reply claiming file tools
+            // aren't available against an artifact goal must carry the
+            // switch-mode offer (the field's phone_prices/ai_policy turns
+            // lacked it while the capability existed two minutes later).
+            if (mode == ChatMode.CHAT &&
+                PlanResponseSanitizer.goalWantsArtifact(userMsg.text) &&
+                PlanResponseSanitizer.replyRefusesGoal(currentReplyText)
+            ) {
+                currentReplyText += "\n\nSwitch to Agent mode (the toggle at the top) and I'll create that file for you."
+            }
+
             val stepsSnapshot = stepsSnapshotWithThinking()
             val stepsEncoded = com.tsfdroid.ai.core.harness.ActivitySteps.encode(stepsSnapshot)
             android.util.Log.i(
@@ -1699,7 +1755,9 @@ class AgentLoop @Inject constructor(
                 thinkingDurationMs = thinkingDurationMs.takeIf { it > 0 },
                 toolCallsJson = ToolCallRecords.encode(turnToolRecords.toList()),
                 tokensUsed = turnTokensUsed,
-                turnLatencyMs = turnLatencyTotal
+                turnLatencyMs = turnLatencyTotal,
+                mode = mode.name,
+                turnWallMs = System.currentTimeMillis() - turnStartWallAt
             )
             conversationRepository.insertMessage(sessionId, finalReplyMsg)
             memoryManager.storeMessage(finalReplyMsg, sessionId)
@@ -1943,6 +2001,10 @@ class AgentLoop @Inject constructor(
     private suspend fun synthesizeExecutablePlan(provider: LLMProvider, userGoal: String): Plan? {
         val goal = userGoal.lowercase()
 
+        // v1.6.0 (field P0-7): questions are never file asks (see the
+        // generatePlan guard - this covers the execution-time deferral path).
+        if (GoalContract.isInterrogativeAboutStorage(userGoal)) return null
+
         // v1.3.0 round 22 (cap3 E2E evidence, run on d697485): an EXPLICIT
         // URL in a fetch-flavored goal is a FETCH ask first. "Fetch
         // https://example.com and report the page's main heading" carries
@@ -1986,15 +2048,37 @@ class AgentLoop @Inject constructor(
 
         // Artifact goal → generate the complete file content NOW.
         if (!PlanResponseSanitizer.goalWantsArtifact(userGoal)) return null
+
+        // v1.6.0 (field P0-2/P0-3/P1-1/P1-6 — the deliverable contract): the
+        // old synthesizer hardcoded Documents/report.pdf / document.txt /
+        // data.json, ignored the user's requested names, shipped model
+        // narration as content, emitted unfilled [placeholder] templates, and
+        // collapsed multi-file asks into ONE wrong file. The contract now:
+        //  1. parse the requested filename(s) from the goal (verbatim names
+        //     like ondevice_llm_benchmark_2026.md / llm_perf_metrics.csv);
+        //  2. one step PER requested file (a 4-file ask gets 4 steps);
+        //  3. content gates before every write (narration, placeholders,
+        //     extension-kind mismatches) with ONE repair re-ask — content
+        //     that still fails the gate delivers an honest CHAT answer with
+        //     the data inline, never a garbage file.
+        val requestedFiles = GoalContract.parseRequestedFilenames(userGoal)
         val wantsPdf = goal.contains("pdf") || goal.contains("document") ||
             (goal.contains("report") && !goal.contains("html") && !goal.contains("website"))
-        val fileNameHint = when {
-            goal.contains("website") || goal.contains("html") -> "website.html"
-            wantsPdf -> "report.pdf"
-            goal.contains("csv") -> "data.csv"
-            goal.contains("json") -> "data.json"
-            else -> "document.txt"
+        val deliverables = when {
+            requestedFiles.isNotEmpty() -> requestedFiles
+                // The user's own named files win; honor the requested folder
+                // only when the goal names one AND no explicit filename rides it.
+                .map { name ->
+                    val dir = if (goal.contains("marketreports") || goal.contains("market reports")) "MarketReports/" else ""
+                    "$dir$name"
+                }
+            goal.contains("website") || goal.contains("html") -> listOf("website.html")
+            wantsPdf -> listOf("report.pdf")
+            goal.contains("csv") -> listOf("data.csv")
+            goal.contains("json") -> listOf("data.json")
+            else -> listOf("document.txt")
         }
+        val fileNameHint = deliverables.first().substringAfterLast('/')
 
         // v1.1.1 RESEARCH-GROUNDED content engine: the old engine wrote
         // artifacts from model memory alone — the user's "deep research PDF"
@@ -2023,57 +2107,132 @@ class AgentLoop @Inject constructor(
             .distinct()
             .joinToString("\n\n") { it.take(4000) }
 
-        val contentRequest = LLMRequest(
-            systemPrompt = "You are TSF Droid's content engine. Produce the COMPLETE, final file content " +
-                "for the user's request — never a description, never a promise, never a plan. " +
-                (if (wantsPdf)
-                    "Plain readable report text (it will be typeset into a PDF): a title line, an intro, " +
-                    "sections with headings, concrete facts and numbers from the research below, a short " +
-                    "conclusion, and a final 'Sources:' list quoting the URLs you used. "
-                else "") +
-                "Very first line must be exactly: FILE: <filename>. Then output the raw file content.",
-            messages = listOf(
-                ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    text = buildString {
-                        append("$userGoal\n\nOutput the complete file content now. Remember: first line 'FILE: <filename>', then the raw content.")
-                        if (researchGrounding.isNotBlank()) {
-                            append("\n\nRESEARCH RESULTS (ground every factual claim in these; cite the URLs):\n")
-                            append(researchGrounding)
-                        } else {
-                            append("\n\n(No live research was available — write from your best knowledge and say nothing about missing research.)")
-                        }
-                    },
-                    sender = ChatMessage.Sender.USER
-                )
-            ),
-            temperature = 0.3f,
-            // A full researched report is a large artifact: give it the full
-            // artifact budget (the provider clamps to the model's context).
-            maxTokens = 8192,
-            responseFormat = ResponseFormat.TEXT
-        )
-        val generated = try {
-            provider.complete(contentRequest)
-        } catch (e: LLMException) {
-            return null
-        }
-        val body = PlanResponseSanitizer.stripReasoningBlocks(generated.content).trim()
-        if (body.isBlank()) return null
-        val content = if (body.startsWith("FILE:", ignoreCase = true)) {
-            val firstLineEnd = body.indexOf('\n')
-            if (firstLineEnd > 0) body.substring(firstLineEnd + 1).trim() else body
-        } else body
-        if (content.isBlank()) return null
-        val filePath = if (wantsPdf) "Documents/$fileNameHint" else "Documents/$fileNameHint"
-        return if (wantsPdf) {
-            buildSingleStepPlan(
-                userGoal, "CREATE_PDF",
-                mapOf("filePath" to filePath, "title" to userGoal.take(80), "content" to content)
+        // One content call per deliverable — a 2-file ask gets its two files,
+        // not one wrong file plus a 45k-char dump in chat (field P1-6).
+        val generatedContents = mutableListOf<Pair<String, String>>() // (fileName, content)
+        for ((index, filePath) in deliverables.withIndex()) {
+            val fileInstruction = if (deliverables.size > 1) {
+                "This is deliverable ${index + 1} of ${deliverables.size}: the file '$filePath'."
+            } else {
+                "The file must be named exactly: $filePath"
+            }
+            val contentRequest = LLMRequest(
+                systemPrompt = "You are TSF Droid's content engine. Produce the COMPLETE, final file content " +
+                    "for the user's request — never a description, never a promise, never a plan. " +
+                    (if (filePath.endsWith(".pdf") || wantsPdf)
+                        "Plain readable report text (it will be typeset into a PDF): a title line, an intro, " +
+                            "sections with headings, concrete facts and numbers from the research below, a short " +
+                            "conclusion, and a final 'Sources:' list quoting the URLs you used. "
+                    else "") +
+                    "NEVER leave unfilled placeholders like [price] or [today's rate] — if a value is in the " +
+                    "research below, USE THE REAL VALUE; if you truly don't have it, write that explicitly. " +
+                    "Do NOT output a FILE: line — output ONLY the raw file content.",
+                messages = listOf(
+                    ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        text = buildString {
+                            append("$userGoal\n\n$fileInstruction\n\nOutput the complete file content now — the raw content only, nothing else.")
+                            if (researchGrounding.isNotBlank()) {
+                                append("\n\nRESEARCH RESULTS (ground every factual claim in these; cite the URLs):\n")
+                                append(researchGrounding)
+                            } else {
+                                append("\n\n(No live research was available — write from your best knowledge and say nothing about missing research.)")
+                            }
+                        },
+                        sender = ChatMessage.Sender.USER
+                    )
+                ),
+                temperature = 0.3f,
+                // A full researched report is a large artifact: give it the full
+                // artifact budget (the provider clamps to the model's context).
+                maxTokens = 8192,
+                responseFormat = ResponseFormat.TEXT
             )
-        } else {
-            buildSingleStepPlan(userGoal, "WRITE_FILE", mapOf("filePath" to filePath, "content" to content))
+            val generated = try {
+                provider.complete(contentRequest)
+            } catch (e: LLMException) {
+                return null
+            }
+            var content = PlanResponseSanitizer.stripReasoningBlocks(generated.content).trim()
+            // The old contract asked for a "FILE:" first line; tolerate and
+            // strip it when the model still emits one.
+            if (content.startsWith("FILE:", ignoreCase = true)) {
+                val firstLineEnd = content.indexOf('\n')
+                content = if (firstLineEnd > 0) content.substring(firstLineEnd + 1).trim() else content
+            }
+            if (content.isBlank()) return null
+
+            // v1.6.0 THE CONTENT GATE (field P0-2/P0-3): narration, placeholder
+            // templates, and extension-kind mismatches never ship as files.
+            // One bounded repair re-ask; a second failure drops the FILE path
+            // and returns null (the caller's answer-engine ladder delivers
+            // the gathered data as an honest chat answer instead).
+            val ext = filePath.substringAfterLast('.', "").lowercase()
+            val gateReason = GoalContract.contentGate(content, ext)
+            if (gateReason != null) {
+                android.util.Log.w(
+                    "AgentLoop",
+                    "content gate rejected $filePath: $gateReason — one repair re-ask"
+                )
+                val repair = try {
+                    provider.complete(
+                        contentRequest.copy(
+                            messages = listOf(
+                                ChatMessage(
+                                    id = UUID.randomUUID().toString(),
+                                    text = "Your previous output was rejected: $gateReason. " +
+                                        "Output the COMPLETE $filePath content now — real values from the research, " +
+                                        "no placeholders, no narration, no description of what you will do. " +
+                                        (if (researchGrounding.isNotBlank()) "\n\nRESEARCH RESULTS:\n$researchGrounding" else "") +
+                                        "\n\nRaw file content only:",
+                                    sender = ChatMessage.Sender.USER
+                                )
+                            )
+                        )
+                    )
+                } catch (e: LLMException) {
+                    null
+                }
+                val repaired = repair?.let { PlanResponseSanitizer.stripReasoningBlocks(it.content).trim() }
+                if (!repaired.isNullOrBlank() && GoalContract.contentGate(repaired, ext) == null) {
+                    content = repaired
+                } else {
+                    android.util.Log.w(
+                        "AgentLoop",
+                        "content gate failed twice for $filePath — no file will be written; the chat answer carries the data"
+                    )
+                    return null
+                }
+            }
+            generatedContents.add(filePath to content)
         }
+
+        // Build one step per deliverable, in the order the goal named them.
+        val steps = generatedContents.mapIndexed { i, (filePath, content) ->
+            PlanStep(
+                stepId = "s${i + 1}",
+                order = i + 1,
+                description = "Create ${filePath.substringAfterLast('/')}",
+                action = if (filePath.endsWith(".pdf")) "CREATE_PDF" else "WRITE_FILE",
+                params = if (filePath.endsWith(".pdf")) {
+                    mapOf(
+                        "filePath" to filePath,
+                        "title" to filePath.substringAfterLast('/').substringBeforeLast('.'),
+                        "content" to content
+                    )
+                } else {
+                    mapOf("filePath" to filePath, "content" to content)
+                },
+                fallback = ""
+            )
+        }
+        return Plan(
+            planId = UUID.randomUUID().toString(),
+            goal = userGoal,
+            estimatedDuration = "instant",
+            estimatedSteps = steps.size,
+            steps = steps
+        )
     }
 
     /**
@@ -2094,7 +2253,7 @@ class AgentLoop @Inject constructor(
                 when (event) {
                     is com.tsfdroid.ai.core.llm.LLMStreamEvent.Content -> content += event.text
                     is com.tsfdroid.ai.core.llm.LLMStreamEvent.Reasoning -> {
-                        thinking += event.text
+                        thinking = AnswerHygiene.joinThinkingSegments(thinking, event.text)
                         _liveThinking.value = thinking.takeLast(LIVE_THINKING_TAIL)
                     }
                     // v1.2.0: finish signal not needed here — planner-style
@@ -2444,6 +2603,25 @@ class AgentLoop @Inject constructor(
                 plan
             }
 
+            // v1.6.0 (field P0-7): the interrogative guard. A question about
+            // where the app stores things never becomes a file-write - the
+            // field's "can you tell me the location in device where the
+            // export chats are saved" became a WRITE_FILE that overwrote the
+            // user's scrap_titles.py. Route it to the chat path, whose prompt
+            // now carries the app's real storage facts.
+            if (GoalContract.isInterrogativeAboutStorage(userMsg.text) &&
+                parsedPlan.steps.any {
+                    it.action.trim().uppercase() in setOf("WRITE_FILE", "CREATE_PDF")
+                }
+            ) {
+                android.util.Log.w(
+                    "AgentLoop",
+                    "storage question misrouted into a file-write plan - answering in chat instead"
+                )
+                executeSimpleQuery(userMsg, sessionId)
+                return
+            }
+
             planManager.startNewPlan(parsedPlan, context, PlanStatus.PROPOSED)
             // Re-read after LLM work: user may have flipped mode or revoked grants
             // while planning was in flight; stale pre-LLM config must not auto-run.
@@ -2745,6 +2923,32 @@ class AgentLoop @Inject constructor(
                 android.util.Log.w("AgentLoop", "artifact card skipped: no app context")
                 return
             }
+            // v1.6.0 (field P1-3): WRITE_FILE now reports SAF content:// URIs
+            // for custom-folder writes - resolve those through DocumentFile,
+            // not java.io.File (the old file.exists() check silently skipped
+            // ALL 12/12 field WRITE_FILE cards).
+            if (cleanPath.startsWith("content://")) {
+                try {
+                    val doc = androidx.documentfile.provider.DocumentFile.fromSingleUri(
+                        context, android.net.Uri.parse(cleanPath)
+                    )
+                    if (doc != null && doc.exists() && (doc.length() ?: 0L) > 0L) {
+                        val attachmentJson = org.json.JSONObject()
+                            .put("name", doc.name ?: "file")
+                            .put("path", cleanPath)
+                            .put("mime", doc.type ?: "application/octet-stream")
+                            .put("size", doc.length() ?: 0L)
+                            .toString()
+                        collectedArtifacts.add(attachmentJson)
+                        android.util.Log.i("AgentLoop", "artifact collected (SAF) for end-of-chat card: ${doc.name}")
+                    } else {
+                        android.util.Log.i("AgentLoop", "artifact card skipped: SAF doc missing: '$cleanPath'")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("AgentLoop", "SAF artifact card failed: ${e.localizedMessage}")
+                }
+                return
+            }
             val file = com.tsfdroid.ai.core.storage.StorageWorkspaceProvider.resolveFile(context, cleanPath)
             if (!file.exists() || file.length() == 0L) {
                 android.util.Log.i("AgentLoop", "artifact card skipped: not on disk: '$cleanPath'")
@@ -2789,9 +2993,13 @@ class AgentLoop @Inject constructor(
 
     private suspend fun executePlanLoop(plan: Plan, context: Context, sessionId: String, autoApproved: Boolean = false) {
         planManager.updatePlanStatus(PlanStatus.RUNNING)
-        // v1.3.0 round-7: fresh ask bookkeeping per plan run — a previous
+        // v1.3.0 round-7: fresh ask bookkeeping per plan run - a previous
         // plan's ask must not leak its confirmation into this one.
         askedUserDuringPlan = false
+        // v1.6.0 (field P0-8e): fresh per-plan needs-input budget too.
+        needsInputPromptsThisPlan = 0
+        // v1.6.0 (field P2-5): wall-clock origin for this plan's summary.
+        activePlanWallStartAt = System.currentTimeMillis()
 
         // v1.3.0 round 21: the execution-time deferral guard — covers every
         // path into this loop that skipped the parse-time gates (a plan
@@ -3524,13 +3732,17 @@ class AgentLoop @Inject constructor(
         // Wait for user response
         val userSelection = awaitUserResponse(sessionId)
 
-        // Save user's response as a chat message
-        val userPickMsg = ChatMessage(
-            id = UUID.randomUUID().toString(),
-            text = userSelection,
-            sender = ChatMessage.Sender.USER
-        )
-        conversationRepository.insertMessage(sessionId, userPickMsg)
+        // v1.6.0 (field P1-4): the reply is already persisted by processQuery
+        // (single-write); P0-8b: a stop reply cancels the plan.
+        if (GoalContract.isStopCommand(userSelection)) {
+            return NeedsInputRetry(
+                ActionResult.Failure(
+                    errorMsg = "Cancelled by user",
+                    fallback = "The user said stop - the task was dropped."
+                ),
+                originalParams
+            )
+        }
 
         // Resolve user selection to a contact
         val selectedContact = when {
@@ -3635,9 +3847,14 @@ class AgentLoop @Inject constructor(
         } else {
             ""
         }
+        // v1.6.0 (field P0-8d): prompt copy speaks USER language - the
+        // field prompts exposed internal param names ("I need the
+        // searchText... Text to find the field").
+        val paramKey = paramKeyForNeedsInput(needsInput, actionName)
+        val humanQuestion = GoalContract.humanizeParamPrompt(actionName, paramKey, needsInput.question)
         val promptMsg = ChatMessage(
             id = UUID.randomUUID().toString(),
-            text = needsInput.question + optionsText,
+            text = humanQuestion + optionsText,
             sender = ChatMessage.Sender.AGENT,
             modelBadge = "System",
             // v1.3.0: the plan-path ask gets the SAME tappable chips and the
@@ -3682,6 +3899,38 @@ class AgentLoop @Inject constructor(
             )
         }
 
+        // v1.6.0 (field P0-8b): the cancel lexicon. Four explicit field stop
+        // commands ("stop don't need to do anything") were consumed as
+        // parameter text while the plan kept running for 28 minutes. A stop
+        // reply aborts the WHOLE plan with an honest summary.
+        if (GoalContract.isStopCommand(answer)) {
+            android.util.Log.w("AgentLoop", "needs-input answer is a stop command - aborting plan")
+            return NeedsInputRetry(
+                ActionResult.Failure(
+                    errorMsg = "Cancelled by user",
+                    fallback = "The user said stop - the task was dropped."
+                ),
+                originalParams
+            )
+        }
+
+        // v1.6.0 (field P0-8e): the per-PLAN prompt budget. The per-action
+        // cap of 5 never bit in the field because broken steps cycled the
+        // prompts ACROSS steps (searchText -> content -> direction ->
+        // searchText...). Eight prompts per plan is generous for legitimate
+        // use and fatal for a loop.
+        needsInputPromptsThisPlan++
+        if (needsInputPromptsThisPlan > MAX_NEEDS_INPUT_PROMPTS_PER_PLAN) {
+            android.util.Log.w("AgentLoop", "plan exceeded $MAX_NEEDS_INPUT_PROMPTS_PER_PLAN needs-input prompts - aborting")
+            return NeedsInputRetry(
+                ActionResult.Failure(
+                    errorMsg = "Too many prompts for this plan",
+                    fallback = "I asked too many times and stopped - could you rephrase the request with all details?"
+                ),
+                originalParams
+            )
+        }
+
         // v1.3.0 round-8: an ask answer is often a durable preference
         // ("Which city do you prefer?" -> "Pune") — exactly what the Hermes
         // memory is for. The normal learnFromExchange hook lives at the end
@@ -3697,14 +3946,10 @@ class AgentLoop @Inject constructor(
             }
         }
 
-        val userEcho = ChatMessage(
-            id = UUID.randomUUID().toString(),
-            text = answer,
-            sender = ChatMessage.Sender.USER
-        )
-        conversationRepository.insertMessage(sessionId, userEcho)
-
-        val paramKey = paramKeyForNeedsInput(needsInput, actionName)
+        // v1.6.0 (field P1-4): NO echo insert here. processQuery already
+        // persisted this reply exactly once when it routed it into the park
+        // (the double-persist produced 10 duplicate USER rows across the
+        // field exports, 15-30 ms apart).
         val newParams = originalParams.toMutableMap().apply { put(paramKey, answer) }
         return NeedsInputRetry(
             actionDispatcher.execute(actionName, newParams, context),
@@ -3739,15 +3984,22 @@ class AgentLoop @Inject constructor(
     private suspend fun recordAutoApprovedTrace(plan: Plan, mode: AutoMode, sessionId: String) {
         val badge = if (mode == AutoMode.YOLO) "YOLO" else "Auto-approved"
         val stepLines = plan.steps.joinToString("\n") { "• ${it.description}" }
+        // v1.6.0 (field P2-3): "Running:" + raw echo of the user query read
+        // like log noise; the trace keeps its audit content but opens like a
+        // person, and the unfulfillable-goal note (B1) rides it too.
+        val capabilityNote = GoalContract.unfulfillableGoalNote(plan.goal)
+        val traceText = "On it - ${plan.goal} (${plan.steps.size} steps)\n$stepLines" +
+            (capabilityNote?.let { "\nNote: $it" } ?: "")
         val traceMsg = ChatMessage(
             id = UUID.randomUUID().toString(),
-            text = "Running: ${plan.goal} (${plan.steps.size} steps)\n$stepLines",
+            text = traceText,
             sender = ChatMessage.Sender.AGENT,
-            modelBadge = badge
+            modelBadge = badge,
+            mode = "AGENT"
         )
         conversationRepository.insertMessage(sessionId, traceMsg)
         memoryManager.storeMessage(traceMsg, sessionId)
-        onSpeakCallback?.invoke("Running: ${plan.goal}")
+        onSpeakCallback?.invoke("On it: ${plan.goal}")
     }
 
     private suspend fun speakAndSaveSummary(plan: Plan, isSuccess: Boolean, sessionId: String) {
@@ -3759,11 +4011,25 @@ class AgentLoop @Inject constructor(
         // file line, never the canned "/storage/..." path text (the third
         // field complaint). Data turns keep the synthesis ladder, which
         // names files per the contract.
+        // v1.6.0 (field P1-6): the names this plan ACTUALLY wrote — captured
+        // before the drain so the claim audit below can compare against them.
+        val writtenThisPlan = collectedArtifacts.mapNotNull { json ->
+            runCatching { org.json.JSONObject(json).optString("name") }.getOrNull()
+        }.map { it.lowercase() }.toSet()
         val artifactJson = drainCollectedArtifact()
         val artifactName = artifactJson?.let {
             runCatching { org.json.JSONObject(it).optString("name") }.getOrNull()
         }
         val summaryText = if (isSuccess) {
+            // v1.6.0 B1 TRUTHFULNESS GATE (field P0-1 — the cab): a plan whose
+            // steps contain NO world-changing action can never earn a
+            // completion claim. The ask-only honest summary outranks the LLM
+            // confirmation, which "confirmed" a booking that never happened.
+            val askOnlyPlan = plan.steps.isNotEmpty() && plan.steps.all {
+                it.status != StepStatus.FAILED &&
+                    it.action.trim().uppercase() in ASK_ONLY_ACTIONS
+            }
+            val honestAskOnly = if (askOnlyPlan) honestAskOnlySummary(plan) else null
             // v1.3.0 round-7: when the plan asked the user something, the
             // answer must round-trip back through the MODEL for the final
             // reply (the opencode question-tool contract). Run-102 cap21
@@ -3780,8 +4046,9 @@ class AgentLoop @Inject constructor(
             // never the deliverable. Ladder: ask-confirmation → clean
             // artifact line → synthesis → extractive fallback → canned
             // listing (last resort).
-            val confirmed = askConfirmedSummary(plan)
+            val confirmed = if (honestAskOnly != null) null else askConfirmedSummary(plan)
             when {
+                honestAskOnly != null -> honestAskOnly
                 confirmed != null -> confirmed
                 // Pure artifact turn: the card carries the file; the reply
                 // is one clean sentence, exactly like ChatGPT's delivery.
@@ -3819,6 +4086,13 @@ class AgentLoop @Inject constructor(
                 }
             }
             
+            // v1.6.0 (field P0-8): a plan the user STOPPED gets the honest
+            // stopped message, never a failure apology for work they ended.
+            val cancelledByUser = failedSteps.any { it.error?.contains("Cancelled by user") == true }
+            if (cancelledByUser) {
+                "Stopped - I dropped that task; nothing else will run." +
+                    (partialFindingsSummary(plan)?.let { "\n\n$it" } ?: "")
+            } else
             // v1.4.0 (run-37106169790 cap24 forensics): a FAILED plan that
             // already gathered real data must DELIVER it — the India-VIX turn
             // completed a legitimate search, two over-specific follow-ups
@@ -3828,11 +4102,30 @@ class AgentLoop @Inject constructor(
             userFacingError ?: partialFindingsSummary(plan) ?: humanizeFailure(plan.goal)
         }
 
+        // v1.6.0 (field P1-6): the CLAIM AUDIT — every filename the summary
+        // promises must exist among the artifacts this plan actually wrote.
+        // The field's "Here are both files, complete and ready to use." said
+        // so while the second file was never written.
+        val claimedFiles = Regex("\\b[A-Za-z0-9_][A-Za-z0-9_\\-]*\\.(?:md|csv|txt|json|pdf|py|html?|yaml|js)\\b")
+            .findAll(summaryText).map { it.value.lowercase() }.toSet()
+        val missingFiles = claimedFiles - writtenThisPlan
+        val finalSummary = if (missingFiles.isNotEmpty()) {
+            summaryText + "
+
+(Honesty note: I mentioned " +
+                missingFiles.joinToString(", ") { "'$it'" } +
+                " but didn't actually create " +
+                (if (missingFiles.size == 1) "it" else "them") +
+                " - the write didn't happen.)"
+        } else {
+            summaryText
+        }
         val assistantMsg = ChatMessage(
             id = UUID.randomUUID().toString(),
-            text = summaryText,
+            text = finalSummary,
             sender = ChatMessage.Sender.AGENT,
             modelBadge = summaryBadge,
+            mode = "AGENT",
             // v1.4.0: created files ride the summary as a ChatGPT-style
             // card at the END of the chat — the drained artifact attaches
             // to this message itself; extras land as follow-up cards.
@@ -3847,7 +4140,10 @@ class AgentLoop @Inject constructor(
             // real durations) plus the model id that ran the loop — the
             // plan-mode counterpart of the chat path's persistence.
             modelId = activePlanModelId,
-            toolCallsJson = ToolCallRecords.encode(activePlanToolRecords.toList())
+            toolCallsJson = ToolCallRecords.encode(activePlanToolRecords.toList()),
+            // v1.6.0 (field P2-5): the plan path's wall-clock duration.
+            turnWallMs = activePlanWallStartAt.takeIf { it > 0 }
+                ?.let { System.currentTimeMillis() - it }
         )
         memoryManager.storeMessage(assistantMsg, sessionId)
         conversationRepository.insertMessage(sessionId, assistantMsg)
@@ -3957,6 +4253,33 @@ class AgentLoop @Inject constructor(
     private fun cannedSuccessSummary(plan: Plan): String =
         PlanResponseSanitizer.stepResultSummary(plan.steps) ?: humanizeGoalDone(plan.goal)
 
+    /** Steps that never change the world (see [honestAskOnlySummary]). */
+    private val ASK_ONLY_ACTIONS = setOf("ASK_USER", "CHAT")
+
+    /**
+     * v1.6.0 (field P0-1): deterministic honest summary for plans that only
+     * ASKED questions. The cab-plan field failure reached the user as "Your
+     * cab is booked" because the ask-confirmation LLM was instructed to
+     * "confirm the completed task". When the goal demands an outcome NO
+     * registered action can produce (booking / ordering / paying), the app
+     * says so itself - the model's own field confession ("I don't have a
+     * platform to report - I jumped ahead earlier. No booking was actually
+     * completed.") is the bar this summary must meet unprompted.
+     */
+    private fun honestAskOnlySummary(plan: Plan): String? {
+        val note = GoalContract.unfulfillableGoalNote(plan.goal) ?: return null
+        val answers = plan.steps
+            .filter { it.action.trim().uppercase() == "ASK_USER" && it.status == StepStatus.COMPLETED }
+            .mapNotNull { it.result?.trim()?.take(80) }
+        return buildString {
+            append("I've noted your answers")
+            if (answers.isNotEmpty()) {
+                append(" (you said \"" + answers.joinToString("\", \"") + "\")")
+            }
+            append(". To be honest: $note")
+        }
+    }
+
     /**
      * v1.4.0: the honest partial answer for a FAILED plan that still
      * gathered data. Runs the same answer-engine ladder (synthesis →
@@ -4020,8 +4343,13 @@ class AgentLoop @Inject constructor(
                     LLMRequest(
                         systemPrompt = "You are TSF Droid, an Android agent finishing a task. " +
                             "The plan asked the user question(s) and the user answered. " +
-                            "Write ONE short natural sentence (max 30 words) that confirms the " +
-                            "completed task and mentions what the user answered or chose. " +
+                            "Write ONE short natural sentence (max 30 words) that reflects " +
+                            "what was ACTUALLY done and mentions what the user answered. " +
+                            "HONESTY FIRST: only claim a task was completed if one of the steps " +
+                            "actually performed it. If the steps only asked questions and never " +
+                            "performed the goal action (a booking, order, payment, sending), say " +
+                            "so - e.g. 'Noted your answers - nothing has been booked yet, I " +
+                            "can't complete bookings on my own.' Never invent an outcome. " +
                             "No preamble, no quotes around the sentence, no lists.",
                         messages = listOf(
                             ChatMessage(

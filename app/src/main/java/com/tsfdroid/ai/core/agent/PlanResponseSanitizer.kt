@@ -113,11 +113,16 @@ internal object PlanResponseSanitizer {
         "let me do", "i am building", "i'm building", "let me run"
     )
 
-    /** Words that mark an artifact-producing goal. */
+    /**
+     * Words that mark an artifact-producing goal.
+     * v1.6.0 (field P1-8): "save it as" added - the ai_policy turn ("save it
+     * as ai_policy_update.txt") deflected to a WEB_SEARCH-only plan because
+     * the word list missed the phrase while the file ask was explicit.
+     */
     private val ARTIFACT_WORDS = listOf(
         "file", "html", "website", "web page", "webpage", "pdf", "document",
         "report", "save", "write", "note", "csv", "json", "spreadsheet",
-        "powerpoint", "slides"
+        "powerpoint", "slides", "save it as", "saved as", "name it", "called"
     )
 
     /**

@@ -84,6 +84,27 @@ class ConversationRepository @Inject constructor(
     suspend fun insertMessage(sessionId: String, message: ChatMessage) {
         conversationDao.insertMessage(message.toEntity(sessionId))
         chatSessionDao.touch(sessionId, message.timestamp)
+        // v1.6.0 (field P2-8): every one of the user's 7 field exports was
+        // named "New Chat" - the session list was unusable. The first USER
+        // message of an untitled session derives the title from its first
+        // words (no LLM call, deterministic, cheap).
+        if (message.sender == ChatMessage.Sender.USER) {
+            runCatching {
+                val session = chatSessionDao.getSessionOnce(sessionId)
+                if (session != null && (session.title.isBlank() || session.title == "New Chat")) {
+                    val words = message.text.trim()
+                        .replace(Regex("\\s+"), " ")
+                        .split(" ")
+                        .filter { it.isNotBlank() }
+                        .take(7)
+                        .joinToString(" ")
+                        .take(48)
+                    if (words.isNotBlank()) {
+                        chatSessionDao.renameSession(sessionId, words)
+                    }
+                }
+            }
+        }
     }
 
     /** Last [limit] messages of the current session, chronological order. */
@@ -215,7 +236,9 @@ class ConversationRepository @Inject constructor(
         modelId = modelId,
         tokensUsed = tokensUsed,
         turnLatencyMs = turnLatencyMs,
-        toolCallsJson = toolCallsJson
+        toolCallsJson = toolCallsJson,
+        mode = mode,
+        turnWallMs = turnWallMs
     )
 
     private fun ChatMessage.toEntity(sessionId: String) = ConversationEntity(
@@ -235,6 +258,8 @@ class ConversationRepository @Inject constructor(
         tokensUsed = tokensUsed,
         turnLatencyMs = turnLatencyMs,
         toolCallsJson = toolCallsJson,
+        mode = mode,
+        turnWallMs = turnWallMs,
         sessionId = sessionId
     )
 

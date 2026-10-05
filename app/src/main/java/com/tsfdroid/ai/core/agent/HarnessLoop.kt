@@ -157,6 +157,14 @@ class HarnessLoop @Inject constructor(
         val onToolRecord: (suspend (ToolCallRecord) -> Unit)? = null
     )
 
+    /**
+     * v1.6.0 (field P2-2): URLs that already failed this turn. The field's
+     * cost-analysis turn re-fetched the same dead ai.google.dev URL 4 times
+     * (20-21s each, ~80s wasted) while varying the queries. Reset at every
+     * runTurn entry; shared with the continuation loops of the same turn.
+     */
+    private val turnFailedUrls = mutableSetOf<String>()
+
     data class TurnResult(
         val content: String,
         val rounds: Int,
@@ -226,6 +234,7 @@ class HarnessLoop @Inject constructor(
             TAG,
             "runTurn BEGIN history=${config.history.size} msgs maxRounds=${config.maxRounds} readOnly=${config.readOnly}"
         )
+        turnFailedUrls.clear()
 
         while (round < config.maxRounds) {
             round++
@@ -362,12 +371,26 @@ class HarnessLoop @Inject constructor(
                     continue
                 }
 
+                // v1.6.0 B2 (field P0-4/5): THE ANSWER-SHAPE GATE at the
+                // harness exit - tool-syntax runs, stub sentences, JSON
+                // envelopes, and oversized inline dumps never reach the
+                // user. A stub/empty-only shape gets the one
+                // FINAL_ANSWER_NUDGE re-ask; otherwise the sanitized text is
+                // delivered (the caller's save gate is the second line of
+                // defense).
+                val sanitizedExit = AnswerHygiene.sanitizeFinalAnswer(response.content)
+                if (sanitizedExit == null && !synthesisAttempted && round < config.maxRounds - 1) {
+                    synthesisAttempted = true
+                    messages = messages + userMessage(FINAL_ANSWER_NUDGE)
+                    android.util.Log.i(TAG, "round $round answer was stub/empty-shaped — one FINAL_ANSWER_NUDGE re-ask")
+                    continue
+                }
                 android.util.Log.i(
                     TAG,
-                    "runTurn EXIT answer rounds=$round tools=$toolCallsExecuted cont=$continuationSegments finish=$lastFinishReason content=${response.content.length}c"
+                    "runTurn EXIT answer rounds=$round tools=$toolCallsExecuted cont=$continuationSegments finish=$lastFinishReason content=${response.content.length}c sanitized=${sanitizedExit?.length ?: -1}c"
                 )
                 return TurnResult(
-                    content = response.content,
+                    content = sanitizedExit ?: response.content,
                     rounds = round,
                     toolCallsExecuted = toolCallsExecuted,
                     continuationSegments = continuationSegments,
@@ -407,7 +430,12 @@ class HarnessLoop @Inject constructor(
 
             if (narrationWithCalls) {
                 // The narration is context for the next round, not the answer.
-                messages = messages + assistantMessage(response.content)
+                // v1.6.0 (field P0-4): strip tool-syntax runs OUT of the
+                // narration - the field's expansion pass inherited the six
+                // `web_search {...}` lines from exactly this polluted context.
+                messages = messages + assistantMessage(
+                    AnswerHygiene.stripLeadingToolSyntax(response.content)
+                )
             } else {
                 messages = messages + toolRoundStub(response.toolCalls)
             }
@@ -492,12 +520,29 @@ class HarnessLoop @Inject constructor(
                                 "needs that action, tell them to switch to Agent mode."
                         )
                     else -> try {
-                        toolExecutor.execute(mapped.action, mapped.params, config.context)
+                        // v1.6.0 (field P2-2): the failed-URL circuit breaker -
+                        // a URL that already failed this turn is skipped with
+                        // an honest result instead of burning 20s again.
+                        val urlKey = mapped?.params?.get("url")?.trim()
+                        if (mapped != null && urlKey != null &&
+                            (mapped.action == "FETCH_URL" || mapped.action == "SUMMARIZE_URL") &&
+                            urlKey in turnFailedUrls
+                        ) {
+                            ActionResult.Failure(
+                                "Skipped: that URL already failed this turn (circuit breaker). " +
+                                    "Try a different source or answer from the results you already have."
+                            )
+                        } else {
+                            toolExecutor.execute(mapped.action, mapped.params, config.context)
+                        }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         ActionResult.Failure(e.localizedMessage ?: "Tool execution failed")
                     }
+                }
+                if (!result.success) {
+                    mapped?.params?.get("url")?.trim()?.let { turnFailedUrls.add(it) }
                 }
                 val execDurationMs = System.currentTimeMillis() - execStartAt
                 // v1.4.0 chat export: the full-fidelity record — raw arguments,
@@ -838,12 +883,26 @@ class HarnessLoop @Inject constructor(
                                 "REFUSED: Chat mode is read-only. '${mapped.action}' is not permitted here."
                             )
                         else -> try {
-                            toolExecutor.execute(mapped.action, mapped.params, config.context)
+                            val urlKey = mapped?.params?.get("url")?.trim()
+                            if (mapped != null && urlKey != null &&
+                                (mapped.action == "FETCH_URL" || mapped.action == "SUMMARIZE_URL") &&
+                                urlKey in turnFailedUrls
+                            ) {
+                                ActionResult.Failure(
+                                    "Skipped: that URL already failed this turn (circuit breaker). " +
+                                        "Try a different source or answer from the results you already have."
+                                )
+                            } else {
+                                toolExecutor.execute(mapped.action, mapped.params, config.context)
+                            }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             ActionResult.Failure(e.localizedMessage ?: "Tool execution failed")
                         }
+                    }
+                    if (!result.success) {
+                        mapped?.params?.get("url")?.trim()?.let { turnFailedUrls.add(it) }
                     }
                     val execDurationMs = System.currentTimeMillis() - execStartAt
                     // v1.4.0 chat export: mid-continuation tool calls are
@@ -900,7 +959,10 @@ class HarnessLoop @Inject constructor(
                 userMessage(CONTINUATION_INSTRUCTION)
         }
         return TurnResult(
-            content = joined,
+            // v1.6.0 B2: the continuation joins carry the same answer-shape
+            // gate (best-effort - a null here falls back to the raw join and
+            // the caller's save gate catches it).
+            content = AnswerHygiene.sanitizeFinalAnswer(joined) ?: joined,
             rounds = round,
             toolCallsExecuted = toolCallsExecuted,
             continuationSegments = totalSegments,

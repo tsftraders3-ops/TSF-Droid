@@ -51,7 +51,7 @@ class AppUiInteractionInstrumentedTest {
 
     /** Agent status lines (planning, TTS, execution) — never the reply itself. */
     private val agentStatusPrefixes = listOf(
-        "Analyzing", "Speaking", "Executing", "Planning", "Thinking", "Running", "Done"
+        "Analyzing", "Speaking", "Executing", "Planning", "Thinking", "Running", "On it", "Done"
     )
 
     @Before

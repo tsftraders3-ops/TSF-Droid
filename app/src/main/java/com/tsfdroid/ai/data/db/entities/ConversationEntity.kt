@@ -42,6 +42,12 @@ data class ConversationEntity(
     // v1.4.0 chat export: JSON array of ToolCallRecord — the full tool-call
     // log behind this reply (params, capped results, per-call durations).
     val toolCallsJson: String? = null,
+    // v1.6.0 (field P2-6): the mode this turn ran in - "CHAT" or "AGENT"
+    // (null on legacy rows and non-turn messages).
+    val mode: String? = null,
+    // v1.6.0 (field P2-5): the turn's wall-clock duration in ms, from the
+    // user's send to the final save (nullable).
+    val turnWallMs: Long? = null,
     // Which chat history this message belongs to. See ChatSessionEntity.
     val sessionId: String
 )

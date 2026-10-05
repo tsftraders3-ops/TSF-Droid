@@ -69,7 +69,7 @@ import androidx.room.TypeConverters
         SocialAutomationRuleEntity::class,
         SocialAuditLogEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -324,6 +324,19 @@ abstract class OpenDroidDatabase : RoomDatabase() {
                 database.execSQL("ALTER TABLE conversations ADD COLUMN tokensUsed INTEGER DEFAULT NULL")
                 database.execSQL("ALTER TABLE conversations ADD COLUMN turnLatencyMs INTEGER DEFAULT NULL")
                 database.execSQL("ALTER TABLE conversations ADD COLUMN toolCallsJson TEXT DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // v1.6.0 (field report 2026-10-05, section 10): the two input-side
+                // columns the field analysis could not do without — which MODE
+                // produced each turn (CHAT vs AGENT; the phone_prices/ai_policy
+                // conclusions had to be inferred) and the turn's WALL-CLOCK
+                // duration (the ~9-minute expansion window was unaccounted).
+                // Both purely additive; legacy rows read NULL.
+                database.execSQL("ALTER TABLE conversations ADD COLUMN mode TEXT DEFAULT NULL")
+                database.execSQL("ALTER TABLE conversations ADD COLUMN turnWallMs INTEGER DEFAULT NULL")
             }
         }
 

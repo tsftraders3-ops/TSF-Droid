@@ -16,6 +16,7 @@ import com.tsfdroid.ai.actions.base.Action
 import com.tsfdroid.ai.actions.base.ActionResult
 import com.tsfdroid.ai.core.agent.ContactResolution
 import com.tsfdroid.ai.core.agent.ContactResolver
+import com.tsfdroid.ai.core.agent.GoalContract
 import com.tsfdroid.ai.core.agent.maskPhone
 import com.tsfdroid.ai.core.util.DeviceCapabilities
 import android.provider.ContactsContract
@@ -268,6 +269,20 @@ class CommunicationActions @Inject constructor(
                 ?: params["text"]
                 ?: params["body"]
                 ?: return ActionResult(false, null, "message parameter missing")
+
+            // v1.6.0 (field P1-5): "sms hi to the number 123" resolved the
+            // WHOLE phrase as a contact lookup, four attempts, four failures.
+            // A digit-string recipient (bare or embedded in the phrase)
+            // bypasses contact resolution entirely.
+            val directNumber = contact.trim().let { c ->
+                val compact = c.replace(Regex("[\\s-]"), "")
+                if (compact.length >= 3 && compact.all { it.isDigit() } ||
+                    compact.matches(Regex("\\+\\d{3,}"))
+                ) compact else GoalContract.extractPhoneNumber(c)
+            }
+            if (directNumber != null) {
+                return executeSms(directNumber, contact, message, context)
+            }
 
             return when (val resolved = contactResolver.resolveWithDisambiguation(contact)) {
                 is ContactResolution.Found -> executeSms(resolved.contact.phoneNumber, contact, message, context)

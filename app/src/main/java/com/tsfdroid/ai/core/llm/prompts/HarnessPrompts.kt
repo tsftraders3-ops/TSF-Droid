@@ -168,6 +168,19 @@ object HarnessPrompts {
             )
             appendLine()
             appendLine(
+                // v1.6.0 (field P0-7): the export-location question got a
+                // hallucinated WhatsApp answer — the model knew nothing about
+                // THIS app's storage. Ground it.
+                "App storage facts (this app, TSF Droid): exported chat JSON files are " +
+                    "saved to the app's own workspace at " +
+                    "Android/data/com.tsfdroid.ai/files/workspace/Exports/ (reachable via " +
+                    "the chat menu's Export chat action, which also shares the file). Files " +
+                    "the agent writes go to the user's chosen folder when one is picked in " +
+                    "Settings, otherwise to the same app workspace. Answer where-are-files " +
+                    "questions from THESE facts — never guess other apps' behavior."
+            )
+            appendLine()
+            appendLine(
                 "Personal memory: the context below carries what this app has learned " +
                     "about this user across sessions and what they have told you about " +
                     "yourself. Honor their preferences naturally — just behave accordingly, " +

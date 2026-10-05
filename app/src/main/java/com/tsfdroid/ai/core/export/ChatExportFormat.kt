@@ -48,7 +48,7 @@ import java.time.format.DateTimeFormatter
 object ChatExportFormat {
 
     const val FORMAT_ID = "tsfdroid-chat-export"
-    const val FORMAT_VERSION = 1
+    const val FORMAT_VERSION = 2
 
     /** App identity carried in the document header. */
     data class AppInfo(val versionName: String, val versionCode: Int)
@@ -84,6 +84,7 @@ object ChatExportFormat {
                 add(str("Image payloads are not embedded; counts and file metadata only."))
                 add(str("Tool results are capped at 20000 chars per call; truncated=true flags the cut."))
                 add(str("Credential material is stripped at capture time before storage."))
+                add(str("v2: per-message mode (CHAT/AGENT) and usage.wallMs (turn wall-clock) are recorded; legacy rows carry null."))
             }
             putJsonArray("messages") {
                 messages.forEach { msg -> add(messageObject(msg)) }
@@ -98,6 +99,9 @@ object ChatExportFormat {
         put("role", if (msg.sender == ChatMessage.Sender.USER) "user" else "assistant")
         putJsonObject("timestamp") { putStamp(msg.timestamp) }
         put("text", msg.text)
+        // v1.6.0 (field P2-6): the mode this turn ran in - the #1 limitation
+        // of the v1.5.0 field analysis was not knowing CHAT vs AGENT per turn.
+        put("mode", msg.mode.orJsonNull())
         // Model identity: the provider badge (UI chip) + the concrete model id
         // when the v1.4.0 capture recorded it. Both nullable, honestly.
         putJsonObject("model") {
@@ -115,10 +119,14 @@ object ChatExportFormat {
         }
         // Harness usage for the turn (null when the streamed path produced the
         // answer alone and no usage was surfaced).
-        if (msg.tokensUsed != null || msg.turnLatencyMs != null) {
+        if (msg.tokensUsed != null || msg.turnLatencyMs != null || msg.turnWallMs != null) {
             putJsonObject("usage") {
                 put("tokens", msg.tokensUsed.orJsonNull())
                 put("latencyMs", msg.turnLatencyMs.orJsonNull())
+                // v1.6.0 (field P2-5): the turn's WALL-CLOCK duration - covers
+                // expansion/continuation phases latencyMs never counted (the
+                // ~9-minute unaccounted window in the field report).
+                put("wallMs", msg.turnWallMs.orJsonNull())
             }
         } else {
             put("usage", JsonNull)

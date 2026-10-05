@@ -66,7 +66,7 @@ class AgentCapabilityE2EInstrumentedTest {
     )
 
     private val agentStatusPrefixes = listOf(
-        "Analyzing", "Speaking", "Executing", "Planning", "Thinking", "Running",
+        "Analyzing", "Speaking", "Executing", "Planning", "Thinking", "Running", "On it",
         "Done", "Latest news", "Top web results", "Content of", "Page content"
     )
 

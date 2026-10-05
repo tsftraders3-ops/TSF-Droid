@@ -103,6 +103,44 @@ class ChatExportTest {
     )
 
     @Test
+    fun `v2 schema - mode and usage wallMs ride every message`() {
+        val agent = ChatMessage(
+            id = "m-agent",
+            text = "Here is the deep research answer.",
+            sender = ChatMessage.Sender.AGENT,
+            timestamp = 1_759_500_300_000L,
+            thinkingDurationMs = 9_000L,
+            turnWallMs = 1_020_000L,
+            mode = "CHAT"
+        )
+        val user = ChatMessage(
+            id = "m-user",
+            text = "deep research on on-device LLMs",
+            sender = ChatMessage.Sender.USER,
+            timestamp = 1_759_500_000_000L,
+            mode = "CHAT"
+        )
+        val doc = json.parseToJsonElement(
+            ChatExportFormat.buildSessionDocument(session(), listOf(user, agent), app)
+        ).jsonObject
+        val messages = doc["messages"]!!.jsonArray
+        val u = messages[0].jsonObject
+        val a = messages[1].jsonObject
+        // The v1.5.0 field analysis could not tell CHAT from AGENT per turn
+        // (its section 10 limitation #1) - now every message carries the mode.
+        assertEquals("CHAT", u["mode"]!!.jsonPrimitive.content)
+        assertEquals("CHAT", a["mode"]!!.jsonPrimitive.content)
+        // The ~9-minute unaccounted expansion window (limitation: latencyMs
+        // only covered harness model calls) - wallMs covers the whole turn.
+        val usage = a["usage"]!!.jsonObject
+        assertEquals(1_020_000L, usage["wallMs"]!!.jsonPrimitive.content.toLong())
+        assertTrue(
+            "wallMs accounts for more than the thinking phase alone",
+            usage["wallMs"]!!.jsonPrimitive.content.toLong() > a["thinking"]!!.jsonObject["durationMs"]!!.jsonPrimitive.content.toLong()
+        )
+    }
+
+    @Test
     fun `full fidelity round trip - every field survives into the document`() {
         val doc = json.parseToJsonElement(
             ChatExportFormat.buildSessionDocument(session(), listOf(userMessage(), agentMessage()), app)
@@ -110,7 +148,7 @@ class ChatExportTest {
 
         // Header
         assertEquals("tsfdroid-chat-export", doc["format"]!!.jsonPrimitive.content)
-        assertEquals(1, doc["version"]!!.jsonPrimitive.content.toInt())
+        assertEquals(2, doc["version"]!!.jsonPrimitive.content.toInt())
         assertEquals("1.4.0-test", doc["app"]!!.jsonObject["versionName"]!!.jsonPrimitive.content)
         assertEquals("Gold price & debug", doc["session"]!!.jsonObject["title"]!!.jsonPrimitive.content)
         assertEquals(2, doc["session"]!!.jsonObject["messageCount"]!!.jsonPrimitive.content.toInt())
