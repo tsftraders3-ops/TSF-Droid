@@ -410,9 +410,12 @@ class FieldFixesInstrumentedTest {
             runCatching { chip.click() }
             device.waitForIdle(1_200)
         }
+        // v1.6.0 round 5 (run 37351101916): the chip flip recomposes
+        // asynchronously - an immediate hasObject raced it. WAIT for the
+        // target chip like the export suite's own flip does.
         assertTrue(
             "mode chip did not read $mode",
-            device.hasObject(By.text(mode))
+            device.wait(Until.hasObject(By.text(mode)), 8_000) == true
         )
         shoot("fieldfix_mode_$mode")
     }
