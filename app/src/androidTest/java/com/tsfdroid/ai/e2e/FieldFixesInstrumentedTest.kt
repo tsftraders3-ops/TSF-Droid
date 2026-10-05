@@ -553,7 +553,7 @@ class FieldFixesInstrumentedTest {
     }
 
     /**
-     * B7 Export completeness: the exported JSON is schema v2 - every message
+     * B7 Export completeness: the exported JSON is schema v2 (E2E gate retrigger) - every message
      * carries its mode, and the assistant reply carries usage.wallMs.
      */
     @Test(timeout = 900_000)
