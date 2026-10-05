@@ -122,10 +122,29 @@ query). The bars live in docs/gauntlet/phase21-bars.md.
   the capability note.
 - CHAT-mode refusals against artifact goals always carry the switch-mode line.
 
+### The blind critic's findings — fixed (round 3)
+
+A fresh-context critic judged 4/7 bars WON (B1/B2/B6/B7), 3 PARTIAL (B3/B4/B5)
+and named the gaps. All closed:
+
+- writeBinaryFile's SAF branch no longer claims success when the output stream
+  is null (a false "PDF created in your folder" with no file on disk).
+- A user-cancelled step is a HARD abort: the plan loop short-circuits before
+  the advisory re-eval LLM, so a CONTINUE verdict can never resurrect a plan
+  the user stopped.
+- One deliverable failing the content gate twice drops only that file — the
+  others still ship; the claim audit names what never shipped.
+- The plan-path answers pass the hygiene gate too: the ask-confirmation
+  sentence and CHAT-step replies; the harness exit returns null instead of
+  shipping a raw stub after the spent re-ask.
+- The invented-action family (TAP/CLICK/PRESS/TYPE/SWIPE) has gate tests: it
+  resolves, lands on REAL schema actions, and unknown actions don't resolve.
+- Mid-turn ask/needs-input prompts carry their mode too.
+
 ### The verification
 
-- 77/77 pure-logic tests green in the local kotlinc rig BEFORE push - the
-  fixtures are the verbatim field evidence.
+- 82/82 pure-logic tests green in the local kotlinc rig (the verbatim field
+  fixtures + the critic-round regression tests).
 - Remote CI green: full unit suite (715 + the new field-corpus tests).
 - `FieldFixesInstrumentedTest` (3 E2E tests on the live model): B3 named-file
   created with content + collision rename verified on device; B6 the storage

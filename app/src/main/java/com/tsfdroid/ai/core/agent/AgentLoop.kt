@@ -4404,7 +4404,8 @@ class AgentLoop @Inject constructor(
             // v1.6.0 round 3 (critic-21): the confirmation sentence itself
             // passes the answer-shape gate - an LLM confirming in raw
             // tool syntax or a JSON wrapper never ships.
-            AnswerHygiene.sanitizeFinalAnswer(text).takeIf { it.length in 4..400 }
+            AnswerHygiene.sanitizeFinalAnswer(text)
+                .takeIf { !it.isNullOrEmpty() && it.length in 4..400 }
                 ?.also {
                     android.util.Log.i(
                         "AgentLoop",
