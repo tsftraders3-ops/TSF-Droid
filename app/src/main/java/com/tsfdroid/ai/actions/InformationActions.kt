@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.tsfdroid.ai.actions.base.Action
 import com.tsfdroid.ai.actions.base.ActionResult
+import com.tsfdroid.ai.core.agent.GoalContract
 import com.tsfdroid.ai.core.agent.SearchQueryQuality
 import com.tsfdroid.ai.core.web.WebContentParsers
 import java.net.HttpURLConnection
@@ -638,39 +639,15 @@ class InformationActions @Inject constructor() {
      * No browser.
      */
     private class CheckStockAction : Action {
-        // v1.3.1 round 5 (the fourth gold lesson): Yahoo serves the same
-        // metal under several symbols and they fail independently by region —
-        // XAUUSD=X 404s from whole egress regions while GC=F (the COMEX
-        // futures alias Yahoo's own gold page serves) answers. The variant
-        // chain tries each known alias of the instrument before giving up.
-        private val METALS_FUTURES = mapOf(
-            "XAU" to "GC=F", "XAG" to "SI=F", "XPT" to "PL=F", "XPD" to "PA=F"
-        )
-        private val METALS_NAMES = mapOf(
-            "XAU" to "gold", "XAG" to "silver", "XPT" to "platinum", "XPD" to "palladium"
-        )
-
         override val name: String = "CHECK_STOCK"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val raw = params["symbol"]?.uppercase()?.trim()?.takeIf { it.isNotBlank() }
                 ?: return ActionResult(false, null, "symbol parameter is missing")
-            // v1.3.1: Yahoo's chart endpoint needs the instrument's exchange
-            // suffix — plain "XAUUSD" 404s. Six pure letters = a forex/metals
-            // pair (XAUUSD, EURUSD, GBPJPY) → "=X" plus the COMEX futures
-            // alias for the major metals; already-suffixed (GC=F,
-            // XAUUSD=X) and dashed tickers (BTC-USD, ^NSEI) pass through
-            // untouched. Stocks and ETFs (AAPL, NIFTYBEES) keep their
-            // planner-given form — the planner owns exchange suffixes there.
-            val metalRoot = raw.take(3).uppercase()
-            val variants: List<String> = when {
-                raw.contains('=') -> listOf(raw)
-                Regex("^[A-Z]{6}$").matches(raw) -> {
-                    val v = mutableListOf(raw + "=X")
-                    METALS_FUTURES[metalRoot]?.let { v.add(it) }
-                    v
-                }
-                else -> listOf(raw)
-            }
+            // v1.3.1 + v1.6.0 round 9: the Yahoo symbol-variant chain lives in
+            // GoalContract.yahooSymbolVariants (pure, rig-tested) — the bare
+            // three-letter metal root the quote-assist injects ("XAU") used to
+            // fall through unsuffixed and 404 on Yahoo's chart endpoint.
+            val variants = GoalContract.yahooSymbolVariants(raw)
             for (symbol in variants) {
                 try {
                     val body = httpGetText(
@@ -696,8 +673,10 @@ class InformationActions @Inject constructor() {
             // NAME ("gold price", the snippets that carry the actual
             // number), the raw symbol for forex pairs, and "stock price"
             // only for stocks.
-            val metalName = METALS_NAMES[metalRoot]
-                ?: METALS_FUTURES.entries.firstOrNull { it.value == raw }?.key?.let { METALS_NAMES[it] }
+            val metalRoot = raw.take(3).uppercase()
+            val metalName = GoalContract.METALS_NAMES[metalRoot]
+                ?: GoalContract.METALS_FUTURES.entries.firstOrNull { it.value == raw }?.key
+                    ?.let { GoalContract.METALS_NAMES[it] }
             val searchPhrase = when {
                 metalName != null -> "$metalName price"
                 raw.length >= 6 -> "$raw price"

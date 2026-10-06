@@ -387,6 +387,49 @@ internal object GoalContract {
         }
     }
 
+    // ── Yahoo symbol variants (round 9) ──────────────────────────────────
+
+    /** COMEX futures aliases of the major metals — Yahoo serves these when
+     *  the forex pair 404s by region. */
+    val METALS_FUTURES = mapOf(
+        "XAU" to "GC=F", "XAG" to "SI=F", "XPT" to "PL=F", "XPD" to "PA=F"
+    )
+
+    /** The metal roots' English names, for search fallback phrases. */
+    val METALS_NAMES = mapOf(
+        "XAU" to "gold", "XAG" to "silver", "XPT" to "platinum", "XPD" to "palladium"
+    )
+
+    /**
+     * v1.6.0 round 9 (run 37424676213, the goldPriceAsk forensics): Yahoo's
+     * chart endpoint needs the instrument's exchange suffix — and the BARE
+     * three-letter metal root (exactly what the quote-assist injects for
+     * metals goals: "XAU" for gold) 404'd unsuffixed
+     * (query1.finance.yahoo.com/v8/finance/chart/XAU -> 404), leaving the
+     * turn with no digit-bearing backend when the search chain was poisoned.
+     * The chain: already-suffixed symbols pass through; six pure letters
+     * (XAUUSD, EURUSD) get the "=X" pair plus the COMEX futures alias for
+     * the major metals; the BARE three-letter metal root gets the pair AND
+     * the alias; everything else (stocks, dashed tickers) keeps its
+     * planner-given form.
+     */
+    fun yahooSymbolVariants(raw: String): List<String> {
+        val upper = raw.uppercase().trim()
+        if (upper.isEmpty()) return emptyList()
+        val metalRoot = upper.take(3)
+        return when {
+            upper.contains('=') -> listOf(upper)
+            Regex("^[A-Z]{6}$").matches(upper) -> {
+                val v = mutableListOf(upper + "=X")
+                METALS_FUTURES[metalRoot]?.let { v.add(it) }
+                v
+            }
+            METALS_FUTURES.containsKey(upper) ->
+                listOf(upper + "USD=X", METALS_FUTURES.getValue(upper))
+            else -> listOf(upper)
+        }
+    }
+
     // ── Public search query sanitization (B6) ──────────────────────────
 
     /**

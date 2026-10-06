@@ -198,4 +198,28 @@ class Phase21FieldFixesTest {
         val summary = "I wrote it up in [the guide](https://example.com/docs/guide.md) as requested."
         assertEquals(emptySet<String>(), GoalContract.claimedFilenamesIn(summary))
     }
+
+    // ── Round 9: the Yahoo symbol-variant chain (the goldPriceAsk root cause)
+
+    @Test
+    fun `the bare metal root the quote-assist injects gains real Yahoo symbols`() {
+        // The EXACT shape that 404'd in run 37424676213's logcat:
+        // query1.finance.yahoo.com/v8/finance/chart/XAU -> 404
+        assertEquals(listOf("XAUUSD=X", "GC=F"), GoalContract.yahooSymbolVariants("XAU"))
+        assertEquals(listOf("XAGUSD=X", "SI=F"), GoalContract.yahooSymbolVariants("XAG"))
+    }
+
+    @Test
+    fun `six-letter pairs keep the pair-plus-futures chain`() {
+        assertEquals(listOf("XAUUSD=X", "GC=F"), GoalContract.yahooSymbolVariants("XAUUSD"))
+        assertEquals(listOf("EURUSD=X"), GoalContract.yahooSymbolVariants("EURUSD"))
+    }
+
+    @Test
+    fun `already-suffixed and plain symbols pass through untouched`() {
+        assertEquals(listOf("GC=F"), GoalContract.yahooSymbolVariants("GC=F"))
+        assertEquals(listOf("XAUUSD=X"), GoalContract.yahooSymbolVariants("XAUUSD=X"))
+        assertEquals(listOf("AAPL"), GoalContract.yahooSymbolVariants("AAPL"))
+        assertEquals(listOf("BTC-USD"), GoalContract.yahooSymbolVariants("BTC-USD"))
+    }
 }
