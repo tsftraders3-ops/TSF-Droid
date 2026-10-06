@@ -4,7 +4,7 @@ All notable changes to TSF Droid are documented here. The release workflow
 (`.github/workflows/release.yml`) extracts the section matching the pushed tag
 and publishes it as the GitHub Release notes.
 
-## Unreleased (v1.6.0) - The field-failure fixes: every family from the 2026-10-05 field report
+## v1.6.0 — The field-failure fixes: every family from the 2026-10-05 field report
 
 The user zipped a day of real v1.5.0 usage (7 chat exports, 13 created files) and
 the field analysis (docs/field-reports/2026-10-05-v1.5.0-field-analysis.md) named
@@ -156,6 +156,71 @@ and named the gaps. All closed:
 - The honesty machinery verified live: the capability suite's own PDF-turn
   artifact shows "(Honesty note: I mentioned 'e2e_report.pdf' but didn't
   actually create it...)" when a write genuinely failed.
+
+### Round 6 — the gate run 37373954932 forensics (all 5 failures root-caused)
+
+The only complete E2E run on the round-5 code failed 5 tests in both
+passes; the artifact's 17.8MB logcat, the a11y XML dumps, and the
+screenshots decomposed every one into a deterministic cause — not a
+single free-tier flake among them:
+
+- **The blank-filePath fill (P0-8a's missing half):** the model's plan
+  shipped WRITE_FILE with an EMPTY filePath although the goal said
+  "called fieldfix_marker.md" — the step parked on a needs-input prompt
+  for 10 minutes and the file never landed. PlanValidator now fills a
+  blank write-step filePath from the goal's own requested filenames
+  (multi-file goals hand the second name to the second blank step; the
+  slug fallback only fires for clear artifact asks, never questions).
+- **The approval card's buttons always compose:** a 200-char goal pushed
+  the Reject / Approve & Run row below the composed viewport on a
+  640dp screen — the plan was impossible to approve OR reject (the
+  buttons were not in the a11y tree at all). The goal text now caps at
+  4 lines; the full text lives in the PLAN tab.
+- **The claim audit ignores URLs:** answers citing sources ending in
+  .html got a false "(Honesty note: I mentioned 'live-gold-price.html'
+  but didn't actually create it...)" — a link is not a deliverable.
+  kt/ts/sh joined the claimed-extension set (the field's P1-6 promised
+  AgentKeepAliveManager.kt that was never written).
+- **Needs-input prompts are humanized at the ActionDispatcher source**
+  — every surface (bubble, TODO checklist, TTS, export) reads "What
+  should I name the file?", never "I need the filePath".
+- **E2E:** predicate hunts swipe up after 90s to reveal off-screen
+  parts of long replies (LazyColumn disposes them; a real user scrolls);
+  New-chat button waits 15s → 30s (the first-pass b6 flake).
+
+### Round 7 — the last three (run 37406492032)
+
+- The reveal-swipe direction was inverted (a finger-UP swipe at the
+  bottom of a chat reveals content below the fold, which doesn't exist)
+  — the finger drags DOWNWARD now, dropping earlier paragraphs back
+  into the composed viewport.
+- The ask_user contract is pipeline-agnostic: the intent classifier may
+  route a conversational "ask me" task to the chat harness even in
+  AGENT mode, so the E2E accepts the ANSWER NEEDED surface as a first
+  outcome when the test owns the ask.
+- A reply taller than the screen renders as separate accessibility
+  nodes per paragraph — the export test now scrolls the chat and judges
+  the FULL text a user reads, never the last visible screen of it.
+
+### Rounds 8-9 — the last root causes (runs 37415982040 + 37424676213)
+
+- **The deferral fallback owes the goal its write step:** when the
+  deterministic synthesizer's content-engine call fails on the free
+  tier, the old fallback ran the DEFERRING plan unchanged — a
+  search-only plan whose summary then mentioned the promised file
+  while no write ever happened. The plan now GAINS a WRITE_FILE step
+  named from the goal, its content assembled at execution time from
+  the goal's quoted line plus the gathered research via $-step
+  references — no LLM involved, so a down content engine can never cost
+  the deliverable.
+- **The gold "flake" was a 404:** the quote-assist step injects
+  symbol=XAU for gold goals, and the Yahoo symbol-variant chain only
+  suffixed six-letter pairs — the bare three-letter metal root hit
+  query1.finance.yahoo.com/v8/finance/chart/XAU unsuffixed and 404'd,
+  leaving the turn with no digit-bearing backend whenever the search
+  chain was poisoned. The chain (GoalContract.yahooSymbolVariants,
+  rig-tested) now maps the bare root to its forex pair AND the COMEX
+  futures alias: XAU → [XAUUSD=X, GC=F], XAG → [XAGUSD=X, SI=F].
 
 ## v1.5.0 — The chat export: every turn, full fidelity, one tap (+ the 2026-10-03 field-failure closures)
 
