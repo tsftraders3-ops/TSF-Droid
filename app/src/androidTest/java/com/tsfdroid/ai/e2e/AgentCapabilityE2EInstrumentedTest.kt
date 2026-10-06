@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiWatcher
 import androidx.test.uiautomator.Until
 import com.tsfdroid.ai.MainActivity
 import org.junit.Assert.assertFalse
@@ -76,7 +77,15 @@ class AgentCapabilityE2EInstrumentedTest {
         appPackage = InstrumentationRegistry.getInstrumentation().targetContext.packageName
         startedAtMs = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis() - 5_000)
         grantRuntimePermissions()
-        device.registerWatcher("systemPermissionDialogs") {
+        // v1.6.0 round 10 (run 37448594039, the 429 cascade): a @Test timeout
+        // can kill a thread INSIDE device.runWatchers(), leaving UiAutomator's
+        // watcher lock held — every subsequent setUp's registerWatcher then
+        // throws IllegalStateException("Cannot register new watcher from
+        // within another") and the whole class cascades to failure off ONE
+        // rate-limited timeout. Registration retries with a breather; the
+        // FIRST successful registration wins and the rest are idempotent
+        // (same-name watchers replace).
+        registerWatcherResiliently("systemPermissionDialogs") {
             for (label in listOf(
                 "While using the app", "Allow only while using the app",
                 "Only this time", "Allow all", "Allow", "OK"
@@ -84,7 +93,7 @@ class AgentCapabilityE2EInstrumentedTest {
                 val button = device.findObject(By.text(label))
                 if (button != null) {
                     button.click()
-                    return@registerWatcher true
+                    return@registerWatcherResiliently true
                 }
             }
             false
@@ -95,17 +104,17 @@ class AgentCapabilityE2EInstrumentedTest {
         // then lands on the dialog and the whole capability suite fails at
         // reachDashboard. Watchers for ANR/crash dialogs dismiss them
         // wherever runWatchers() executes.
-        device.registerWatcher("systemAnrDialogs") {
+        registerWatcherResiliently("systemAnrDialogs") {
             val waitButton = device.findObject(By.textContains("Wait"))
             if (waitButton != null && device.findObject(By.textContains("isn't responding")) != null) {
                 waitButton.click()
-                return@registerWatcher true
+                return@registerWatcherResiliently true
             }
             for (label in listOf("Close app", "Open app again", "App info", "Don't send")) {
                 val button = device.findObject(By.text(label))
                 if (button != null && device.findObject(By.textContains("responding")) != null) {
                     button.click()
-                    return@registerWatcher true
+                    return@registerWatcherResiliently true
                 }
             }
             false
@@ -121,23 +130,44 @@ class AgentCapabilityE2EInstrumentedTest {
         // at the phone would do — the turn always resumes. cap21 (the ask
         // tool's own test) removes this watcher first: it must observe and
         // answer the ask itself.
-        device.registerWatcher("parkedAskResolver") {
+        registerWatcherResiliently("parkedAskResolver") {
             val askStrip = runCatching {
                 device.findObject(By.textContains("ANSWER NEEDED"))
             }.getOrNull()
-            if (askStrip == null) return@registerWatcher false
+            if (askStrip == null) return@registerWatcherResiliently false
             // Answer affirmatively through the input bar (the ask surface
             // makes it the answer box) — the resumed turn proceeds on best
             // judgment, which the planner prompt now asks the model to
             // prefer over asking in the first place.
             val typed = typeChatMessage("Yes, please proceed with your best judgment.")
-            if (!typed) return@registerWatcher false
+            if (!typed) return@registerWatcherResiliently false
             val sent = tapSendAndVerify("Yes, please proceed with your best judgment.")
             sent
         }
     }
 
     /** adb pm-grant every dangerous permission the app declares; failures ignored. */
+    /**
+     * v1.6.0 round 10 (run 37448594039, the 429 cascade): registerWatcher
+     * through the "Cannot register new watcher from within another"
+     * corruption a killed test leaves behind — a @Test timeout that fires
+     * while a thread is inside runWatchers() leaves UiAutomator's watcher
+     * lock held, and every later setUp would throw. Retry with a breather;
+     * the exception is swallowed so one poisoned lock can never cascade the
+     * whole class to failure.
+     */
+    private fun registerWatcherResiliently(name: String, watcher: () -> Boolean) {
+        repeat(4) { attempt ->
+            try {
+                device.registerWatcher(name, UiWatcher { watcher() })
+                return
+            } catch (e: IllegalStateException) {
+                if (attempt == 3) return // registered or not, the suite runs on
+                runCatching { Thread.sleep(2_500) }
+            }
+        }
+    }
+
     private fun grantRuntimePermissions() {
         val pkg = appPackage
         val dangerous = listOf(
