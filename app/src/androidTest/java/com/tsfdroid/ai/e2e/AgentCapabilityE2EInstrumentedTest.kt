@@ -288,17 +288,21 @@ class AgentCapabilityE2EInstrumentedTest {
             ) {
                 return longest // stream settled: no longer text for settleMs
             }
-            // v1.6.0 round 6 (run 37373954932 — the gold/xauusd/vix timeouts):
-            // PREDICATE hunts only, after 90s without a match: swipe up to
-            // reveal the EARLIER part of a long reply. LazyColumn disposes
-            // off-screen text — the price figure sat ABOVE the composed
-            // viewport for the whole 600s while the sources footer filled the
-            // screen, and no poll could ever see it. A real user scrolls to
-            // read a long answer; the test scrolls too. Never done in the
-            // non-predicate mode (a bare "first new text" wait must not
-            // mistake an old fragment for the reply) and never while an
-            // approval card is up (the swipe must not disturb it). Throttled
-            // to one reveal every 10s.
+            // v1.6.0 round 6/7 (run 37373954932 + 37406492032 — the
+            // gold/xauusd/vix timeouts): PREDICATE hunts only, after 90s
+            // without a match: swipe to reveal the EARLIER part of a long
+            // reply. LazyColumn disposes off-screen text — the price figure
+            // sat ABOVE the composed viewport for the whole 600s while the
+            // sources footer filled the screen, and no poll could ever see
+            // it. A real user scrolls to read a long answer; the test scrolls
+            // too. DIRECTION (the round-6 lesson, run 37406492032): at the
+            // BOTTOM of the chat, a finger-UP swipe is a no-op (it reveals
+            // content below, which doesn't exist) — the finger must drag
+            // DOWNWARD (start high, end low) to bring earlier paragraphs
+            // back into the composed viewport. Never in the non-predicate
+            // mode (a bare "first new text" wait must not mistake an old
+            // fragment for the reply), never while an approval card is up,
+            // throttled to one reveal every 10s.
             if (predicate != null && System.currentTimeMillis() - waitStartAt > 90_000 &&
                 System.currentTimeMillis() - lastRevealSwipeAt > 10_000 &&
                 device.findObject(By.textContains("Approve & Run")) == null
@@ -307,7 +311,7 @@ class AgentCapabilityE2EInstrumentedTest {
                 val w = device.displayWidth
                 val h = device.displayHeight
                 runCatching {
-                    device.swipe(w / 2, (h * 0.70).toInt(), w / 2, (h * 0.35).toInt(), 24)
+                    device.swipe(w / 2, (h * 0.30).toInt(), w / 2, (h * 0.70).toInt(), 24)
                 }
                 device.waitForIdle(600)
             }
@@ -469,7 +473,14 @@ class AgentCapabilityE2EInstrumentedTest {
     private fun sendTask(
         message: String,
         taskTag: String,
-        planningWindowMs: Long = 420_000
+        planningWindowMs: Long = 420_000,
+        // v1.6.0 round 7 (run 37406492032): the ask_user contract can be
+        // honored by EITHER pipeline — the plan path's ASK_USER action or
+        // the chat harness's ask_user tool (the intent classifier may route
+        // "ask me..." tasks conversationally even in AGENT mode). A test
+        // that owns the ask accepts the ANSWER NEEDED surface as a valid
+        // first outcome instead of starving its planning window.
+        acceptAskSurface: Boolean = false
     ): Set<String> {
         // Loop-20: the previous test's plan may still be executing (speaking,
         // approval card up) when this task types — cap3's stuck run typed
@@ -600,6 +611,18 @@ class AgentCapabilityE2EInstrumentedTest {
             // and the live-thinking trace change while planning, and the
             // loop-4 evidence shows those pseudo-replies broke the wait
             // before the approval card ever appeared.
+            if (acceptAskSurface && (
+                    device.findObject(By.textContains("ANSWER NEEDED")) != null ||
+                        device.findObject(By.textContains("Type your answer")) != null
+                    )
+            ) {
+                // The ask surface is a valid FIRST outcome for a task that
+                // demands the ask_user contract (run 37406492032: the chat
+                // harness surfaced the ask 20s in, the surface rendered with
+                // its option chips, and the planning window starved anyway).
+                replied = true
+                break
+            }
             if (!agentBusyOnScreen()) {
                 val reply = waitNewText(baseline, timeoutMs = 1_000)
                 if (reply != null) {
@@ -1995,7 +2018,8 @@ class AgentCapabilityE2EInstrumentedTest {
                 "Pune and Mumbai. Do NOT answer in prose - you MUST call the ask_user tool " +
                 "with the options Pune and Mumbai. After I answer, finish with one short " +
                 "sentence confirming the city I chose.",
-            "cap21_ask"
+            "cap21_ask",
+            acceptAskSurface = true
         )
 
         // 1. The dedicated answer surface appears: the ANSWER NEEDED strip

@@ -206,6 +206,43 @@ class ChatExportInstrumentedTest {
         return longest
     }
 
+    /**
+     * v1.6.0 round 7 (run 37406492032, the chatExport failure): a reply
+     * taller than the 640dp viewport renders as SEPARATE a11y text nodes
+     * (RichMessageText splits paragraphs), and the settle capture sees only
+     * the visible bottom — the assertion phrase sat in the first paragraph,
+     * off-screen. This scrolls the chat back to its top, collecting every
+     * non-baseline text on the way — the FULL message a user reads by
+     * scrolling, not just the last screen of it.
+     */
+    private fun revealEntireChatText(baseline: Set<String>): String {
+        val collected = mutableListOf<String>()
+        var lastSize = -1
+        var stagnant = 0
+        var swipes = 0
+        while (swipes < 8) {
+            val texts = visibleTexts() - baseline - nonReplyTexts
+            for (t in texts) if (t !in collected) collected.add(t)
+            if (collected.size == lastSize) {
+                stagnant++
+                if (stagnant >= 2) break // the top of the chat — nothing new twice
+            } else {
+                stagnant = 0
+                lastSize = collected.size
+            }
+            swipes++
+            val w = device.displayWidth
+            val h = device.displayHeight
+            // finger drags DOWNWARD — earlier content drops into the
+            // composed viewport (the round-7 direction lesson).
+            runCatching {
+                device.swipe(w / 2, (h * 0.30).toInt(), w / 2, (h * 0.70).toInt(), 24)
+            }
+            device.waitForIdle(600)
+        }
+        return collected.joinToString("\n")
+    }
+
     private fun typeChatMessage(message: String): Boolean {
         repeat(3) { attempt ->
             val target = device.wait(Until.findObject(By.textContains(chatPlaceholder)), 6_000)
@@ -402,9 +439,15 @@ class ChatExportInstrumentedTest {
         val reply = waitNewText(baseline, timeoutMs = 120_000, settleMs = 10_000)
         shoot("export_04_reply")
         assertNotNull("the fetch task never produced a reply", reply)
+        // v1.6.0 round 7 (run 37406492032): the reply is taller than the
+        // viewport and its paragraphs render as separate a11y nodes — the
+        // settle capture can hold only the visible bottom while the
+        // grounding phrase sits in the first paragraph. Judge the FULL
+        // text a user reads by scrolling, never the last screen of it.
+        val fullReply = revealEntireChatText(baseline)
         assertTrue(
-            "reply is not grounded in the fetched page (got: ${reply!!.take(160)})",
-            reply.contains("documentation examples", ignoreCase = true) && reply != task
+            "reply is not grounded in the fetched page (got: ${fullReply.take(160)})",
+            fullReply.contains("documentation examples", ignoreCase = true) && fullReply != task
         )
 
         // The export itself, through the real UI. The actions lead the menu
