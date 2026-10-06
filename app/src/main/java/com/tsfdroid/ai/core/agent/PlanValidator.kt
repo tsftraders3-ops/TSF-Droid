@@ -115,6 +115,33 @@ class PlanValidator @Inject constructor(
                 )
             }
 
+            // v1.6.0 (field P0-8a, round 6 — the b3 E2E failure): the goal
+            // SAYS "a markdown file called fieldfix_marker.md" but the model's
+            // plan shipped the WRITE step with an EMPTY filePath — the step
+            // parked on a needs-input prompt asking for a name the user had
+            // already given. Fill it from the goal's own requested filenames
+            // (first one no sibling step claims), falling back to the goal
+            // slug + implied extension. The user only gets asked when the
+            // goal genuinely leaves the name open.
+            if (updatedStep.action.uppercase() == "WRITE_FILE" ||
+                updatedStep.action.uppercase() == "CREATE_PDF"
+            ) {
+                val siblingPaths = plan.steps
+                    .filter { it !== step }
+                    .mapNotNull { it.params["filePath"]?.trim()?.takeIf { p -> p.isNotBlank() } }
+                    .toSet()
+                val fill = GoalContract.deliverableNameForWriteStep(plan.goal, updatedStep.params, siblingPaths)
+                if (fill != null) {
+                    android.util.Log.w(
+                        "PlanValidator",
+                        "blank ${updatedStep.action} filePath filled from the goal: '$fill'"
+                    )
+                    updatedStep = updatedStep.copy(
+                        params = updatedStep.params.toMutableMap().apply { put("filePath", fill) }
+                    )
+                }
+            }
+
             // v1.6.0 (field P0-3): CALCULATE's expression must be pure
             // arithmetic - the gold turn dispatched
             // "14780 - 14200 * 100 / 14200, using prices found in steps s1

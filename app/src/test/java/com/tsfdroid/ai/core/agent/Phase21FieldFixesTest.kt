@@ -117,4 +117,85 @@ class Phase21FieldFixesTest {
         assertFalse(q.contains("searchText"))
         assertTrue(q.startsWith("Which text"))
     }
+
+    // ── Round 6 (run 37373954932): the blank-filePath fill (b3) ─────────
+
+    @Test
+    fun `field b3 goal fills the blank write-step filePath from the goal`() {
+        // The VERBATIM E2E task whose model plan shipped an empty filePath
+        // and parked the turn on "I need the filePath" for 10 minutes.
+        val goal = "create a markdown file called fieldfix_marker.md containing the " +
+            "exact line TSF FIELD MARKER 77 followed by one short paragraph about gold prices"
+        assertEquals(
+            "fieldfix_marker.md",
+            GoalContract.deliverableNameForWriteStep(goal, emptyMap(), emptySet())
+        )
+    }
+
+    @Test
+    fun `an already-named write step is left alone`() {
+        val goal = "create a markdown file called fieldfix_marker.md containing the marker"
+        assertNull(
+            GoalContract.deliverableNameForWriteStep(
+                goal, mapOf("filePath" to "my_own_name.md"), emptySet()
+            )
+        )
+    }
+
+    @Test
+    fun `a multi-file goal hands the second name to the second blank step`() {
+        val goal = "compile a report called ondevice_llm_benchmark_2026.md and " +
+            "save it as llm_perf_metrics.csv"
+        assertEquals(
+            "llm_perf_metrics.csv",
+            GoalContract.deliverableNameForWriteStep(
+                goal, emptyMap(), setOf("ondevice_llm_benchmark_2026.md")
+            )
+        )
+    }
+
+    @Test
+    fun `a slug fallback only fires for clear artifact asks`() {
+        // The 2-file field goal with NO blank write step stays null...
+        assertNull(
+            GoalContract.deliverableNameForWriteStep(
+                "can you tell me the location where the export chats are saved",
+                emptyMap(), emptySet()
+            )
+        )
+        // ...and a slug-less goal never invents a name.
+        assertNull(GoalContract.deliverableNameForWriteStep("", emptyMap(), emptySet()))
+    }
+
+    // ── Round 6: the claim audit ignores URLs (the gold answer) ──────────
+
+    @Test
+    fun `cited URLs are never claimed as promised files`() {
+        // The EXACT shape from the run-37373954932 gold answer: a sources
+        // footer citing goldprice.org/live-gold-price.html produced a false
+        // "(Honesty note: I mentioned 'live-gold-price.html'...)". A URL is
+        // a link, not a deliverable.
+        val summary = "The current gold price is around \$2,650 per ounce.\n\n" +
+            "Sources: https://www.kitco.com/price/precious-metals, " +
+            "https://goldprice.org/live-gold-price.html"
+        assertEquals(emptySet<String>(), GoalContract.claimedFilenamesIn(summary))
+    }
+
+    @Test
+    fun `a genuinely promised-but-missing file is still claimed`() {
+        // The field P1-6 contract survives the URL strip: "Here are both
+        // files" with only one written must still get its honesty note.
+        val summary = "Here are both files, complete and ready to use: " +
+            "agent_frameworks.md and AgentKeepAliveManager.kt"
+        assertEquals(
+            setOf("agent_frameworks.md", "agentkeepalivemanager.kt"),
+            GoalContract.claimedFilenamesIn(summary)
+        )
+    }
+
+    @Test
+    fun `markdown link targets are not claims either`() {
+        val summary = "I wrote it up in [the guide](https://example.com/docs/guide.md) as requested."
+        assertEquals(emptySet<String>(), GoalContract.claimedFilenamesIn(summary))
+    }
 }

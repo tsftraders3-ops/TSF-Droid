@@ -6,6 +6,7 @@ import com.tsfdroid.ai.actions.base.Action
 import com.tsfdroid.ai.actions.base.ActionResult
 import com.tsfdroid.ai.core.agent.ActionSchema
 import com.tsfdroid.ai.core.agent.DeviceStateProvider
+import com.tsfdroid.ai.core.agent.GoalContract
 import com.tsfdroid.ai.data.db.dao.UnknownActionDao
 import com.tsfdroid.ai.data.db.entities.UnknownActionEntity
 import javax.inject.Inject
@@ -281,8 +282,19 @@ class ActionDispatcher @Inject constructor(
                     val firstMissing = validation.params.first()
                     val paramDef = definition?.params?.find { it.name == firstMissing }
                     Log.d(TAG, "║ Missing:      $firstMissing for $actionName")
+                    // v1.6.0 round 6 (run 37373954932, the b3 evidence): the
+                    // needs-input question is HUMANIZED at this source — every
+                    // surface (chat bubble, TODO checklist, export) reads
+                    // "What should I name the file?", never the internal
+                    // "I need the filePath to complete this" (the field's
+                    // P0-8d prompt copy). The param's enum options ride along
+                    // as tappable choices.
+                    val humanQuestion = GoalContract.humanizeParamPrompt(
+                        actionName, firstMissing,
+                        "I need the $firstMissing to complete this. ${paramDef?.description ?: ""}"
+                    )
                     ActionResult.NeedsInput(
-                        question = "I need the $firstMissing to complete this. ${paramDef?.description ?: ""}",
+                        question = humanQuestion,
                         options = paramDef?.enumValues ?: emptyList(),
                         metadata = mapOf("param" to firstMissing)
                     )

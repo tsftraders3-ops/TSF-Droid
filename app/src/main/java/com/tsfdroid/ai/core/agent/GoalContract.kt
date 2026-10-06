@@ -112,6 +112,41 @@ internal object GoalContract {
     }
 
     /**
+     * v1.6.0 round 6 (run 37373954932 forensics, the b3 failure — field
+     * P0-8a's missing half): the goal says "a markdown file called
+     * fieldfix_marker.md" but the model's plan carried an EMPTY filePath —
+     * the step parked on a needs-input prompt asking the user for a name
+     * they had already given. Returns the deliverable name for a write step
+     * whose filePath is blank: the goal's requested filename (first one not
+     * already used by a SIBLING step), else the goal slug with the
+     * extension the goal implies. Null when the goal names no file and no
+     * sensible slug can be derived (the honest ask stays an ask).
+     */
+    fun deliverableNameForWriteStep(
+        goal: String,
+        params: Map<String, String>,
+        siblingFilePaths: Set<String>
+    ): String? {
+        val current = params["filePath"]?.trim().orEmpty()
+        if (current.isNotBlank()) return null // already named — nothing to fill
+        val requested = parseRequestedFilenames(goal)
+            .map { it.substringAfterLast('/') } // a requested "MarketReports/x.pdf" still names x.pdf
+        val unusedRequested = requested.firstOrNull { name ->
+            siblingFilePaths.none { it.trim().equals(name, ignoreCase = true) }
+        }
+        if (unusedRequested != null) return unusedRequested
+        // No requested (or all already taken by sibling steps): a slug only
+        // when the goal is clearly an artifact ASK — never for a question
+        // (the P0-7 lesson cuts the other way here: "where are exports
+        // saved?" must be answered, not named document.md).
+        if (isInterrogativeAboutStorage(goal) || goal.trim().endsWith("?")) return null
+        val ext = extensionForGoal(goal)
+        val slug = slugFromGoal(goal)
+        if (slug.isBlank() || slug == "document") return null
+        return "$slug.$ext"
+    }
+
+    /**
      * Auto-rename on collision: "report.pdf" → "report-2.pdf",
      * "report-2.pdf" → "report-3.pdf". NEVER overwrite — the user lost
      * scrap_titles.py to a silent `writeText` in the field.
@@ -124,6 +159,23 @@ internal object GoalContract {
         var n = 2
         while ("$base-$n$ext" in existing) n++
         return "$base-$n$ext"
+    }
+
+    /**
+     * v1.6.0 round 6 (run 37373954932, visible in the gold answer): the
+     * filenames a summary CLAIMS to have produced, for the claim audit.
+     * URLs are stripped FIRST — a cited source ending in .html/.md/.js is
+     * a LINK, not a promised deliverable. The old inline regex matched
+     * "live-gold-price.html" inside https://goldprice.org/live-gold-price.html
+     * and the audit appended a false honesty note ("I mentioned it but
+     * didn't create it") to answers that merely cited their sources.
+     */
+    fun claimedFilenamesIn(summary: String): Set<String> {
+        val textWithoutLinks = summary.replace(Regex("https?://\\S+"), " ")
+        // v1.6.0 round 6: kt/ts joined the extension set — the field's P1-6
+        // case promised "AgentKeepAliveManager.kt" that was never written.
+        return Regex("\\b[A-Za-z0-9_][A-Za-z0-9_\\-]*\\.(?:md|csv|txt|json|pdf|py|html?|yaml|yml|js|ts|kt|sh)\\b")
+            .findAll(textWithoutLinks).map { it.value.lowercase() }.toSet()
     }
 
     // ── Content gates ────────────────────────────────────────────────────

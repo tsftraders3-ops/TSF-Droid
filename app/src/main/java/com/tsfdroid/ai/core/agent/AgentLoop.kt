@@ -4142,8 +4142,10 @@ class AgentLoop @Inject constructor(
         // promises must exist among the artifacts this plan actually wrote.
         // The field's "Here are both files, complete and ready to use." said
         // so while the second file was never written.
-        val claimedFiles = Regex("\\b[A-Za-z0-9_][A-Za-z0-9_\\-]*\\.(?:md|csv|txt|json|pdf|py|html?|yaml|js)\\b")
-            .findAll(summaryText).map { it.value.lowercase() }.toSet()
+        // v1.6.0 round 6 (run 37373954932, visible in the gold answer): URLs
+        // are stripped FIRST (see GoalContract.claimedFilenamesIn) — a cited
+        // source ending in .html is a LINK, not a promised deliverable.
+        val claimedFiles = GoalContract.claimedFilenamesIn(summaryText)
         val missingFiles = claimedFiles - writtenThisPlan
         val finalSummary = if (missingFiles.isNotEmpty()) {
             summaryText + "\n\n(Honesty note: I mentioned " +

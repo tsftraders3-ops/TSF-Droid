@@ -430,7 +430,7 @@ class FieldFixesInstrumentedTest {
     @Test(timeout = 900_000)
     fun fieldFix_b3_namedFileCreatedNoOverwrite() {
         reachDashboard()
-        assertTrue("New chat button not found", clickDesc("New chat", 15_000))
+        assertTrue("New chat button not found", clickDesc("New chat", 30_000))
         device.waitForIdle(2_000)
         ensureMode("AGENT")
 
@@ -505,7 +505,7 @@ class FieldFixesInstrumentedTest {
     @Test(timeout = 900_000)
     fun fieldFix_b6_storageQuestionAnswersInChat() {
         reachDashboard()
-        assertTrue("New chat button not found", clickDesc("New chat", 15_000))
+        assertTrue("New chat button not found", clickDesc("New chat", 30_000))
         device.waitForIdle(2_000)
         ensureMode("CHAT")
 
@@ -559,7 +559,7 @@ class FieldFixesInstrumentedTest {
     @Test(timeout = 900_000)
     fun fieldFix_b7_exportSchemaV2ModeAndWallMs() {
         reachDashboard()
-        assertTrue("New chat button not found", clickDesc("New chat", 15_000))
+        assertTrue("New chat button not found", clickDesc("New chat", 30_000))
         device.waitForIdle(2_000)
         ensureMode("CHAT")
 

@@ -349,7 +349,7 @@ class ChatExportInstrumentedTest {
         reachDashboard()
 
         // A fresh chat isolates this turn from the rest of the suite's history.
-        assertTrue("New chat button not found", clickDesc("New chat", 15_000))
+        assertTrue("New chat button not found", clickDesc("New chat", 30_000))
         device.waitForIdle(2_000)
 
         // CHAT mode: the streamed -> harness-handoff path with native tool

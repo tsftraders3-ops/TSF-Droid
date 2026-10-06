@@ -1961,11 +1961,20 @@ fun ProposedPlanPrompt(
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
+            // v1.6.0 round 6 (run 37373954932, the cap21 failure): the goal
+            // text is unbounded — a 200-char goal on a 640dp screen pushed
+            // the Reject / Approve & Run row BELOW the composed viewport, and
+            // the plan became impossible to approve or reject (the buttons
+            // were not in the a11y tree at all; a fresh chat can't scroll
+            // past the card). The goal caps at 4 lines — the full text lives
+            // in the PLAN tab — so the action row ALWAYS composes.
             Text(
                 text = "Goal: \"$goal\"",
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = TextPrimary
+                color = TextPrimary,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(

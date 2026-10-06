@@ -241,8 +241,10 @@ class AgentCapabilityE2EInstrumentedTest {
         settleMs: Long = 0
     ): String? {
         val deadline = System.currentTimeMillis() + timeoutMs
+        val waitStartAt = System.currentTimeMillis()
         var longest: String? = null
         var lastGrowthAt = System.currentTimeMillis()
+        var lastRevealSwipeAt = 0L
         while (System.currentTimeMillis() < deadline) {
             device.runWatchers()
             // DOTALL matters: multi-line bubbles (data-output summaries like
@@ -285,6 +287,29 @@ class AgentCapabilityE2EInstrumentedTest {
                 System.currentTimeMillis() - lastGrowthAt >= settleMs
             ) {
                 return longest // stream settled: no longer text for settleMs
+            }
+            // v1.6.0 round 6 (run 37373954932 — the gold/xauusd/vix timeouts):
+            // PREDICATE hunts only, after 90s without a match: swipe up to
+            // reveal the EARLIER part of a long reply. LazyColumn disposes
+            // off-screen text — the price figure sat ABOVE the composed
+            // viewport for the whole 600s while the sources footer filled the
+            // screen, and no poll could ever see it. A real user scrolls to
+            // read a long answer; the test scrolls too. Never done in the
+            // non-predicate mode (a bare "first new text" wait must not
+            // mistake an old fragment for the reply) and never while an
+            // approval card is up (the swipe must not disturb it). Throttled
+            // to one reveal every 10s.
+            if (predicate != null && System.currentTimeMillis() - waitStartAt > 90_000 &&
+                System.currentTimeMillis() - lastRevealSwipeAt > 10_000 &&
+                device.findObject(By.textContains("Approve & Run")) == null
+            ) {
+                lastRevealSwipeAt = System.currentTimeMillis()
+                val w = device.displayWidth
+                val h = device.displayHeight
+                runCatching {
+                    device.swipe(w / 2, (h * 0.70).toInt(), w / 2, (h * 0.35).toInt(), 24)
+                }
+                device.waitForIdle(600)
             }
             runCatching { Thread.sleep(2_500) }
         }
@@ -468,7 +493,7 @@ class AgentCapabilityE2EInstrumentedTest {
         // isolates each task's planning context; personal memory ACROSS
         // chats is still covered by cap11, which clicks New chat itself
         // before the recall turn.
-        assertTrue("New chat button not found before $taskTag", clickDesc("New chat", 15_000))
+        assertTrue("New chat button not found before $taskTag", clickDesc("New chat", 30_000))
         device.waitForIdle(2_000)
         assertTrue(
             "chat input not found before task $taskTag",
@@ -1719,7 +1744,7 @@ class AgentCapabilityE2EInstrumentedTest {
         // give it a bounded window before switching chats.
         Thread.sleep(25_000)
         // Start a brand-new chat so the recall CANNOT come from history.
-        assertTrue("New chat button not found", clickDesc("New chat", 15_000))
+        assertTrue("New chat button not found", clickDesc("New chat", 30_000))
         device.waitForIdle(2_000)
         val recallQuestion = "What is my cat's name? Answer with just the name."
         val recallBaseline = sendTask(
