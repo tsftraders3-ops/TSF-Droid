@@ -1991,14 +1991,77 @@ class AgentLoop @Inject constructor(
     }
 
     /**
-     * v1.0.6: deterministic plan synthesis for goals the model repeatedly
-     * answered with prose. Artifact goals get one dedicated CONTENT_NOW
-     * generation request whose output becomes the inline content of a
-     * WRITE_FILE / CREATE_PDF step; data goals become a WEB_SEARCH (or
-     * FETCH_URL when the goal carries a URL) step with no extra LLM call.
-     * Returns null when the goal matches neither class — the caller then
-     * keeps its existing prose fallback.
+     * v1.6.0 round 8 (run 37415982040, the b3 regression): the deferral
+     * fallback for a file-creation goal when the deterministic synthesizer
+     * could not produce the deliverable (a free-tier content-engine failure
+     * returns null). The old fallback ran the DEFERRING plan unchanged — a
+     * search-only plan whose synthesized summary then MENTIONED the promised
+     * file while no write ever happened (caught honestly by the claim audit,
+     * but the deliverable was still owed). The deferral is a FACT: this
+     * appends a WRITE_FILE step named from the goal, its content assembled
+     * at EXECUTION time from the goal's own quoted line plus the plan's
+     * gathered step results via the $stepId substitution — no LLM required,
+     * so a down content engine can never cost the user their file.
      */
+    private fun planWithWriteStepForGoal(plan: Plan): Plan {
+        val hasWrite = plan.steps.any {
+            it.action.trim().uppercase() in setOf("WRITE_FILE", "CREATE_PDF")
+        }
+        if (hasWrite) return plan
+        val siblings = plan.steps
+            .mapNotNull { it.params["filePath"]?.trim()?.takeIf { p -> p.isNotBlank() } }
+            .toSet()
+        val name = GoalContract.deliverableNameForWriteStep(plan.goal, emptyMap(), siblings)
+            ?: return plan
+        // The goal may quote the line ("containing 'TSF FIELD MARKER 77'") or
+        // not ("containing the exact line TSF FIELD MARKER 77 followed
+        // by..."; the model's paraphrase may say just "the line") — capture up
+        // to the next connective/stop, either way.
+        val requestedLine = Regex(
+            "(?i)(?:exact line|exact text|that says|saying|(?:the|this) line)\\s+[\"'\\u201c]?([A-Za-z0-9][A-Za-z0-9 _\\-/]{2,200}?)[\"'\\u201d]?(?=\\s+(?:followed|and then|and|then|plus|with)\\b|[.,;\\n]|$)"
+        ).find(plan.goal)?.groupValues?.get(1)?.trim()
+        val researchRefs = plan.steps
+            .filter {
+                it.action.trim().uppercase() in setOf(
+                    "WEB_SEARCH", "CHECK_STOCK", "FETCH_URL", "GET_NEWS", "SUMMARIZE_URL"
+                )
+            }
+            .joinToString("\n\n") { "$" + it.stepId }
+        val content = buildString {
+            if (!requestedLine.isNullOrBlank()) {
+                append(requestedLine)
+                append("\n\n")
+            }
+            append("# ")
+            append(name.substringBeforeLast('.').replace('_', ' '))
+            append("\n\n")
+            append("Assembled from your request and the research this run gathered — the full ")
+            append("content engine was unavailable, so this is the best-effort deliverable.")
+            if (researchRefs.isNotBlank()) {
+                append("\n\nRESEARCH USED:\n\n")
+                append(researchRefs)
+            }
+        }
+        val writeStep = PlanStep(
+            stepId = "deliverable-coverage-${System.currentTimeMillis()}",
+            order = plan.steps.size + 1,
+            description = "Write the requested file $name",
+            action = "WRITE_FILE",
+            params = mapOf("filePath" to name, "content" to content),
+            fallback = ""
+        )
+        android.util.Log.w(
+            "AgentLoop",
+            "synthesis fallback: appending the deliverable step '$name' to the deferring plan"
+        )
+        return plan.copy(
+            steps = plan.steps + writeStep,
+            estimatedSteps = maxOf(plan.estimatedSteps, plan.steps.size + 1)
+        )
+    }
+
+    /** v1.0.6: deterministic plan synthesis — see the class of goals it
+     *  covers in the callers' deferral gates above. */
     private suspend fun synthesizeExecutablePlan(provider: LLMProvider, userGoal: String): Plan? {
         val goal = userGoal.lowercase()
 
@@ -2614,7 +2677,16 @@ class AgentLoop @Inject constructor(
                     "parsed plan defers the goal (all-CHAT for a data/artifact ask) — synthesizing executable steps"
                 )
                 val provider2 = runCatching { llmProviderFactory.getActiveProvider() }.getOrNull()
-                provider2?.let { synthesizeExecutablePlan(it, plan.goal) } ?: plan
+                provider2?.let { synthesizeExecutablePlan(it, plan.goal) }
+                    // v1.6.0 round 8 (run 37415982040, the b3 regression): a
+                    // free-tier content-engine failure used to fall back to
+                    // the DEFERRING plan — a search-only plan for a
+                    // file-creation goal whose summary then MENTIONED the
+                    // promised file while no write ever happened. The
+                    // deferral is a FACT: append the write step, its content
+                    // assembled at execution time from the goal's own words
+                    // plus the plan's gathered results.
+                    ?: planWithWriteStepForGoal(plan)
             } else {
                 plan
             }
@@ -3036,7 +3108,9 @@ class AgentLoop @Inject constructor(
             )
             runCatching { llmProviderFactory.getActiveProvider() }.getOrNull()
                 ?.let { synthesizeExecutablePlan(it, plan.goal) }
-                ?: plan
+                // v1.6.0 round 8: same as the parse-time gate above — a failed
+                // synthesis still owes the goal its write step.
+                ?: planWithWriteStepForGoal(plan)
         } else {
             plan
         }
