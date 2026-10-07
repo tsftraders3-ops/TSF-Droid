@@ -1,12 +1,20 @@
 name: TSF Droid Emulator E2E
 
-# End-to-end verification on a real Android emulator:
-#  1. The keyless OpenCode Zen contract is exercised from Android's TLS stack
-#     through the app's own provider (the verification no unit test can
-#     substitute — the free-tier gate rejects bad client fingerprints at the
-#     endpoint, which is exactly how v1.0.1 failed in the field).
-#  2. MainActivity launch smoke through Hilt + splash + navigation.
-# Screen captures are attached as artifacts so failures can be seen, not guessed.
+# End-to-end verification on a real Android emulator, in TWO isolated gates
+# (audit fc9ea97 M-08/B-02 — the single 90-minute combined invocation timed
+# out with exit 124, and a quota failure was indistinguishable from a
+# regression):
+#  1. HERMETIC GATE — no live-provider dependency: the launch smoke, the
+#     accessibility targeting/scrape/readiness suites, the keystore suites,
+#     and the FakeLLMProvider-driven agent-pipeline gates (circuit breaker,
+#     vision confidence floor, background consent boundary). Deterministic;
+#     cannot be starved or poisoned by endpoint quota.
+#  2. LIVE-PROVIDER SUITE — the keyless OpenCode Zen contract from Android's
+#     TLS stack, plus the capability/UI/export/field suites that drive real
+#     chats through the active provider.
+# Both retry attempts are preserved as separate artifacts; a timeout (exit
+# 124) is reported distinctly from assertion failures. Screen captures are
+# attached as artifacts so failures can be seen, not guessed.
 
 on:
   workflow_dispatch:
@@ -21,15 +29,15 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    # v1.4.0 + round 21: the suite is 46 tests across 10 classes — the 22
-    # capability suite of v1.2.0, the 14 formerly-orphaned instrumented tests
-    # wired in round 9, the v1.3.0 additions (ask round-trip, bounded fetch,
-    # SSE streaming), the v1.3.1 field-report regression, the v1.4.0
-    # answer-engine tests (cap23 xauusd synthesis, cap24 India VIX), and the
-    # round-21 gates (cap25 stock-price no-slop + logcat-proven search,
-    # cap26 resume-PDF artifact). Worst-case waits exceed 80 minutes;
-    # a failing first pass triggers one clean retry (free-tier latency
-    # flakes move between runs).
+    # v1.6.1 + M-08: the suite is 56 tests across 13 executable classes —
+    # 20 hermetic tests in 7 classes (gate 1) and 36 live-provider tests in
+    # 6 classes (gate 2: the 25-test capability E2E dominates the budget).
+    # Hermetic runs under a 25-minute cap with one retry; live under 70 with
+    # one retry. A hermetic TIMEOUT aborts before the live gate (a wedged
+    # emulator would hang there too); a hermetic assertion failure still
+    # runs live for full diagnostics. Free-tier latency flakes move between
+    # runs, so a failing first pass triggers one clean retry — BOTH attempt
+    # outputs are kept.
     timeout-minutes: 240
 
     steps:
@@ -73,7 +81,7 @@ jobs:
       - name: Build app and instrumentation APKs
         run: ./gradlew assembleDebug assembleDebugAndroidTest --no-daemon --stacktrace
 
-      - name: Run E2E suite on emulator (live OpenCode Zen endpoint)
+      - name: Run E2E gates on emulator (hermetic first, then live provider)
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -85,18 +93,11 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            # The Zen E2E cases hit the real endpoint over the emulator NAT;
-            # the launch smoke captures the first usable UI state; the UI
-            # journey drives onboarding, every tab, Settings and TWO live
-            # chats; the capability E2E gives the agent COMPLEX tasks (answer
-            # a capability audit, write an HTML website file, fetch real data
-            # from example.com in-app, generate a real PDF) and verifies the
-            # artifacts on the device filesystem — the v1.0.5 field failures.
+            # NOTE: single line — the runner mangles backslash continuations.
             # Tests run via `am instrument` (NOT connectedAndroidTest) so the
             # app stays installed while the screenshots are pulled — AGP's
             # connected task uninstalls both APKs before any later step runs.
-            # NOTE: single line — the runner mangles backslash continuations.
-            ./gradlew installDebug installDebugAndroidTest --no-daemon --stacktrace || exit 1; run_suite() { timeout 5400 adb shell am instrument -w -e class com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest,com.tsfdroid.ai.e2e.AgentCapabilityE2EInstrumentedTest,com.tsfdroid.ai.e2e.AttachmentPipelineInstrumentedTest,com.tsfdroid.ai.e2e.ChatExportInstrumentedTest,com.tsfdroid.ai.e2e.FieldFixesInstrumentedTest,com.tsfdroid.ai.accessibility.ClickTargetingAccuracyInstrumentationTest,com.tsfdroid.ai.accessibility.KnownScreenScrapeInstrumentationTest,com.tsfdroid.ai.accessibility.ServiceReadinessInstrumentationTest,com.tsfdroid.ai.core.security.AndroidKeyStoreAeadCipherInstrumentationTest,com.tsfdroid.ai.core.security.AndroidProviderCredentialStoreInstrumentationTest com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner; }; out=$(run_suite); code=$?; echo "$out" | tail -12; if echo "$out" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then echo "=== retry pass (free-tier latency flakes move between runs; a test that failed once must still pass on a clean retry) ==="; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb install -r app/build/outputs/apk/debug/app-debug.apk >/dev/null 2>&1; adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk >/dev/null 2>&1; out2=$(run_suite); code=$?; echo "$out2" | tail -12; out="$out2"; fi; echo "$out" | grep -qE "FAILURES|INSTRUMENTATION_FAILED" && code=1; mkdir -p e2e-screens; echo "$out" > e2e-screens/instrument-output.txt; timeout 60 adb logcat -d > e2e-screens/instrument-logcat.txt 2>/dev/null || true; timeout 60 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/e2e-screens/. e2e-screens/ 2>/dev/null; timeout 90 adb exec-out run-as com.tsfdroid.ai tar cf - files/e2e-screens 2>/dev/null | tar xf - -C e2e-screens --strip-components=2 || true; mkdir -p e2e-screens/workspace; timeout 90 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/workspace/. e2e-screens/workspace/ 2>/dev/null || true; echo "=== agent workspace artifacts (v1.1.1 quality bar: real PDFs/HTML the agent wrote) ==="; find e2e-screens/workspace -type f -exec ls -la {} \; 2>/dev/null | head -20 || true; ls -la e2e-screens | head -40; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb uninstall com.tsfdroid.ai.test >/dev/null 2>&1; exit $code
+            ./gradlew installDebug installDebugAndroidTest --no-daemon --stacktrace || exit 1; mkdir -p e2e-screens; run_hermetic() { timeout 1500 adb shell am instrument -w -e class com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.HermeticAgentPipelineInstrumentedTest,com.tsfdroid.ai.accessibility.ClickTargetingAccuracyInstrumentationTest,com.tsfdroid.ai.accessibility.KnownScreenScrapeInstrumentationTest,com.tsfdroid.ai.accessibility.ServiceReadinessInstrumentationTest,com.tsfdroid.ai.core.security.AndroidKeyStoreAeadCipherInstrumentationTest,com.tsfdroid.ai.core.security.AndroidProviderCredentialStoreInstrumentationTest com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner; }; run_live() { timeout 4200 adb shell am instrument -w -e class com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest,com.tsfdroid.ai.e2e.AgentCapabilityE2EInstrumentedTest,com.tsfdroid.ai.e2e.AttachmentPipelineInstrumentedTest,com.tsfdroid.ai.e2e.ChatExportInstrumentedTest,com.tsfdroid.ai.e2e.FieldFixesInstrumentedTest com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner; }; reinstall() { adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb install -r app/build/outputs/apk/debug/app-debug.apk >/dev/null 2>&1; adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk >/dev/null 2>&1; }; echo "=== GATE 1: HERMETIC (no live provider; deterministic) ==="; h=$(run_hermetic); hcode=$?; echo "$h" | tail -12; echo "$h" > e2e-screens/hermetic-attempt-1.txt; if [ $hcode -eq 124 ]; then echo "HERMETIC GATE TIMED OUT (exit 124) - this is a HANG, not a quota failure; skipping the live gate (a wedged emulator would hang there too)"; fi; if [ $hcode -ne 124 ] && echo "$h" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then echo "=== hermetic retry pass (both attempts preserved) ==="; reinstall; h=$(run_hermetic); hcode=$?; echo "$h" | tail -12; echo "$h" > e2e-screens/hermetic-attempt-2.txt; fi; l=""; lcode=0; if [ $hcode -ne 124 ]; then echo "=== GATE 2: LIVE-PROVIDER SUITE (OpenCode Zen over the emulator NAT) ==="; l=$(run_live); lcode=$?; echo "$l" | tail -12; echo "$l" > e2e-screens/live-attempt-1.txt; if [ $lcode -eq 124 ]; then echo "LIVE SUITE TIMED OUT (exit 124) - quota/latency diagnosis needed, artifacts retained"; fi; if [ $lcode -ne 124 ] && echo "$l" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then echo "=== live retry pass (free-tier latency flakes move between runs; both attempts preserved) ==="; reinstall; l=$(run_live); lcode=$?; echo "$l" | tail -12; echo "$l" > e2e-screens/live-attempt-2.txt; fi; fi; code=0; echo "$h" | grep -qE "FAILURES|INSTRUMENTATION_FAILED" && code=1; [ $hcode -eq 124 ] && code=1; if [ $hcode -ne 124 ]; then echo "$l" | grep -qE "FAILURES|INSTRUMENTATION_FAILED" && code=1; [ $lcode -eq 124 ] && code=1; fi; echo "=== E2E VERDICT: hermetic_exit=$hcode live_exit=$lcode final=$code ===" > e2e-screens/verdict.txt; cat e2e-screens/verdict.txt; timeout 60 adb logcat -d > e2e-screens/instrument-logcat.txt 2>/dev/null || true; timeout 60 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/e2e-screens/. e2e-screens/ 2>/dev/null; timeout 90 adb exec-out run-as com.tsfdroid.ai tar cf - files/e2e-screens 2>/dev/null | tar xf - -C e2e-screens --strip-components=2 || true; mkdir -p e2e-screens/workspace; timeout 90 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/workspace/. e2e-screens/workspace/ 2>/dev/null || true; echo "=== agent workspace artifacts (v1.1.1 quality bar: real PDFs/HTML the agent wrote) ==="; find e2e-screens/workspace -type f -exec ls -la {} \; 2>/dev/null | head -20 || true; ls -la e2e-screens | head -40; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb uninstall com.tsfdroid.ai.test >/dev/null 2>&1; exit $code
       - name: Capture screen on failure
         if: failure()
         run: |

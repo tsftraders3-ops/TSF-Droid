@@ -1780,6 +1780,9 @@ class AgentCapabilityE2EInstrumentedTest {
         reachDashboard()
         assertTrue("could not ensure AGENT mode", ensureMode("AGENT"))
         val teachQuestion = "Please remember this about me: my cat's name is Luna."
+        // Stamp BEFORE the teach turn: the memory extractor's completion log
+        // ("Memory learned") is the bounded-poll condition below.
+        val teachStamp = deviceStamp()
         val teachBaseline = sendTask(
             teachQuestion,
             "cap11_teach",
@@ -1793,9 +1796,23 @@ class AgentCapabilityE2EInstrumentedTest {
             predicate = { t -> t.length > 8 }
         )
         assertNotNull("the teach turn never completed", teachReply)
-        // The learning extractor runs in the background after the reply —
-        // give it a bounded window before switching chats.
-        Thread.sleep(25_000)
+        // The learning extractor runs in the background after the reply. N-01
+        // (audit fc9ea97): poll the extractor's OWN "Memory learned" log line
+        // instead of sleeping a fixed 25 seconds — a fast extraction proceeds
+        // immediately, and the 40s cap keeps a slow one bounded. The recall
+        // assertion below remains the real gate either way.
+        val extractorDeadline = System.currentTimeMillis() + 40_000
+        var memoryLearned = false
+        while (System.currentTimeMillis() < extractorDeadline) {
+            if (dumpLogcat(teachStamp, "UserMemoryLearner").contains("Memory learned")) {
+                memoryLearned = true
+                break
+            }
+            runCatching { Thread.sleep(2_000) }
+        }
+        if (!memoryLearned) {
+            println("TSF-E2E cap11: memory learner did not log within 40s — the recall assertion is the gate")
+        }
         // Start a brand-new chat so the recall CANNOT come from history.
         assertTrue("New chat button not found", clickDesc("New chat", 30_000))
         device.waitForIdle(2_000)
@@ -2203,7 +2220,7 @@ class AgentCapabilityE2EInstrumentedTest {
         // (run-102 pass-2: composed but occluded, the a11y tree dropped the
         // covered nodes). Give the settle+scroll a moment, nudge the list
         // once, then poll for the row instead of a single instant lookup.
-        runCatching { Thread.sleep(2_000) }
+        runCatching { device.waitForIdle(2_000) }
         device.runWatchers()
         runCatching {
             val w = device.displayWidth
