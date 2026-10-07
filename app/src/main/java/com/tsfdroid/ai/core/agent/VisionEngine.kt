@@ -4,10 +4,14 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
 import com.tsfdroid.ai.accessibility.OpenDroidAccessibilityService
+import com.tsfdroid.ai.core.llm.LLMProvider
 import com.tsfdroid.ai.core.llm.LLMProviderFactory
 import com.tsfdroid.ai.core.llm.LLMRequest
 import com.tsfdroid.ai.core.llm.ResponseFormat
 import com.tsfdroid.ai.data.models.ChatMessage
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,6 +32,27 @@ enum class BlindSpot {
 data class ScreenCaptureResult(val base64: String?, val blindSpot: BlindSpot?)
 
 /**
+ * M-02 (audit fc9ea97): a vision-grounded tap target. x and y are FRACTIONS of
+ * the screen dimensions (0.0..1.0, origin top-left) — the model sees an image,
+ * not pixels. VisionEngine maps them onto absolute screen pixels at dispatch
+ * time via the current display dimensions.
+ */
+data class VisionTarget(
+    val targetFound: Boolean,
+    val x: Double?,
+    val y: Double?,
+    val confidence: Float,
+    val note: String? = null
+)
+
+/** Outcome of a vision-grounded tap attempt. */
+data class VisionTapOutcome(
+    val tapped: Boolean,
+    val reason: String? = null,
+    val target: VisionTarget? = null
+)
+
+/**
  * Vision engine that captures screenshots and analyzes them using a vision-capable LLM.
  * Uses the existing AccessibilityService's takeScreenshotAndEncode() for capture,
  * with a fallback to getScreenText() for text-only analysis.
@@ -36,8 +61,79 @@ data class ScreenCaptureResult(val base64: String?, val blindSpot: BlindSpot?)
 class VisionEngine @Inject constructor(
     private val llmProviderFactory: LLMProviderFactory
 ) {
+    // Test seams (M-02 remediation): the defaults reproduce the production
+    // paths exactly. Tests substitute hermetic implementations (fake JSON
+    // provider, fixed capture, fixed screen dimensions, redirected service
+    // lookup). Never set by production code.
+    internal var providerAccess: suspend () -> LLMProvider =
+        { llmProviderFactory.getActiveProvider() }
+    internal var screenCapturer: suspend () -> String? = { captureScreenBase64() }
+    internal var screenDimensions: () -> Pair<Int, Int>? = {
+        val service = OpenDroidAccessibilityService.getInstance()
+        service?.resources?.displayMetrics?.let { it.widthPixels to it.heightPixels }
+    }
+    internal var tapExecutor: suspend (Float, Float) -> Boolean = { x, y ->
+        OpenDroidAccessibilityService.getInstance()?.clickCoordinates(x, y) ?: false
+    }
+
     companion object {
         private const val TAG = "VisionEngine"
+
+        /** M-02: taps below this confidence floor are never dispatched. */
+        const val TAP_CONFIDENCE_FLOOR = 0.85f
+
+        /**
+         * Parses the vision model's locator answer. The prompt demands a single
+         * JSON object; this parser tolerates markdown fences and surrounding
+         * prose. Anything unparsable resolves to a not-found target — never a
+         * guessed coordinate.
+         */
+        fun parseTargetResponse(raw: String): VisionTarget {
+            if (raw.isBlank()) {
+                return VisionTarget(false, null, null, 0f, "empty locator response")
+            }
+            val start = raw.indexOf('{')
+            val end = raw.lastIndexOf('}')
+            if (start < 0 || end <= start) {
+                return VisionTarget(false, null, null, 0f, "no JSON object in locator response")
+            }
+            return try {
+                val contract = locatorJson.decodeFromString<TargetContract>(
+                    raw.substring(start, end + 1)
+                )
+                VisionTarget(
+                    targetFound = contract.targetFound,
+                    x = contract.x,
+                    y = contract.y,
+                    confidence = contract.confidence.toFloat()
+                )
+            } catch (e: Exception) {
+                VisionTarget(false, null, null, 0f, "unparsable locator response")
+            }
+        }
+
+        /** A target may only be tapped when found, confident, and in range. */
+        fun isTapEligible(target: VisionTarget): Boolean =
+            target.targetFound &&
+                target.confidence > TAP_CONFIDENCE_FLOOR &&
+                target.x != null && target.y != null &&
+                target.x in 0.0..1.0 &&
+                target.y in 0.0..1.0
+
+        /** The locator wire contract the vision model must answer with. */
+        @Serializable
+        private data class TargetContract(
+            @SerialName("target_found") val targetFound: Boolean = false,
+            val x: Double? = null,
+            val y: Double? = null,
+            val confidence: Double = 0.0
+        )
+
+        private val locatorJson = Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+        }
+
 
         /** Fraction of sampled pixels that must be near-black to call a frame protected. */
         private const val BLACK_FRAME_RATIO = 0.98
@@ -139,6 +235,112 @@ class VisionEngine @Inject constructor(
             null
         }
     }
+
+    /**
+     * M-02 (audit fc9ea97): vision-guided computer use. Locates the described
+     * target on the current screen via the structured locator contract, gates
+     * on the confidence floor, maps the fractional coordinates onto the real
+     * display, and dispatches the tap through the same gesture path the
+     * CLICK_COORDINATES action uses. Anything short of a high-confidence,
+     * in-range target refuses to tap — the agent reports, it never guesses.
+     */
+    suspend fun tapLocatedTarget(targetDescription: String): VisionTapOutcome {
+        val base64 = screenCapturer()
+            ?: return VisionTapOutcome(
+                tapped = false,
+                reason = "The screen could not be captured, so I will not tap blind.",
+                target = null
+            )
+        if (isEffectivelyBlackFrame(base64)) {
+            return VisionTapOutcome(
+                tapped = false,
+                reason = "The screen is protected against capture (FLAG_SECURE), so I will not tap blind.",
+                target = null
+            )
+        }
+
+        val dims = screenDimensions()
+        val response = providerAccess().complete(
+            LLMRequest(
+                systemPrompt = LOCATOR_SYSTEM_PROMPT +
+                    (dims?.let { " The screen is ${it.first}x${it.second} pixels." } ?: ""),
+                messages = listOf(
+                    ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        text = "Locate the target and answer with the JSON object only. Target: $targetDescription",
+                        sender = ChatMessage.Sender.USER,
+                        imageBase64 = base64
+                    )
+                ),
+                temperature = 0.1f,
+                maxTokens = 200,
+                responseFormat = ResponseFormat.JSON,
+                requireVision = true
+            )
+        )
+
+        val parsed = parseTargetResponse(response.content)
+        val target = normalizePixelCoordinates(parsed, dims)
+
+        if (!isTapEligible(target)) {
+            return VisionTapOutcome(
+                tapped = false,
+                reason = if (!parsed.targetFound) {
+                    "I could not find \"$targetDescription\" on this screen, so I did not tap."
+                } else if (parsed.confidence <= TAP_CONFIDENCE_FLOOR) {
+                    "The located target's confidence (${parsed.confidence}) is below the " +
+                        "${TAP_CONFIDENCE_FLOOR} tap floor, so I did not tap."
+                } else {
+                    "The located coordinates are out of range, so I did not tap."
+                },
+                target = target
+            )
+        }
+
+        val (width, height) = dims
+            ?: return VisionTapOutcome(
+                tapped = false,
+                reason = "Screen dimensions are unavailable, so fractional coordinates cannot be mapped to pixels.",
+                target = target
+            )
+
+        val pixelX = (target.x!! * width).toFloat()
+        val pixelY = (target.y!! * height).toFloat()
+        val dispatched = tapExecutor(pixelX, pixelY)
+        return if (dispatched) {
+            VisionTapOutcome(tapped = true, target = target)
+        } else {
+            VisionTapOutcome(
+                tapped = false,
+                reason = "The gesture dispatcher refused the tap.",
+                target = target
+            )
+        }
+    }
+
+    /**
+     * Some models answer in absolute pixels despite the fractions contract.
+     * Values above 1.0 cannot be fractions, so — when the screen dimensions
+     * are known — they are mapped back to fractions. A value of exactly 1.0
+     * stays a fraction (the far edge).
+     */
+    private fun normalizePixelCoordinates(target: VisionTarget, dims: Pair<Int, Int>?): VisionTarget {
+        if (dims == null) return target
+        val x = target.x
+        val y = target.y
+        val nx = if (x != null && x > 1.0) x / dims.first else x
+        val ny = if (y != null && y > 1.0) y / dims.second else y
+        if (nx == x && ny == y) return target
+        return target.copy(x = nx?.coerceIn(0.0, 1.0), y = ny?.coerceIn(0.0, 1.0))
+    }
+
+    private val LOCATOR_SYSTEM_PROMPT = """You are a vision-grounding agent for Android screenshots.
+Locate the described target on the screenshot and answer with ONLY a JSON object — no prose, no markdown fences:
+{"target_found": <true|false>, "x": <number>, "y": <number>, "confidence": <number>}
+x is the target's horizontal center as a FRACTION of the screen width (0.0 = left edge, 1.0 = right edge).
+y is the vertical center as a FRACTION of the screen height (0.0 = top edge, 1.0 = bottom edge).
+confidence is 0.0 to 1.0 — how certain you are that the target is exactly at that position.
+If the target is not visible, ambiguous, off-screen, or you are unsure, set target_found to false and x/y to 0."""
 
     /**
      * Capture the screen and analyze it with a vision-capable LLM.
