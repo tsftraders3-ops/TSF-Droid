@@ -361,7 +361,8 @@ class AgentLoop @Inject constructor(
     private val reEvalEngine: dagger.Lazy<ReEvaluationEngine>,
     private val harnessLoop: HarnessLoop,
     private val modelsDevRegistry: ModelsDevRegistry,
-    private val memoryLearner: UserMemoryLearner
+    private val memoryLearner: UserMemoryLearner,
+    private val subAgentRouter: SubAgentRouter
 ) {
     private val scope = CoroutineScope(Dispatchers.Default)
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; isLenient = true }
@@ -2587,11 +2588,30 @@ class AgentLoop @Inject constructor(
                 config.activeProvider.contains("litert", ignoreCase = true)
             val planHistory = planningHistory(sessionId, userMsg, planModelSpec, onDeviceProvider)
             val plan = if (config.multiAgentModeEnabled) {
+                // M-01 (audit fc9ea97): the CEO delegates to bounded specialists.
+                // Both delegations run under the router's circuit breaker (60s
+                // deadline, 4k tokens) and are CEO-SAFE: any timeout, budget
+                // breach, or failure degrades to null and planning proceeds
+                // exactly as before — the CEO never crashes on a sub-agent.
+                val researchBrief = subAgentRouter.researchSafely(userMsg.text)
+                val plannerPrompt = if (!researchBrief.isNullOrBlank()) {
+                    android.util.Log.i(
+                        "AgentLoop",
+                        "multi-agent DAG: research specialist brief attached (${researchBrief.length} chars)"
+                    )
+                    "$sysPrompt\n\n[Research specialist brief — a sub-agent gathered this context]\n$researchBrief"
+                } else {
+                    android.util.Log.i(
+                        "AgentLoop",
+                        "multi-agent DAG: research specialist unavailable (timed out or failed) — CEO plans solo"
+                    )
+                    sysPrompt
+                }
                 kotlinx.coroutines.coroutineScope {
                     val plannerDeferred = async(Dispatchers.Default) {
                         provider.complete(
                             LLMRequest(
-                                systemPrompt = sysPrompt,
+                                systemPrompt = plannerPrompt,
                                 messages = planHistory + userMsg,
                                 temperature = 0.2f,
                                 maxTokens = PLANNING_MAX_TOKENS,
@@ -2617,13 +2637,31 @@ class AgentLoop @Inject constructor(
                     reportLocalPlanningLatency(plannerResponse)
                     reportLocalPlanningLatency(criticResponse)
 
-                    val mergePrompt = """
-                        ${PlanningPrompts.MERGE_SYSTEM_PROMPT}
-                        
-                        User Goal: ${userMsg.text}
-                        Initial Plan: ${plannerResponse.content}
-                        Critic Safety & Edge Case Report: ${criticResponse.content}
-                    """.trimIndent()
+                    // M-01: the executor specialist drafts a step skeleton for
+                    // the merge. It only drafts — the merged plan still passes
+                    // the AutoApprovalPolicy gate below, so a sub-agent can
+                    // never route around the consent boundary.
+                    val executorSkeleton = subAgentRouter.draftSafely(
+                        userMsg.text, plannerResponse.content
+                    )
+
+                    val mergePrompt = buildString {
+                        append(PlanningPrompts.MERGE_SYSTEM_PROMPT)
+                        append("\n\nUser Goal: ")
+                        append(userMsg.text)
+                        append("\nInitial Plan: ")
+                        append(plannerResponse.content)
+                        append("\nCritic Safety & Edge Case Report: ")
+                        append(criticResponse.content)
+                        if (!executorSkeleton.isNullOrBlank()) {
+                            android.util.Log.i(
+                                "AgentLoop",
+                                "multi-agent DAG: executor specialist skeleton attached (${executorSkeleton.length} chars)"
+                            )
+                            append("\nExecutor specialist step draft (advisory; non-critical actions only; still subject to the approval gate):\n")
+                            append(executorSkeleton)
+                        }
+                    }.trimIndent()
 
                     completeAndParsePlan(
                         provider,
