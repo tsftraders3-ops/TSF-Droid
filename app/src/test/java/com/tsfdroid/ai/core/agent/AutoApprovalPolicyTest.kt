@@ -70,6 +70,39 @@ class AutoApprovalPolicyTest {
         assertFalse(AutoApprovalPolicy.shouldAutoApprove(AutoMode.YOLO, emptySet(), plan("TOGGLE_WIFI")))
     }
 
+    // ── C-01 remediation: the consent boundary must be name-addressable ──
+    // MacroSchedulerWorker / RUN_MACRO / executeRoutine / McpServer all execute
+    // actions OUTSIDE the interactive AgentLoop approval flow. They need a pure,
+    // PlanStep-free predicate to enforce the same boundary at their own dispatch
+    // seams (audit fc9ea97 C-01: "approval policy is not enforced across all
+    // execution paths").
+
+    @Test
+    fun `CLICK_COORDINATES is policy-critical - a blind tap can submit, delete, pay or send`() {
+        // Audit C-01/M-02: CLICK_COORDINATES was neither in the critical set nor
+        // neverAutoApprove, so a YOLO plan could auto-run ungrounded coordinate
+        // taps. A tap is not readable before it executes — it is treated like any
+        // other irreversible side-effecting action.
+        assertTrue(AutoApprovalPolicy.isPolicyCriticalAction("CLICK_COORDINATES"))
+        assertTrue(AutoApprovalPolicy.isCritical(step("s0", "CLICK_COORDINATES")))
+        assertFalse(
+            AutoApprovalPolicy.shouldAutoApprove(AutoMode.YOLO, emptySet(), plan("CLICK_COORDINATES"))
+        )
+        assertFalse(
+            AutoApprovalPolicy.shouldAutoApprove(AutoMode.AUTO, emptySet(), plan("CLICK_COORDINATES"))
+        )
+    }
+
+    @Test
+    fun `isPolicyCriticalAction matches the critical set for name-only callers`() {
+        listOf("SEND_SMS", "MAKE_CALL", "PAY_UPI", "DELETE_FILE", "CLICK_COORDINATES").forEach {
+            assertTrue("expected $it to be policy-critical", AutoApprovalPolicy.isPolicyCriticalAction(it))
+        }
+        listOf("WEB_SEARCH", "OPEN_APP", "GET_WEATHER", "RUN_MACRO", "SCHEDULE_MACRO").forEach {
+            assertFalse("expected $it to stay auto-runnable", AutoApprovalPolicy.isPolicyCriticalAction(it))
+        }
+    }
+
     @Test
     fun `planner-flagged critical step blocks auto-approval even for non-critical actions`() {
         val flagged = listOf(

@@ -33,7 +33,13 @@ object AutoApprovalPolicy {
         "TOGGLE_WIFI", "TOGGLE_BLUETOOTH", "TOGGLE_MOBILE_DATA", "TOGGLE_HOTSPOT",
         "TOGGLE_DND", "SET_BRIGHTNESS", "SET_VOLUME", "SET_RINGER_MODE", "LOCK_SCREEN",
         // Destructive / persistent file operations
-        "DELETE_FILE", "WRITE_FILE", "MOVE_FILE", "CREATE_DIRECTORY", "COPY_FILE"
+        "DELETE_FILE", "WRITE_FILE", "MOVE_FILE", "CREATE_DIRECTORY", "COPY_FILE",
+        // Ungrounded screen taps (audit C-01/M-02): a coordinate tap is not
+        // inspectable before it fires — the same tap can confirm, delete, pay,
+        // or send depending on what is under the finger. Vision-grounded or
+        // blind, it enters the confirmation gate like every other irreversible
+        // side effect.
+        "CLICK_COORDINATES"
     )
 
     /**
@@ -45,6 +51,14 @@ object AutoApprovalPolicy {
         step.critical ||
             step.action in POLICY_CRITICAL_ACTIONS ||
             (step.fallback.isNotBlank() && step.fallback in POLICY_CRITICAL_ACTIONS)
+
+    /**
+     * Name-only variant of the critical classification for dispatch seams that
+     * hold a bare action name instead of a [PlanStep] — the MCP server's
+     * execute_action tool. Same list, same semantics: these actions require
+     * interactive confirmation and are refused on non-interactive paths.
+     */
+    fun isPolicyCriticalAction(action: String): Boolean = action in POLICY_CRITICAL_ACTIONS
 
     fun shouldAutoApprove(mode: AutoMode, granted: Set<String>, plan: Plan): Boolean = when (mode) {
         AutoMode.OFF -> false

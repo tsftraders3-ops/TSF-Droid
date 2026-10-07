@@ -113,6 +113,15 @@ class ActionSequenceExecutor(
     /**
      * Runs a complete saved macro. Later steps are not dispatched after a
      * failure, so the returned result cannot claim work that did not happen.
+     *
+     * C-01 (audit fc9ea97): this is the shared batch seam for every execution
+     * path WITHOUT a human at fire time — MacroSchedulerWorker (cron),
+     * RUN_MACRO, and HabitRoutineEngine.executeRoutine. None of those callers
+     * can show the interactive approval modal, so policy-critical steps are
+     * refused HERE, at the last point before dispatch. The AgentLoop plan path
+     * (which does gate on AutoApprovalPolicy before each dispatch) remains the
+     * only route through which a critical action may ever run, after the user
+     * approved exactly that plan.
      */
     suspend fun execute(
         steps: List<PlanStep>,
@@ -127,6 +136,28 @@ class ActionSequenceExecutor(
 
         orderedSteps.forEachIndexed { index, step ->
             currentCoroutineContext().ensureActive()
+
+            // Background consent boundary: a critical step (planner-flagged,
+            // policy-critical primary, or policy-critical fallback) is refused
+            // before ANY dispatch for this step. Macro semantics stay linear —
+            // the refusal stops the sequence exactly like a failed step, so a
+            // later step can never consume the output of a critical step that
+            // was allowed to half-run.
+            if (AutoApprovalPolicy.isCritical(step)) {
+                val refused = when {
+                    step.action.isNotBlank() && AutoApprovalPolicy.isPolicyCriticalAction(step.action) ->
+                        step.action
+                    step.fallback.isNotBlank() && AutoApprovalPolicy.isPolicyCriticalAction(step.fallback) ->
+                        "${step.fallback} (fallback of ${step.action.ifBlank { "unknown" }})"
+                    else -> step.action.ifBlank { "unknown action" }
+                }
+                return ActionResult.Failure(
+                    "Macro stopped at step ${index + 1} ($refused): policy-critical " +
+                        "actions require interactive confirmation and cannot run " +
+                        "from background or batch execution."
+                )
+            }
+
             val execution = executeStep(step, completedResults, context)
             val result = execution.finalResult
             if (!result.success) {

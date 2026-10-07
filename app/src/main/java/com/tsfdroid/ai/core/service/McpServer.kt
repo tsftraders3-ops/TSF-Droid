@@ -6,6 +6,7 @@ import android.util.Log
 import com.tsfdroid.ai.BuildConfig
 import com.tsfdroid.ai.actions.ActionDispatcher
 import com.tsfdroid.ai.actions.base.ActionResult
+import com.tsfdroid.ai.core.agent.AutoApprovalPolicy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -224,6 +225,22 @@ class McpServer @Inject constructor(
     private fun executeAction(arguments: JSONObject): String {
         val action = arguments.optString("action")
         require(action.isNotBlank()) { "action is required" }
+
+        // C-01 (audit fc9ea97): the x-opendroid token authenticates the MCP
+        // TRANSPORT, not per-action consent — loopback + token is a privileged
+        // connection boundary, but it is not the user confirming THIS action.
+        // Policy-critical actions (SMS, calls, UPI, destructive files, blind
+        // coordinate taps) demand interactive confirmation that no MCP client
+        // can supply, so they are refused here at the dispatch seam.
+        if (AutoApprovalPolicy.isPolicyCriticalAction(action)) {
+            return resultToJson(
+                ActionResult.Failure(
+                    errorMsg = "'$action' is policy-critical: it requires interactive " +
+                        "user confirmation and cannot be executed through the MCP boundary."
+                )
+            )
+        }
+
         val rawParams = arguments.optJSONObject("params") ?: JSONObject()
         val params = rawParams.keys().asSequence().associateWith { key -> rawParams.optString(key) }
         return resultToJson(runBlocking { actionDispatcher.execute(action, params, context) })
