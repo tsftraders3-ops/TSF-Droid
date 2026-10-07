@@ -51,7 +51,8 @@ class ReplyDispatcher @Inject constructor(
 
                 try {
                     action.actionIntent.send(context, 0, intent)
-                    Log.d(TAG, "Successfully sent reply via notification action: ${replyText.take(30)}...")
+                    // M-06: reply content never reaches Logcat.
+                    Log.d(TAG, "Successfully sent reply via notification action")
                     return true
                 } catch (e: PendingIntent.CanceledException) {
                     Log.e(TAG, "PendingIntent cancelled: ${e.message}")

@@ -47,6 +47,15 @@ class AutoReplyEngine @Inject constructor(
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
+    // Test seams (M-05 remediation): the defaults reproduce production
+    // behavior exactly — coroutine delay and the real provider factory.
+    // Tests substitute deterministic implementations so revocation races,
+    // cancellation timing, and LLM access can be observed without network
+    // or provider construction. Never set by production code.
+    internal var sleeper: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) }
+    internal var providerAccess: suspend () -> com.tsfdroid.ai.core.llm.LLMProvider =
+        { llmProviderFactory.getActiveProvider() }
+
     // Track pending auto-replies so we can cancel them if user replies manually
     private val pendingReplies = mutableMapOf<String, Job>()
 
@@ -74,7 +83,9 @@ class AutoReplyEngine @Inject constructor(
                 Log.d(TAG, "Suppressing bounceback for $contactKey (sent ${elapsed}ms ago, text matches)")
                 return true
             } else {
-                Log.d(TAG, "Not a bounceback for $contactKey: text doesn't match (expected '${sentReply.replyText}', got '$messageText')")
+                // M-06: never log the expected/received message bodies — only
+                // that they differed.
+                Log.d(TAG, "Not a bounceback for $contactKey: text does not match our recent reply")
                 return false
             }
         }
@@ -109,12 +120,17 @@ class AutoReplyEngine @Inject constructor(
                 // Wait the configured delay
                 val delayMs = config.replyDelayMinutes * 60 * 1000L
                 Log.d(TAG, "Scheduling auto-reply in ${config.replyDelayMinutes} min for ${notification.contactName}")
-                delay(delayMs)
+                sleeper(delayMs)
 
-                // Re-check config (user might have disabled it during the wait)
+                // Re-check config after the wait. M-05 (audit fc9ea97): the
+                // FULL policy is re-evaluated, not just globalEnabled — the user
+                // may have disabled the per-app switch, blacklisted the contact,
+                // or narrowed the whitelist while this job was waiting. A
+                // revocation during the delay must be honored immediately
+                // before any reply is generated or sent.
                 val freshConfig = settingsRepository.autoReplyConfig.first()
-                if (!freshConfig.globalEnabled) {
-                    Log.d(TAG, "Auto-reply disabled during wait period")
+                if (!shouldAutoReply(notification, freshConfig)) {
+                    Log.d(TAG, "Auto-reply revoked during the wait period — policy re-check failed")
                     return@launch
                 }
 
@@ -142,7 +158,9 @@ class AutoReplyEngine @Inject constructor(
                     // bounceback check is ready when the echo notification fires
                     recentlySent[contactKey] = SentReply(System.currentTimeMillis(), replyText)
                     notificationDao.markAsAutoReplied(notification.id, replyText)
-                    Log.d(TAG, "Auto-reply sent to ${notification.contactName}: ${replyText.take(50)}...")
+                    // M-06: reply content never reaches Logcat — the contact
+                    // key is metadata, the body is not.
+                    Log.d(TAG, "Auto-reply sent to ${notification.contactName}")
                 }
 
             } catch (e: CancellationException) {
@@ -204,7 +222,7 @@ class AutoReplyEngine @Inject constructor(
 
     private suspend fun generateReply(notification: NotificationEntity, config: AutoReplyConfig): String? {
         return try {
-            val provider = llmProviderFactory.getActiveProvider()
+            val provider = providerAccess()
 
             // Get user name from secure prefs context
             val userContext = memoryManager.getRelevantContext("")

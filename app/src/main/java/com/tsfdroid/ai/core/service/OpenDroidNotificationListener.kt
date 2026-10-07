@@ -84,7 +84,10 @@ class OpenDroidNotificationListener : NotificationListenerService() {
                 if (entity != null) {
                     val id = notificationDao.insertNotification(entity)
                     val savedEntity = entity.copy(id = id)
-                    Log.d(TAG, "Saved notification: ${entity.appName} — ${entity.title}: ${entity.text.take(50)}")
+                    // M-06 (audit fc9ea97): notification title/text never reach
+                    // Logcat — app name and category are metadata, message
+                    // bodies are user content.
+                    Log.d(TAG, "Saved notification from ${entity.appName} (${entity.category})")
 
                     // Trigger pattern analysis periodically
                     notificationIntelligence.analyzeIfNeeded()
@@ -100,7 +103,12 @@ class OpenDroidNotificationListener : NotificationListenerService() {
                             entity.title.equals("You", ignoreCase = true)
 
                         if (isSelfMessage) {
-                            Log.d(TAG, "Skipping auto-reply: self-message/outgoing detected for $contactName")
+                            // M-05 (audit fc9ea97): a self-authored message means
+                            // the user replied manually — cancel any pending
+                            // auto-reply for this contact so both replies never
+                            // race each other.
+                            Log.d(TAG, "Self-message/outgoing detected for $contactName — cancelling pending auto-reply")
+                            autoReplyEngine.cancelPendingReply(sbn.packageName, contactName)
                         } else {
                             // Only check bounceback for incoming messages
                             val isBounceback = autoReplyEngine.isOwnReplyBounceback(
@@ -126,6 +134,10 @@ class OpenDroidNotificationListener : NotificationListenerService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // M-05 (audit fc9ea97): without the listener, pending replies can no
+        // longer fetch a fresh notification action — and a user disconnecting
+        // the listener is revoking consent for background replies entirely.
+        autoReplyEngine.cancelAll()
         serviceScope.cancel()
         instance = null
     }

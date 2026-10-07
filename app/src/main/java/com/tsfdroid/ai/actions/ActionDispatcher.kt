@@ -49,6 +49,15 @@ class ActionDispatcher @Inject constructor(
     companion object {
         private const val TAG = "ActionDispatcher"
 
+        /**
+         * M-06 (audit fc9ea97): parameter VALUES never reach Logcat — they can
+         * carry message bodies, file content, or URLs. Only the parameter keys
+         * and their value lengths are logged, which is enough to debug a
+         * mis-routed dispatch without exposing user content.
+         */
+        internal fun redactedParamsForLog(params: Map<String, String>): String =
+            params.entries.joinToString(",") { "${it.key}=<${it.value.length} chars>" }
+
         // Actions that require internet connectivity
         private val internetRequiredActions = setOf(
             "WEB_SEARCH",
@@ -144,7 +153,9 @@ class ActionDispatcher @Inject constructor(
         Log.d(TAG, "║ Raw input:    $actionName")
         // v1.3.0 round 20: the dispatched params on the record — run-124
         // needed a screenshot to learn what the search actually received.
-        Log.i(TAG, "dispatch $actionName params=" + params.entries.joinToString(",") { "${it.key}=${it.value.take(60)}" }.take(400))
+        // v1.6.1 / M-06: the values are redacted to keys+lengths; content
+        // (message bodies, file text, URLs) never reaches Logcat.
+        Log.i(TAG, "dispatch $actionName params=" + redactedParamsForLog(params))
         Log.d(TAG, "║ Normalized:   $normalized")
 
         // ── STEP 1: Internet pre-check ──
