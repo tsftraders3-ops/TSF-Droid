@@ -401,6 +401,27 @@ class FieldFixesInstrumentedTest {
             device.waitForIdle(3_000)
         }
         device.wait(Until.hasObject(By.text("Chat")), 30_000)
+        // v1.6.1 (run 37651287426 attempt 1, the "New chat button not found"
+        // quartet): the tab LABEL "Chat" is present on every tab, and an open
+        // conversation thread hides the chat list entirely — after 40 minutes
+        // of live-provider suites the app was parked off the chat list, so
+        // the button every field-fix test clicks first never appeared and
+        // four tests failed before they began (the clean-reinstall retry
+        // passed all four, proving app STATE, not app code). The reach is
+        // now an ACTIVE navigation: click the Chat tab, and only when the
+        // chat-list chrome still does not appear press BACK (closing an open
+        // thread or a covering sheet — never the chat list itself, where the
+        // button is present and the back is skipped) and click it again.
+        // Bounded rounds; a no-op when the app is already home.
+        repeat(4) {
+            device.runWatchers()
+            runCatching { device.findObject(By.text("Chat"))?.click() }
+            if (device.wait(Until.hasObject(By.desc("New chat")), 6_000) == true) {
+                return
+            }
+            runCatching { device.pressBack() }
+            device.waitForIdle(1_000)
+        }
     }
 
     private fun ensureMode(mode: String) {

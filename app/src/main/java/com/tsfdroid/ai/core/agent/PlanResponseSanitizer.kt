@@ -381,6 +381,34 @@ internal object PlanResponseSanitizer {
     }
 
     /**
+     * v1.6.1 (E2E run 37651287426, the b3 field regression): the planner's
+     * plan JSON carries a PARAPHRASED goal. That run rewrote
+     * "create a markdown file called fieldfix_marker.md containing the exact
+     * line TSF FIELD MARKER 77 followed by one short paragraph about gold
+     * prices" into "Create fieldfix_marker.md containing 'TSF FIELD MARKER
+     * 77' followed by one short paragraph about gold prices" — dropping the
+     * words that carry the artifact signal. Every goal-shape heuristic
+     * downstream (the parse-time and execution-time deferral gates, the
+     * concrete-artifact branch selector in the deterministic synthesizer,
+     * the deliverable-name fallback) then read a FILE-CREATION goal as a
+     * pure DATA goal: the synthesized plan was WEB_SEARCH + CHECK_STOCK
+     * with no write step, the turn shipped a gold market note, and the
+     * marker file was never written.
+     *
+     * The user's own words are the ground truth for goal classification —
+     * a model paraphrase can never weaken them. Returns the user's message
+     * verbatim when it carries any text, else the model's goal, else the
+     * historical blank-goal default.
+     */
+    fun restoredGoal(userMessage: String, modelGoal: String): String {
+        val user = userMessage.trim()
+        if (user.isNotEmpty()) return user
+        val model = modelGoal.trim()
+        if (model.isNotEmpty()) return model
+        return "User request"
+    }
+
+    /**
      * Plan-shaped deferral (v1.0.6 loop-17): a VALID plan can still refuse
      * the goal — the loop-16 field evidence is a one-step CHAT plan whose
      * response was "I don't have live market data access in this session".

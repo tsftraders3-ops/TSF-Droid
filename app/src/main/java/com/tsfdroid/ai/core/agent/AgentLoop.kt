@@ -4600,7 +4600,10 @@ class AgentLoop @Inject constructor(
                     }
 
                     if (hasPlanObject) {
-                        val plan = normalizePlan(json.decodeFromString<Plan>(planElement.toString()))
+                        val plan = normalizePlan(
+                            json.decodeFromString<Plan>(planElement.toString()),
+                            userGoal
+                        )
                         // v1.0.6 loop-17: a well-formed plan can still REFUSE
                         // the goal (the field evidence: a one-step CHAT plan
                         // reading "I don't have live market data access").
@@ -4618,7 +4621,10 @@ class AgentLoop @Inject constructor(
                     }
 
                     // A bare plan object at the root.
-                    val barePlan = normalizePlan(json.decodeFromString<Plan>(candidate))
+                    val barePlan = normalizePlan(
+                        json.decodeFromString<Plan>(candidate),
+                        userGoal
+                    )
                     if (PlanResponseSanitizer.planDefersGoal(
                             barePlan.steps.map { it.action }, userGoal
                         )
@@ -4635,7 +4641,10 @@ class AgentLoop @Inject constructor(
 
             val cleaned = cleanPlanJson(candidate)
             try {
-                val parsed = normalizePlan(json.decodeFromString<Plan>(cleaned))
+                val parsed = normalizePlan(
+                    json.decodeFromString<Plan>(cleaned),
+                    userGoal
+                )
                 if (PlanResponseSanitizer.planDefersGoal(
                         parsed.steps.map { it.action }, userGoal
                     )
@@ -4705,10 +4714,19 @@ class AgentLoop @Inject constructor(
         return content.trim()
     }
 
-    private fun normalizePlan(plan: Plan): Plan {
+    /** Normalizes a parsed plan. v1.6.1 (run 37651287426, the b3 field
+     *  regression): the plan's goal field is the MODEL's paraphrase of the
+     *  ask — that run paraphrased "create a markdown file called…" into
+     *  "Create fieldfix_marker.md containing…" and every downstream
+     *  goal-shape heuristic (deferral gates, the deterministic synthesizer's
+     *  artifact branch, the deliverable-name fallback) lost the artifact
+     *  signal the USER's own words carried. The user's message is the
+     *  ground truth: it becomes the plan goal verbatim, the model's
+     *  paraphrase only when the user text is unavailable. */
+    private fun normalizePlan(plan: Plan, userGoal: String): Plan {
         return plan.copy(
             planId = plan.planId.ifBlank { UUID.randomUUID().toString() },
-            goal = plan.goal.ifBlank { "User request" },
+            goal = PlanResponseSanitizer.restoredGoal(userGoal, plan.goal),
             estimatedSteps = if (plan.estimatedSteps > 0) plan.estimatedSteps else plan.steps.size.coerceAtLeast(1),
             steps = plan.steps.map { step ->
                 step.copy(
