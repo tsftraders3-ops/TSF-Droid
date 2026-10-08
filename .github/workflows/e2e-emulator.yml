@@ -38,7 +38,14 @@ jobs:
     # runs live for full diagnostics. Free-tier latency flakes move between
     # runs, so a failing first pass triggers one clean retry — BOTH attempt
     # outputs are kept.
-    timeout-minutes: 240
+    # v1.6.1 (run 37731897885): 240 was not enough on a degraded-provider
+    # day — that run's gates themselves PASSED (hermetic 20/20, live retry
+    # 34/34, verdict final=0) but the 240-min ceiling cancelled the JOB
+    # during the artifact epilogue, losing the badge AND the artifacts. The
+    # instrumented worst case is bounded at ~165 min (1500s hermetic +
+    # 4200s live + 4200s retry + build + QA); 330 gives that case its
+    # headroom so a slow free tier can never cost the verdict.
+    timeout-minutes: 330
 
     steps:
       - name: Checkout
