@@ -199,6 +199,44 @@ class FieldFixesInstrumentedTest {
         return longest
     }
 
+    /** v1.6.1 (run 37723671405, the b6 false negative): the storage answer
+     *  arrives as MULTIPLE text elements (the paragraph naming the folder,
+     *  then the Export-action paragraph); [waitNewText] samples only the
+     *  LONGEST one, so the grounding keywords could sit in a paragraph the
+     *  assertion never saw. Collects EVERY qualifying new text with the
+     *  same filter discipline, settling when the screen stops growing. */
+    private fun allNewTextsSince(
+        baseline: Set<String>,
+        timeoutMs: Long,
+        settleMs: Long
+    ): List<String> {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        val seen = mutableSetOf<String>()
+        var lastGrowthAt = System.currentTimeMillis()
+        while (System.currentTimeMillis() < deadline) {
+            device.runWatchers()
+            for (obj in device.findObjects(By.text(Pattern.compile(".+", Pattern.DOTALL)))) {
+                if (runCatching { obj.applicationPackage }.getOrNull() != appPackage) continue
+                val t = obj.text.trim()
+                if (t.isEmpty() || t in baseline || t in nonReplyTexts) continue
+                if (t.uppercase() in modelBadgeTexts) continue
+                if (t == "[tool calls issued]" || t.startsWith("arness]")) continue
+                if (t.startsWith(chatPlaceholder)) continue
+                if (t.startsWith("AUTONOMOUS PLAN") || t.startsWith("Goal:")) continue
+                if (t.startsWith("TSF Droid has formulated")) continue
+                if (t.startsWith("Always allow") || t.startsWith("Execute ")) continue
+                if (t.startsWith("•") || t.startsWith("On it")) continue
+                if (t == "THINKING" || t == "ACTIVITY") continue
+                if (t.startsWith("Requires Plan") || t.startsWith("Chat exported")) continue
+                if (agentStatusPrefixes.any { t.startsWith(it) }) continue
+                if (seen.add(t)) lastGrowthAt = System.currentTimeMillis()
+            }
+            if (seen.isNotEmpty() && System.currentTimeMillis() - lastGrowthAt >= settleMs) break
+            runCatching { Thread.sleep(2_500) }
+        }
+        return seen.toList()
+    }
+
     private fun typeChatMessage(message: String): Boolean {
         repeat(3) { attempt ->
             val target = device.wait(Until.findObject(By.textContains(chatPlaceholder)), 6_000)
@@ -388,11 +426,36 @@ class FieldFixesInstrumentedTest {
         }
         device.runWatchers()
         if (onboarding) {
-            runCatching {
-                val nameField = device.wait(
-                    Until.findObject(By.clazz("android.widget.EditText")), 10_000
+            // v1.6.1 (run 37723671405 attempt 1, the poisoned suite): the
+            // journey test's onboarding typing flake aborted MID-onboarding
+            // and every later field-fix test inherited the half-onboarded
+            // app — the old single-shot setText here (failures swallowed by
+            // runCatching) could not complete it, so three tests died at the
+            // first "New chat" click without ever reaching their scenario.
+            // The name is now typed with the journey's own multi-attempt
+            // discipline: ACTION_SET_TEXT primary, the real IME as the
+            // alternate route, every attempt ending in a verified check.
+            var nameOk = false
+            repeat(3) { attempt ->
+                if (nameOk) return@repeat
+                val field = device.wait(
+                    Until.findObject(By.clazz("android.widget.EditText")), 6_000
                 )
-                nameField?.setText("FieldFix")
+                runCatching { field?.click() }
+                device.waitForIdle(1_500)
+                runCatching {
+                    if (attempt == 1 || field == null) {
+                        InstrumentationRegistry.getInstrumentation()
+                            .sendStringSync("FieldFix")
+                    } else {
+                        field.setText("FieldFix")
+                    }
+                }
+                device.waitForIdle(1_000)
+                dismissKeyboard()
+                nameOk = device.findObjects(By.clazz("android.widget.EditText"))
+                    .mapNotNull { runCatching { it.text }.getOrNull() }
+                    .any { it.contains("FieldFix") }
             }
             device.waitForIdle(1_000)
             runCatching { clickTextContains("Continue", 10_000) }
@@ -539,24 +602,29 @@ class FieldFixesInstrumentedTest {
         val baseline = visibleTexts()
         waitAgentIdle(420_000)
         shoot("fieldfix_b6_idle")
-        val reply = waitNewText(baseline, timeoutMs = 120_000, settleMs = 10_000)
+        val allTexts = allNewTextsSince(baseline, timeoutMs = 120_000, settleMs = 10_000)
+        val reply = allTexts.maxByOrNull { it.length }
         shoot("fieldfix_b6_reply")
         assertNotNull("the storage question never produced a reply", reply)
 
         // Grounded in the app's real facts: the answer names the real storage
         // (the Exports folder, the workspace, or the private Android/data
         // path the app itself documents) - never a WhatsApp hallucination,
-        // never a file-write.
+        // never a file-write. v1.6.1: checked across EVERY new text element
+        // (the folder name and the Export-action how-to arrive as separate
+        // paragraphs; sampling only the longest one read a grounded answer
+        // as ungrounded in run 37723671405).
+        val allText = allTexts.joinToString("\n")
         assertTrue(
             "the storage answer is not grounded in the app's real storage facts " +
-                "(got: ${reply!!.take(200)})",
-            reply.contains("Exports", ignoreCase = true) ||
-                reply.contains("workspace", ignoreCase = true) ||
-                reply.contains("Android/data", ignoreCase = true)
+                "(got: ${allText.take(200)})",
+            allText.contains("Exports", ignoreCase = true) ||
+                allText.contains("workspace", ignoreCase = true) ||
+                allText.contains("Android/data", ignoreCase = true)
         )
         assertTrue(
             "the storage question became a file-write (field P0-7 regression)",
-            !reply.contains("File saved", ignoreCase = true)
+            !allText.contains("File saved", ignoreCase = true)
         )
 
         val filesAfter = workspaceRoot().walkTopDown().filter { it.isFile }.count()
