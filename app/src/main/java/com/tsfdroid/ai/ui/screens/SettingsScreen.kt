@@ -1920,7 +1920,7 @@ fun SettingsScreen(
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "While idle and charging, the agent reviews your local patterns and drafts suggestions. It never acts on its own.",
+                                    text = "When the device is idle and battery is not low, the agent reviews your local patterns and drafts suggestions. It never acts on its own.",
                                     fontSize = 12.sp,
                                     color = TextSecondary
                                 )

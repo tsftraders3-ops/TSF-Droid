@@ -6,6 +6,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -87,7 +88,11 @@ data class SubAgentGraphResult(
  *
  * Upgrades the sequential [SubAgentRouter] delegation (research -> draft,
  * one call after the other) into a concurrent directed acyclic graph of
- * [SubAgentTask]s executed with Kotlin coroutines:
+ * [SubAgentTask]s executed with Kotlin coroutines. This is a VERIFIED
+ * CAPABILITY with no production caller yet: nothing in AgentLoop builds
+ * task graphs today — the CEO's planner integration is the follow-up.
+ * Until it is wired, the honest state is "engine done and proven by tests,
+ * orchestration pending".
  *
  *  - INDEPENDENT tasks run as concurrent `async` coroutines on the caller's
  *    dispatcher — siblings resumed by the same parent's completion start at
@@ -99,17 +104,21 @@ data class SubAgentGraphResult(
  *    graph still returns (graceful degradation, never an exception);
  *  - a task whose parent did not complete is Skipped (never run), so one
  *    failure prunes exactly its downstream subgraph, nothing else;
- *  - the SAFETY GATE runs before anything else: a policy-critical tool in
- *    the task's scope refuses the task outright (no provider call, no
- *    drafting) — the consent boundary is inherited from the CEO.
+ *  - the SAFETY GATES run before and after execution: a task whose
+ *    toolScope declares a policy-critical action is refused before its
+ *    runner is invoked, and an EXECUTOR draft that smuggles a
+ *    policy-critical action name is refused after it — sub-agents inherit
+ *    the CEO's consent boundary and cannot auto-approve critical actions.
  *
  * Structural validation (duplicate ids, unknown dependencies, cycles)
  * rejects the whole graph without running anything — a malformed swarm is a
  * programmer error, not a partial run.
  *
- * The graph only PRODUCES outputs. It never dispatches actions: drafts flow
- * back through the CEO's plan pipeline and the AutoApprovalPolicy
- * confirmation gate, exactly as the single-shot router's do.
+ * The graph only PRODUCES outputs — it has no dispatch path (no
+ * ActionDispatcher anywhere in this class). When the CEO's planner
+ * integration consumes these outputs, every drafted step must pass through
+ * AgentLoop's existing AutoApprovalPolicy confirmation gate before any
+ * execution; that wiring is the follow-up work described above.
  */
 @Singleton
 class SubAgentGraph @Inject constructor(
@@ -140,9 +149,14 @@ class SubAgentGraph @Inject constructor(
 
         return coroutineScope {
             // Deferreds are created in TOPOLOGICAL order, so every parent's
-            // deferred already exists before any child body can reference it:
-            // no map mutation races even on a multi-threaded dispatcher.
-            val deferreds = LinkedHashMap<String, Deferred<SubAgentOutcome>>()
+            // deferred already exists before any child body can reference it.
+            // The map is a ConcurrentHashMap because on a multi-threaded
+            // dispatcher the caller's put()s can overlap async bodies' get()s
+            // for OTHER keys (structural races on a plain LinkedHashMap's
+            // resize would be a real bug, not a theoretical one). Each key is
+            // still written exactly once, by the caller, before any body can
+            // await it (happens-before via the coroutine dispatch).
+            val deferreds = ConcurrentHashMap<String, Deferred<SubAgentOutcome>>()
             for (task in topoOrder) {
                 deferreds[task.id] = async { runTask(task, deferreds) }
             }
@@ -195,7 +209,7 @@ class SubAgentGraph @Inject constructor(
         // 3. Deadline-bounded execution. A task that outlives its timeoutMs
         // is killed (its runner coroutine is cancelled) and reported — the
         // graph never hangs on one wedged specialist.
-        return try {
+        val outcome = try {
             withTimeoutOrNull(task.timeoutMs) { taskRunner(task, parents) }
                 ?: SubAgentOutcome.TimedOut(task.id, task.timeoutMs)
         } catch (e: CancellationException) {
@@ -203,6 +217,24 @@ class SubAgentGraph @Inject constructor(
         } catch (e: Exception) {
             SubAgentOutcome.Failed(task.id, e.message ?: "sub-agent task failure")
         }
+
+        // 4. OUTPUT SCRUB GATE (defense in depth): an EXECUTOR task drafts
+        //    step fragments for the CEO to execute. If a draft smuggles a
+        //    policy-critical action name past the scope gate and the prompt
+        //    plea, the draft is REFUSED HERE — it never leaves the graph.
+        //    Research prose is exempt (discussing an action is not drafting it).
+        if (outcome is SubAgentOutcome.Completed && task.role == SubAgentRole.EXECUTOR) {
+            val criticalDraft = AutoApprovalPolicy.POLICY_CRITICAL_ACTIONS
+                .firstOrNull { outcome.output.contains(it) }
+            if (criticalDraft != null) {
+                return SubAgentOutcome.Refused(
+                    taskId = task.id,
+                    reason = "executor draft contains policy-critical action $criticalDraft — " +
+                        "sub-agent drafts cannot auto-approve critical actions"
+                )
+            }
+        }
+        return outcome
     }
 
     /** The default runner: delegates to the REAL router specialist for the task's role. */

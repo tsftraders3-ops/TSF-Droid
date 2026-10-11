@@ -232,13 +232,17 @@ class ProactiveWorkerTest {
 
     @Test
     fun `enqueue while disabled schedules nothing`() = runBlocking {
-        ProactiveSuggestionWorker.setEnabled(context, false)
+        // On a freshly initialized WorkManager with the feature still at its
+        // default (OFF), NO work with the worker's unique name may exist at
+        // all — an empty list is the strict no-auto-enqueue proof.
+        assertFalse(ProactiveSuggestionWorker.isEnabled(context))
 
         val infos = workManager
             .getWorkInfosForUniqueWork(ProactiveSuggestionWorker.WORK_NAME).get()
+
         assertTrue(
-            "no live work with the unique name may exist while disabled",
-            infos.none { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
+            "no work at all may exist for the worker while disabled (auto-enqueue would be an opt-in violation)",
+            infos.isEmpty()
         )
     }
 

@@ -169,7 +169,9 @@ class OpenDroidNavigationBackStackTest {
             OpenDroidRoutes.AUTO_REPLY_SETTINGS,
             OpenDroidRoutes.NOTIFICATION_HISTORY,
             OpenDroidRoutes.PERMISSIONS,
-            OpenDroidRoutes.CRASH_LOG
+            OpenDroidRoutes.CRASH_LOG,
+            OpenDroidRoutes.ROUTINES,
+            OpenDroidRoutes.SOCIAL
         )
     }
 }

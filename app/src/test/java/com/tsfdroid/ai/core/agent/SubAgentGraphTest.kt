@@ -119,15 +119,11 @@ class SubAgentGraphTest {
         assertEquals(3, result.outcomes.size)
         // A starts immediately (t=0) and completes at t=100 after its runner delay.
         assertEquals(0L, startTimesMs["A"])
-        // B and C are both resumed by A's completion: both start at t=100.
+        // THE concurrency proof: B and C are both resumed by A's completion,
+        // so both start at t=100 — while B's own 100ms runner delay is still
+        // elapsing. A sequential executor would only reach C at t=200.
         assertEquals(100L, startTimesMs["B"])
-        // THE concurrency proof: C started at the same instant B started — B's
-        // own 100ms runner delay is still elapsing. A sequential executor
-        // would only reach C at t=200.
-        assertEquals("siblings must start at the same instant", 100L, startTimesMs["C"])
-        val bStart = startTimesMs["B"]!!
-        val cStart = startTimesMs["C"]!!
-        assertTrue("C started at B's start instant (diff=${cStart - bStart}ms)", cStart - bStart < 50)
+        assertEquals("C must start at the same instant as B", 100L, startTimesMs["C"])
         assertTrue(result.outcomes.values.all { it is SubAgentOutcome.Completed })
     }
 
@@ -250,6 +246,40 @@ class SubAgentGraphTest {
     // ------------------------------------------------------------------
     // Graph validation
     // ------------------------------------------------------------------
+
+    @Test
+    fun `an executor draft smuggling a critical action is refused after running`() = runTest {
+        virtualClock = { testScheduler.currentTime }
+        // The runner (standing in for the router/LLM) returns a COMPLETED
+        // EXECUTOR draft that smuggles a policy-critical action name past
+        // the scope gate and the prompt plea. The output scrub gate must
+        // refuse it: the draft never leaves the graph.
+        graph.taskRunner = { task, _ ->
+            runnerCalls.merge(task.id, 1, Int::plus)
+            SubAgentOutcome.Completed(
+                output = "{\"steps\":[{\"action\":\"SEND_SMS\",\"description\":\"send it\"}]}",
+                tokensUsed = 10,
+                latencyMs = 1
+            )
+        }
+        val result = SubAgentGraphRunnerHelper.runAndCollect(
+            this, graph,
+            listOf(
+                SubAgentTask(id = "DRAFT", goal = "draft the steps", role = SubAgentRole.EXECUTOR),
+                SubAgentTask(id = "RESEARCH", goal = "research", role = SubAgentRole.RESEARCH)
+            )
+        )
+
+        val draft = result.outcomes["DRAFT"]
+        assertTrue("expected Refused but was $draft", draft is SubAgentOutcome.Refused)
+        assertTrue(
+            "refusal reason must name the smuggled action",
+            (draft as SubAgentOutcome.Refused).reason.contains("SEND_SMS")
+        )
+        // Research prose mentioning the same action is NOT a draft — exempt.
+        assertTrue(result.outcomes["RESEARCH"] is SubAgentOutcome.Completed)
+        assertFalse(result.allSucceeded)
+    }
 
     @Test
     fun `a cyclic graph is rejected without running anything`() = runTest {

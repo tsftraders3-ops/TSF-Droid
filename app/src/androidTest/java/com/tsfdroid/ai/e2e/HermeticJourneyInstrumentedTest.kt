@@ -173,6 +173,28 @@ class HermeticJourneyInstrumentedTest {
         shoot("journey_new_chat_ready")
 
         // Explicitly NO send: this suite must never need an LLM endpoint.
+
+        // ---- 6: the Canvas workspace is reachable from the More sheet ----
+        // God-Tier 5.2: real navigation through the production NavHost — the
+        // same path a user takes. Compact phone layout: the canvas top bar
+        // (title + back) must appear, the artifact pane must NOT (nothing
+        // produced an artifact on this deterministic journey).
+        assertTrue("More nav item not found", clickTextContains("More", 10_000))
+        assertTrue("Canvas item in the More sheet not found", clickTextContains("Canvas", 10_000))
+        // Wait for the sheet to close (its Routines item disappears) before
+        // asserting the canvas chrome, so the sheet's own "Canvas" text can
+        // not satisfy the check.
+        device.wait(Until.gone(By.text("Routines")), 5_000)
+        assertTrue(
+            "canvas top bar never appeared",
+            device.wait(Until.hasObject(By.text("Canvas")), 10_000) == true
+        )
+        shoot("journey_canvas_reached")
+        runCatching { device.pressBack() }
+        assertTrue(
+            "back from Canvas never returned to the dashboard",
+            device.wait(Until.hasObject(By.text("Chat")), 10_000) == true
+        )
     }
 
     // ---------- typing discipline (v1.6.1, run 37731897885 class fix) -------

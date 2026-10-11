@@ -86,6 +86,7 @@ fun CanvasScreen(
     val artifact by viewModel.artifact.collectAsState()
     CanvasLayout(
         artifact = artifact,
+        onBack = onBack,
         onClearArtifact = viewModel::clearArtifact,
         chatPane = chatPane
     )
@@ -97,6 +98,7 @@ private val EXPANDED_BREAKPOINT_DP = 720.dp
 @Composable
 internal fun CanvasLayout(
     artifact: CanvasArtifact?,
+    onBack: () -> Unit,
     onClearArtifact: () -> Unit,
     chatPane: @Composable (Modifier) -> Unit
 ) {
@@ -129,35 +131,64 @@ internal fun CanvasLayout(
                 )
             }
         } else {
-            // Compact: single surface. The artifact pane only exists while
-            // explicitly opened; the chat pane hosts an affordance to open it
-            // whenever an artifact is available.
-            if (artifactPaneOpen && artifact != null) {
-                ArtifactPaneHost(
-                    modifier = Modifier.fillMaxSize(),
-                    artifact = artifact,
-                    onClose = {
-                        artifactPaneOpen = false
-                        onClearArtifact()
-                    }
-                )
-            } else {
-                ChatPaneHost(
-                    modifier = Modifier.fillMaxSize(),
-                    content = { paneModifier ->
-                        Box(paneModifier) {
-                            chatPane(Modifier.fillMaxSize())
-                            if (artifact != null) {
-                                OpenArtifactButton(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(16.dp),
-                                    onClick = { artifactPaneOpen = true }
-                                )
-                            }
+            // Compact: the canvas keeps its own slim top bar (title + back to
+            // the dashboard) above the single pane, so the user is never
+            // stranded without a visible exit — and the surface is
+            // identifiable as the Canvas, not an anonymous chat clone.
+            Column(Modifier.fillMaxSize()) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Canvas",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = AppTheme.colors.textPrimary
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back to dashboard",
+                                tint = AppTheme.colors.textPrimary
+                            )
                         }
-                    }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = AppTheme.colors.background
+                    )
                 )
+                Box(Modifier.weight(1f)) {
+                    // The artifact pane only exists while explicitly opened;
+                    // the chat pane hosts an affordance to open it whenever an
+                    // artifact is available.
+                    if (artifactPaneOpen && artifact != null) {
+                        ArtifactPaneHost(
+                            modifier = Modifier.fillMaxSize(),
+                            artifact = artifact,
+                            onClose = {
+                                artifactPaneOpen = false
+                                onClearArtifact()
+                            }
+                        )
+                    } else {
+                        ChatPaneHost(
+                            modifier = Modifier.fillMaxSize(),
+                            content = { paneModifier ->
+                                Box(paneModifier) {
+                                    chatPane(Modifier.fillMaxSize())
+                                    if (artifact != null) {
+                                        OpenArtifactButton(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(16.dp),
+                                            onClick = { artifactPaneOpen = true }
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
             }
         }
     }

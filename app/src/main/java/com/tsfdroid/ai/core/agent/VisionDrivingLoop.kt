@@ -71,6 +71,11 @@ sealed class VisionDriveResult {
 /**
  * God-Tier Phase 2, ticket 5.5 — the Continuous Vision Driving Loop.
  *
+ * A VERIFIED CAPABILITY with no production caller yet: AgentLoop still uses
+ * the one-shot [VisionEngine.tapLocatedTarget]. The driving engine, its
+ * bounds, and its consent gate are done and proven by tests; wiring the
+ * loop into the agent's vision action path is the follow-up.
+ *
  * Upgrades the one-shot [VisionEngine.tapLocatedTarget] into a BOUNDED,
  * multi-step autonomous driving loop:
  *
@@ -117,8 +122,10 @@ class VisionDrivingLoop @Inject constructor(
     internal var waitForUiSettle: suspend () -> Unit = { delay(UI_SETTLE_MS) }
 
     /**
-     * Conservative MVP goal verifier: no signal -> the loop keeps driving
-     * within its bounds (never claims success without evidence).
+     * Conservative goal verifier. Default: NO signal — the loop NEVER
+     * claims the goal is reached without a real verifier (failing closed on
+     * success claims is as important as failing closed on taps). Production
+     * wiring must inject a real verifier; the tests inject theirs.
      */
     internal var goalVerifier: suspend () -> Boolean = { false }
 
@@ -149,15 +156,25 @@ class VisionDrivingLoop @Inject constructor(
                 }
 
                 // 3. CONSENT GATE (before confidence): a policy-critical
-                //    label under the finger means the user must confirm — the
-                //    loop halts, the gesture never happens.
-                if (target.found && isPolicyCriticalTarget(target.label)) {
+                //    label under the finger means the user must confirm — and
+                //    so does an UNLABELED target: a coordinate tap that
+                //    cannot be inspected before it fires is exactly the
+                //    class AutoApprovalPolicy holds policy-critical
+                //    (CLICK_COORDINATES). The gate FAILS CLOSED — a missing
+                //    label is a missing safety verdict, never a free tap.
+                if (target.found && (target.label == null || isPolicyCriticalTarget(target.label))) {
+                    val label = target.label
                     return@withTimeoutOrNull VisionDriveResult.ConsentRequired(
                         steps = steps.toList(),
-                        targetLabel = target.label ?: "",
+                        targetLabel = label ?: "(unlabeled target)",
                         atStep = stepIndex,
-                        reason = "the next gesture targets '${target.label}' — a policy-critical control " +
-                            "that requires explicit user consent"
+                        reason = if (label == null) {
+                            "the next gesture targets an element the vision model could not label — " +
+                                "an uninspectable coordinate tap requires explicit user consent"
+                        } else {
+                            "the next gesture targets '$label' — a policy-critical control " +
+                                "that requires explicit user consent"
+                        }
                     )
                 }
 

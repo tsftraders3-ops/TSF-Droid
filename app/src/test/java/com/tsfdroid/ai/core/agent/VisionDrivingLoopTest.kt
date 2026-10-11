@@ -75,7 +75,7 @@ class VisionDrivingLoopTest {
         x: Double = 0.5,
         y: Double = 0.5,
         confidence: Float = 0.95f,
-        label: String? = null
+        label: String? = "Continue" // benign default; null is the fail-closed case
     ) = VisionDriveTarget(found = found, x = x, y = y, confidence = confidence, label = label)
 
     // ------------------------------------------------------------------
@@ -175,6 +175,22 @@ class VisionDrivingLoopTest {
             )
             assertEquals("no gesture for $criticalLabel", 0, tapCount.get())
         }
+    }
+
+    @Test
+    fun `an unlabeled target fails closed — consent required, no tap`() = runTest {
+        // The vision model returned found=true, confidence 0.95, but NO label:
+        // the consent gate cannot verify what is under the finger, so the
+        // loop must halt for consent instead of tapping blind (the same
+        // reason CLICK_COORDINATES is policy-critical in AutoApprovalPolicy).
+        locateScript = mutableListOf({ target(confidence = 0.95f, label = null) })
+
+        val result = loop.drive("Continue with the setup")
+
+        assertTrue("expected ConsentRequired but was $result", result is VisionDriveResult.ConsentRequired)
+        val consent = result as VisionDriveResult.ConsentRequired
+        assertTrue(consent.targetLabel.contains("unlabeled"))
+        assertEquals("the halt precedes the gesture", 0, tapCount.get())
     }
 
     @Test

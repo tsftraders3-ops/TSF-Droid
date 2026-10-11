@@ -2,8 +2,8 @@ package com.tsfdroid.ai.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
@@ -64,10 +64,15 @@ class CanvasUiTest {
         val viewModel = CanvasViewModel(bus)
         composeRule.setContent {
             OpenDroidTheme {
+                // requiredWidth/Height OVERRIDE the incoming constraints (a
+                // plain width() would be coerced down to the phone window's
+                // ~411dp and silently test the compact layout instead).
+                // BoxWithConstraints then genuinely measures the full
+                // constrained width, exercising the real adaptive branch.
                 Box(
                     Modifier
-                        .width(widthDp.dp)
-                        .height(800.dp)
+                        .requiredWidth(widthDp.dp)
+                        .requiredHeight(800.dp)
                 ) {
                     CanvasScreen(
                         viewModel = viewModel,
