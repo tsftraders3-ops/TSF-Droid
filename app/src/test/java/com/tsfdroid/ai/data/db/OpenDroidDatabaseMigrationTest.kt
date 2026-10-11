@@ -240,6 +240,52 @@ class OpenDroidDatabaseMigrationTest {
         }
     }
 
+    /**
+     * God-Tier Phase 2 (5.1): migration 16 -> 17 creates the
+     * memory_embeddings table (vector storage for semantic recall) and every
+     * pre-existing memory row survives untouched.
+     */
+    @Test
+    fun `migration 16 to 17 keeps memories and creates memory_embeddings`() {
+        helper.createDatabase(databasePath, 16).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO memories (`key`, `value`, `type`, `timestamp`, `ttlHours`, `category`)
+                VALUES ('gold-rule', 'Always check XAU/USD support before entries', 'SEMANTIC', 1234, -1, 'FACT')
+                """.trimIndent()
+            )
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            databasePath, 17, true, OpenDroidDatabase.MIGRATION_16_17
+        )
+
+        // Pre-existing memory survives the migration untouched.
+        migrated.query(
+            "SELECT `value`, `type` FROM memories WHERE `key` = 'gold-rule'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("Always check XAU/USD support before entries", cursor.getString(0))
+            assertEquals("SEMANTIC", cursor.getString(1))
+        }
+
+        // The new table exists, matches the exported 17.json schema, and
+        // round-trips a stored embedding blob.
+        migrated.execSQL(
+            """
+            INSERT INTO memory_embeddings (`memoryKey`, `embedding`, `dims`, `model`, `updatedAt`)
+            VALUES ('gold-rule', x'0000803F0000003F', 2, 'local-hash-256', 999)
+            """.trimIndent()
+        )
+        migrated.query(
+            "SELECT `dims`, `model` FROM memory_embeddings WHERE `memoryKey` = 'gold-rule'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(2, cursor.getInt(0))
+            assertEquals("local-hash-256", cursor.getString(1))
+        }
+    }
+
     private class V1SchemaCallback : SupportSQLiteOpenHelper.Callback(1) {
         override fun onCreate(db: SupportSQLiteDatabase) {
             V1_CREATE_STATEMENTS.forEach(db::execSQL)

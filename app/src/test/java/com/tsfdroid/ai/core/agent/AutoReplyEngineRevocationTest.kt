@@ -137,7 +137,12 @@ class AutoReplyEngineRevocationTest {
         val memoryManager = MemoryManager(
             workingMemory = workingMemory,
             episodicMemory = EpisodicMemory(conversationRepository),
-            semanticMemory = SemanticMemory(memoryRepository, memoryExtractor),
+            semanticMemory = SemanticMemory(
+                memoryRepository = memoryRepository,
+                memoryExtractor = memoryExtractor,
+                embeddingDao = db.memoryEmbeddingDao(),
+                embeddingProvider = com.tsfdroid.ai.core.memory.LocalHashEmbeddingProvider()
+            ),
             proceduralMemory = ProceduralMemory(memoryRepository),
             personalGrowthEngine = personalGrowthEngine,
             memoryExtractor = memoryExtractor,

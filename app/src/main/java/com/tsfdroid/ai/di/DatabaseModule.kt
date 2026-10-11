@@ -7,9 +7,12 @@ import com.tsfdroid.ai.data.db.dao.ChatSessionDao
 import com.tsfdroid.ai.data.db.dao.ConversationDao
 import com.tsfdroid.ai.data.db.dao.MacroDao
 import com.tsfdroid.ai.data.db.dao.MemoryDao
+import com.tsfdroid.ai.data.db.dao.MemoryEmbeddingDao
 import com.tsfdroid.ai.data.db.dao.PlanDao
 import com.tsfdroid.ai.data.db.dao.NotificationDao
 import com.tsfdroid.ai.data.db.dao.TaskHistoryDao
+import com.tsfdroid.ai.core.memory.EmbeddingProvider
+import com.tsfdroid.ai.core.memory.LocalHashEmbeddingProvider
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -51,7 +54,8 @@ object DatabaseModule {
             OpenDroidDatabase.MIGRATION_12_13,
             OpenDroidDatabase.MIGRATION_13_14,
             OpenDroidDatabase.MIGRATION_14_15,
-            OpenDroidDatabase.MIGRATION_15_16
+            OpenDroidDatabase.MIGRATION_15_16,
+            OpenDroidDatabase.MIGRATION_16_17
         )
         .build()
     }
@@ -71,6 +75,15 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideMemoryDao(db: OpenDroidDatabase): MemoryDao = db.memoryDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoryEmbeddingDao(db: OpenDroidDatabase): MemoryEmbeddingDao = db.memoryEmbeddingDao()
+
+    /** God-Tier Phase 2 (5.1): the embedding seam - offline local provider by default. */
+    @Provides
+    @Singleton
+    fun provideEmbeddingProvider(): EmbeddingProvider = LocalHashEmbeddingProvider()
 
     @Provides
     @Singleton

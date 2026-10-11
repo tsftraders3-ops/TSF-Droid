@@ -8,11 +8,13 @@ import com.tsfdroid.ai.data.db.dao.ChatSessionDao
 import com.tsfdroid.ai.data.db.dao.ConversationDao
 import com.tsfdroid.ai.data.db.dao.MacroDao
 import com.tsfdroid.ai.data.db.dao.MemoryDao
+import com.tsfdroid.ai.data.db.dao.MemoryEmbeddingDao
 import com.tsfdroid.ai.data.db.dao.PlanDao
 import com.tsfdroid.ai.data.db.dao.TaskHistoryDao
 import com.tsfdroid.ai.data.db.entities.ChatSessionEntity
 import com.tsfdroid.ai.data.db.entities.ConversationEntity
 import com.tsfdroid.ai.data.db.entities.MacroEntity
+import com.tsfdroid.ai.data.db.entities.MemoryEmbeddingEntity
 import com.tsfdroid.ai.data.db.entities.MemoryEntity
 import com.tsfdroid.ai.data.db.entities.PlanEntity
 import com.tsfdroid.ai.data.db.entities.TaskHistoryEntity
@@ -67,9 +69,10 @@ import androidx.room.TypeConverters
         SocialAnalyticsSnapshotEntity::class,
         SocialCampaignEntity::class,
         SocialAutomationRuleEntity::class,
-        SocialAuditLogEntity::class
+        SocialAuditLogEntity::class,
+        MemoryEmbeddingEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -93,6 +96,7 @@ abstract class OpenDroidDatabase : RoomDatabase() {
     abstract fun socialCampaignDao(): SocialCampaignDao
     abstract fun socialAutomationRuleDao(): SocialAutomationRuleDao
     abstract fun socialAuditLogDao(): SocialAuditLogDao
+    abstract fun memoryEmbeddingDao(): MemoryEmbeddingDao
 
     companion object {
         // Id of the single session that pre-existing conversation rows are
@@ -337,6 +341,23 @@ abstract class OpenDroidDatabase : RoomDatabase() {
                 // Both purely additive; legacy rows read NULL.
                 database.execSQL("ALTER TABLE conversations ADD COLUMN mode TEXT DEFAULT NULL")
                 database.execSQL("ALTER TABLE conversations ADD COLUMN turnWallMs INTEGER DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // God-Tier Phase 2 (5.1): the vector storage for semantic
+                // memory recall. A new table (not columns on memories) so the
+                // existing table is untouched; deliberately NO foreign key
+                // because memories are written with INSERT OR REPLACE, which
+                // would cascade-destroy the embedding on every save - the
+                // SemanticMemory API keeps both rows in sync instead.
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `memory_embeddings` 
+                        (`memoryKey` TEXT NOT NULL, `embedding` BLOB NOT NULL, 
+                        `dims` INTEGER NOT NULL, `model` TEXT NOT NULL, 
+                        `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`memoryKey`))"""
+                )
             }
         }
 
