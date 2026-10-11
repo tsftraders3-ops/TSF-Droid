@@ -2,12 +2,12 @@ name: TSF Droid Remote CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'release/**' ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
 
     steps:

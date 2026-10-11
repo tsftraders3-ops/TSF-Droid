@@ -1,52 +1,53 @@
 name: TSF Droid Emulator E2E
 
-# End-to-end verification on a real Android emulator, in TWO isolated gates
-# (audit fc9ea97 M-08/B-02 — the single 90-minute combined invocation timed
-# out with exit 124, and a quota failure was indistinguishable from a
-# regression):
-#  1. HERMETIC GATE — no live-provider dependency: the launch smoke, the
-#     accessibility targeting/scrape/readiness suites, the keystore suites,
-#     and the FakeLLMProvider-driven agent-pipeline gates (circuit breaker,
-#     vision confidence floor, background consent boundary). Deterministic;
-#     cannot be starved or poisoned by endpoint quota.
-#  2. LIVE-PROVIDER SUITE — the keyless OpenCode Zen contract from Android's
-#     TLS stack, plus the capability/UI/export/field suites that drive real
-#     chats through the active provider.
-# Both retry attempts are preserved as separate artifacts; a timeout (exit
-# 124) is reported distinctly from assertion failures. Screen captures are
-# attached as artifacts so failures can be seen, not guessed.
+# End-to-end verification on a real Android emulator, in TWO SEPARATE JOBS
+# (1.7.0-rc.1 restructure — audit of run 37770800170 proved the structural
+# flaw: one job held both gates, so a rate-limited live provider painted the
+# whole run red and the GREEN hermetic gate read as "BLOCKED" to the world):
+#
+#  1. hermetic-e2e  — REQUIRED RELEASE GATE. No live-provider dependency:
+#     the launch smoke, the deterministic onboarding/dashboard/new-chat
+#     journey, the accessibility targeting/scrape/readiness suites, the
+#     keystore suites, and the FakeLLMProvider-driven agent-pipeline gates
+#     (circuit breaker, vision confidence floor, background consent
+#     boundary). Deterministic; cannot be starved by endpoint quota. Fast
+#     (~20 min); this job alone decides whether the workflow is green.
+#
+#  2. live-e2e      — INFORMATIONAL. The keyless OpenCode Zen contract from
+#     Android's TLS stack, plus the capability/UI/export/field suites that
+#     drive real chats through the active provider. continue-on-error: it
+#     NEVER blocks the release, but its verdict is classified with evidence
+#     (PASS / RATE_LIMITED / FAIL / FAIL_TIMEOUT) in the job summary and
+#     live-summary.txt — a rate-limited run reports RATE_LIMITED, never PASS,
+#     and a genuine regression-shaped failure reports FAIL, never a hidden
+#     green. Both attempts are preserved as separate artifacts.
+#
+#  3. e2e-verdict   — writes the combined summary block and re-fails the
+#     workflow if the hermetic gate is anything but PASS.
+#
+# Runs in parallel: the release signal no longer waits hours for a flaky
+# free tier. Pinned to ubuntu-24.04 — ubuntu-latest migrates to Ubuntu 26 on
+# 2026-10-19 and a mid-release runner swap is exactly the kind of silent
+# environment change this gate exists to exclude.
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'release/**' ]
     paths:
       - 'app/src/main/**'
       - 'app/src/androidTest/**'
       - 'app/build.gradle'
+      - 'scripts/ci/**'
       - '.github/workflows/e2e-emulator.yml'
 
 jobs:
-  e2e:
-    runs-on: ubuntu-latest
-    # v1.6.1 + M-08: the suite is 56 tests across 13 executable classes —
-    # 20 hermetic tests in 7 classes (gate 1) and 36 live-provider tests in
-    # 6 classes (gate 2: the 25-test capability E2E dominates the budget).
-    # Hermetic runs under a 25-minute cap with one retry; live under 70 with
-    # one retry. A hermetic TIMEOUT aborts before the live gate (a wedged
-    # emulator would hang there too); a hermetic assertion failure still
-    # runs live for full diagnostics. Free-tier latency flakes move between
-    # runs, so a failing first pass triggers one clean retry — BOTH attempt
-    # outputs are kept.
-    # v1.6.1 (run 37731897885): 240 was not enough on a degraded-provider
-    # day — that run's gates themselves PASSED (hermetic 20/20, live retry
-    # 34/34, verdict final=0) but the 240-min ceiling cancelled the JOB
-    # during the artifact epilogue, losing the badge AND the artifacts. The
-    # instrumented worst case is bounded at ~165 min (1500s hermetic +
-    # 4200s live + 4200s retry + build + QA); 330 gives that case its
-    # headroom so a slow free tier can never cost the verdict.
-    timeout-minutes: 330
-
+  hermetic-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      gate: ${{ steps.result.outputs.gate }}
+      tests: ${{ steps.result.outputs.tests }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -76,7 +77,7 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      # ubuntu-latest exposes nested KVM but the runner user lacks permission;
+      # ubuntu runners expose nested KVM but the runner user lacks permission;
       # without this the emulator falls back to software emulation and boots
       # in 12+ minutes (or never).
       - name: Enable KVM group perms
@@ -88,7 +89,8 @@ jobs:
       - name: Build app and instrumentation APKs
         run: ./gradlew assembleDebug assembleDebugAndroidTest --no-daemon --stacktrace
 
-      - name: Run E2E gates on emulator (hermetic first, then live provider)
+      - name: Run HERMETIC E2E gate (required, deterministic)
+        id: gate
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -99,17 +101,34 @@ jobs:
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: |
-            # NOTE: single line — the runner mangles backslash continuations.
-            # Tests run via `am instrument` (NOT connectedAndroidTest) so the
-            # app stays installed while the screenshots are pulled — AGP's
-            # connected task uninstalls both APKs before any later step runs.
-            ./gradlew installDebug installDebugAndroidTest --no-daemon --stacktrace || exit 1; mkdir -p e2e-screens; run_hermetic() { timeout 1500 adb shell am instrument -w -e class com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.HermeticAgentPipelineInstrumentedTest,com.tsfdroid.ai.accessibility.ClickTargetingAccuracyInstrumentationTest,com.tsfdroid.ai.accessibility.KnownScreenScrapeInstrumentationTest,com.tsfdroid.ai.accessibility.ServiceReadinessInstrumentationTest,com.tsfdroid.ai.core.security.AndroidKeyStoreAeadCipherInstrumentationTest,com.tsfdroid.ai.core.security.AndroidProviderCredentialStoreInstrumentationTest com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner; }; run_live() { timeout 4200 adb shell am instrument -w -e class com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest,com.tsfdroid.ai.e2e.AgentCapabilityE2EInstrumentedTest,com.tsfdroid.ai.e2e.AttachmentPipelineInstrumentedTest,com.tsfdroid.ai.e2e.ChatExportInstrumentedTest,com.tsfdroid.ai.e2e.FieldFixesInstrumentedTest com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner; }; reinstall() { adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb install -r app/build/outputs/apk/debug/app-debug.apk >/dev/null 2>&1; adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk >/dev/null 2>&1; }; echo "=== GATE 1: HERMETIC (no live provider; deterministic) ==="; h=$(run_hermetic); hcode=$?; echo "$h" | tail -12; echo "$h" > e2e-screens/hermetic-attempt-1.txt; if [ $hcode -eq 124 ]; then echo "HERMETIC GATE TIMED OUT (exit 124) - this is a HANG, not a quota failure; skipping the live gate (a wedged emulator would hang there too)"; fi; if [ $hcode -ne 124 ] && echo "$h" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then echo "=== hermetic retry pass (both attempts preserved) ==="; reinstall; h=$(run_hermetic); hcode=$?; echo "$h" | tail -12; echo "$h" > e2e-screens/hermetic-attempt-2.txt; fi; l=""; lcode=0; if [ $hcode -ne 124 ]; then echo "=== GATE 2: LIVE-PROVIDER SUITE (OpenCode Zen over the emulator NAT) ==="; l=$(run_live); lcode=$?; echo "$l" | tail -12; echo "$l" > e2e-screens/live-attempt-1.txt; if [ $lcode -eq 124 ]; then echo "LIVE SUITE TIMED OUT (exit 124) - quota/latency diagnosis needed, artifacts retained"; fi; if [ $lcode -ne 124 ] && echo "$l" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then echo "=== live retry pass (free-tier latency flakes move between runs; both attempts preserved) ==="; reinstall; l=$(run_live); lcode=$?; echo "$l" | tail -12; echo "$l" > e2e-screens/live-attempt-2.txt; fi; fi; code=0; echo "$h" | grep -qE "FAILURES|INSTRUMENTATION_FAILED" && code=1; [ $hcode -eq 124 ] && code=1; if [ $hcode -ne 124 ]; then echo "$l" | grep -qE "FAILURES|INSTRUMENTATION_FAILED" && code=1; [ $lcode -eq 124 ] && code=1; fi; echo "=== E2E VERDICT: hermetic_exit=$hcode live_exit=$lcode final=$code ===" > e2e-screens/verdict.txt; cat e2e-screens/verdict.txt; timeout 60 adb logcat -d > e2e-screens/instrument-logcat.txt 2>/dev/null || true; timeout 60 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/e2e-screens/. e2e-screens/ 2>/dev/null; timeout 90 adb exec-out run-as com.tsfdroid.ai tar cf - files/e2e-screens 2>/dev/null | tar xf - -C e2e-screens --strip-components=2 || true; mkdir -p e2e-screens/workspace; timeout 90 adb pull /sdcard/Android/data/com.tsfdroid.ai/files/workspace/. e2e-screens/workspace/ 2>/dev/null || true; echo "=== agent workspace artifacts (v1.1.1 quality bar: real PDFs/HTML the agent wrote) ==="; find e2e-screens/workspace -type f -exec ls -la {} \; 2>/dev/null | head -20 || true; ls -la e2e-screens | head -40; adb uninstall com.tsfdroid.ai >/dev/null 2>&1; adb uninstall com.tsfdroid.ai.test >/dev/null 2>&1; exit $code
+          script: bash scripts/ci/e2e_hermetic_gate.sh
+
+      - name: Collect hermetic gate result
+        id: result
+        if: always()
+        run: |
+          if [ -f e2e-screens/hermetic-summary.txt ]; then
+            cat e2e-screens/hermetic-summary.txt
+            gate=$(sed -nE 's/^HERMETIC_GATE: //p' e2e-screens/hermetic-summary.txt | tail -1)
+            tests=$(sed -nE 's/^HERMETIC_TESTS: //p' e2e-screens/hermetic-summary.txt | tail -1)
+          else
+            gate=ERROR
+            tests="pass=0 total=0 fails=0 errors=0"
+          fi
+          echo "gate=${gate:-ERROR}" >> "$GITHUB_OUTPUT"
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Hermetic E2E (required release gate)"
+            echo ""
+            echo '```'
+            echo "HERMETIC_GATE: ${gate:-ERROR}"
+            echo "HERMETIC_TESTS: $tests"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Capture screen on failure
         if: failure()
         run: |
-          # Guard every adb call: after a failed script the emulator may be
-          # gone, and adb blocks indefinitely instead of erroring.
           if adb devices | grep -q "emulator.*device$"; then
             timeout 30 adb exec-out screencap -p > e2e-failure.png || true
             timeout 30 adb logcat -d > e2e-logcat.txt || true
@@ -118,22 +137,18 @@ jobs:
             mkdir -p e2e-results
             cp -r app/build/outputs/androidTest-results/* e2e-results/ || true
           fi
+
       - name: Generate QA diagnostic report
         if: always()
         run: |
-          # v1.3.1 (the 2026-10-02 Gemini consult, adopted core): the run's
-          # own verdict and agent-loop evidence distilled into QA_REPORT.md —
-          # test outcome, failure stacks, plan repairs / watchdog / search
-          # chain lines — on the run page summary and in the artifacts, so
-          # forensics never starts from a 17MB logcat again.
           python3 scripts/generate_qa_report.py || true
           [ -f QA_REPORT.md ] && cat QA_REPORT.md || true
 
-      - name: Upload E2E artifacts (screens, logcat, results, QA report)
+      - name: Upload hermetic E2E artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tsf-droid-e2e-artifacts
+          name: tsf-droid-hermetic-e2e
           path: |
             e2e-failure.png
             e2e-logcat.txt
@@ -142,3 +157,171 @@ jobs:
             QA_REPORT.md
           if-no-files-found: ignore
           retention-days: 14
+
+  live-e2e:
+    runs-on: ubuntu-24.04
+    # INFORMATIONAL gate: a rate-limited or flaky free tier must never block a
+    # release (the hermetic gate is the release truth), but every failure is
+    # classified honestly in the summary — RATE_LIMITED only with measured
+    # degradation evidence, FAIL when the shape looks like a real regression.
+    continue-on-error: true
+    timeout-minutes: 240
+    outputs:
+      gate: ${{ steps.result.outputs.gate }}
+      tests: ${{ steps.result.outputs.tests }}
+      failed_tests: ${{ steps.result.outputs.failed_tests }}
+      rate_limit_evidence: ${{ steps.result.outputs.rate_limit_evidence }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build app and instrumentation APKs
+        run: ./gradlew assembleDebug assembleDebugAndroidTest --no-daemon --stacktrace
+
+      - name: Run LIVE-provider E2E suite (informational; honest classification)
+        id: gate
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          ram-size: '3072M'
+          disk-size: '8G'
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash scripts/ci/e2e_live_gate.sh
+
+      - name: Collect live gate result
+        id: result
+        if: always()
+        run: |
+          if [ -f e2e-screens/live-summary.txt ]; then
+            cat e2e-screens/live-summary.txt
+            gate=$(sed -nE 's/^LIVE_GATE: //p' e2e-screens/live-summary.txt | tail -1)
+            tests=$(sed -nE 's/^LIVE_TESTS: //p' e2e-screens/live-summary.txt | tail -1)
+            failed=$(sed -nE 's/^FAILED_TESTS: //p' e2e-screens/live-summary.txt | tail -1)
+            evidence=$(sed -nE 's/^RATE_LIMIT_EVIDENCE: //p' e2e-screens/live-summary.txt | tail -1)
+          else
+            gate=ERROR
+            tests="pass=0 total=0 fails=0 errors=0"
+            failed="unknown (no live-summary.txt produced)"
+            evidence="none"
+          fi
+          echo "gate=${gate:-ERROR}" >> "$GITHUB_OUTPUT"
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+          echo "failed_tests=${failed:-none}" >> "$GITHUB_OUTPUT"
+          echo "rate_limit_evidence=${evidence:-none}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Live-provider E2E (informational)"
+            echo ""
+            echo '```'
+            echo "LIVE_GATE: ${gate:-ERROR}"
+            echo "LIVE_TESTS: $tests"
+            echo "FAILED_TESTS: ${failed:-none}"
+            echo "RATE_LIMIT_EVIDENCE: ${evidence:-none}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Capture screen on failure
+        if: failure()
+        run: |
+          if adb devices | grep -q "emulator.*device$"; then
+            timeout 30 adb exec-out screencap -p > e2e-failure.png || true
+            timeout 30 adb logcat -d > e2e-logcat.txt || true
+          fi
+          if [ -d app/build/outputs/androidTest-results ]; then
+            mkdir -p e2e-results
+            cp -r app/build/outputs/androidTest-results/* e2e-results/ || true
+          fi
+
+      - name: Generate QA diagnostic report
+        if: always()
+        run: |
+          python3 scripts/generate_qa_report.py || true
+          [ -f QA_REPORT.md ] && cat QA_REPORT.md || true
+
+      - name: Upload live E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsf-droid-live-e2e
+          path: |
+            e2e-failure.png
+            e2e-logcat.txt
+            e2e-results/
+            e2e-screens/
+            QA_REPORT.md
+          if-no-files-found: ignore
+          retention-days: 14
+
+  e2e-verdict:
+    needs: [hermetic-e2e, live-e2e]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Write combined E2E verdict
+        run: |
+          HERMETIC="${{ needs.hermetic-e2e.outputs.gate || 'ERROR' }}"
+          HTESTS="${{ needs.hermetic-e2e.outputs.tests || 'pass=0 total=0 fails=0 errors=0' }}"
+          LIVE="${{ needs.live-e2e.outputs.gate || 'SKIPPED' }}"
+          LTESTS="${{ needs.live-e2e.outputs.tests || 'pass=0 total=0 fails=0 errors=0' }}"
+          FAILED="${{ needs.live-e2e.outputs.failed_tests || 'none' }}"
+          EVIDENCE="${{ needs.live-e2e.outputs.rate_limit_evidence || 'none' }}"
+          {
+            echo "## E2E verdict"
+            echo ""
+            echo '```'
+            echo "HERMETIC_GATE: $HERMETIC"
+            echo "HERMETIC_TESTS: $HTESTS"
+            echo "LIVE_GATE: $LIVE"
+            echo "LIVE_TESTS: $LTESTS"
+            echo "FAILED_TESTS: $FAILED"
+            echo "RATE_LIMIT_EVIDENCE: $EVIDENCE"
+            echo '```'
+            echo ""
+            echo "HERMETIC_GATE: $HERMETIC — the release-blocking deterministic gate."
+            echo "LIVE_GATE: $LIVE — informational; RATE_LIMITED requires measured provider degradation, FAIL means investigate."
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat <<EOF
+          HERMETIC_GATE: $HERMETIC
+          LIVE_GATE: $LIVE
+          FAILED_TESTS: $FAILED
+          RATE_LIMIT_EVIDENCE: $EVIDENCE
+          EOF
+          if [ "$HERMETIC" != "PASS" ]; then
+            echo "::error::HERMETIC GATE $HERMETIC — the required release gate did not pass."
+            exit 1
+          fi
