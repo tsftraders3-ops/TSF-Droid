@@ -34,7 +34,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
 
     steps:
@@ -164,4 +164,9 @@ jobs:
         run: |
           ARGS=( "$TAG" --title "TSF Droid $TAG" --notes-file /tmp/release_notes.md --verify-tag )
           if [ "${{ inputs.prerelease || 'false' }}" = "true" ]; then ARGS+=( --prerelease ); fi
+          # 1.7.0-rc.1: an -rc/-beta/-alpha tag is a pre-release BY DEFINITION —
+          # never mark a candidate as the latest stable release.
+          case "$TAG" in
+            *-rc.*|*-RC.*|*-beta*|*-alpha*) ARGS+=( --prerelease ) ;;
+          esac
           gh release create "${ARGS[@]}" dist/*
