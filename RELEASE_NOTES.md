@@ -1,77 +1,81 @@
-## TSF Droid v1.7.0-rc.1 — Stabilization, Safety, E2E Hardening
+# TSF Droid v1.8.0-rc.1 — God-Tier Phase 2 Architecture
 
+A release CANDIDATE completing the God-Tier Phase 2 architecture: the four
+remaining God-Tier tickets (Canvas workspace, multi-agent DAG swarm, proactive
+background worker, continuous vision driving loop) built TDD-first on top of
+the 1.7.0-rc.1 stabilization arc, then attacked by an independent Ruthless
+Critic review whose findings (a CI-breaking test-sizing bug, a fail-open
+consent gate, a declaration-only safety gate, a real data race) were fixed
+before this release. See `FEATURE_STATUS.md` for the honest inventory — two
+engines are verified-but-not-yet-wired (detailed there, not hidden).
 
-A release CANDIDATE: the audit-remediation arc (consent boundary, auto-reply
-revocation, privacy redaction, vision grounding, sub-agent delegation,
-goal restoration) plus the E2E pipeline restructure that separates the
-deterministic release truth from the flaky free tier. This is NOT the
-God-Tier release — see `FEATURE_STATUS.md` for the honest inventory of what
-is missing (Canvas workspace, vector memory, true swarm, proactive worker).
+### God-Tier Phase 2 (all TDD: RED proven, GREEN, full regression)
 
-### The audit-remediation arc (all verified: unit + E2E evidence)
+- **Canvas workspace (5.2)**: adaptive split workspace — wide layouts show
+  chat + live artifact panes (45/55), compact layouts keep the artifact pane
+  out of the tree until opened. Plans stream live from the plan manager onto
+  the canvas; the artifact viewer renders plan steps (with statuses), titled
+  prose, and file previews. Reachable from the dashboard More sheet; compact
+  mode carries its own title + back bar. Navigation is on the hermetic E2E
+  journey (real device).
+- **Multi-agent DAG swarm (5.3)**: `SubAgentGraph` — topologically validated
+  concurrent task graphs. Independent tasks run as concurrent coroutines
+  (siblings start at the same instant — the test would fail on a sequential
+  implementation), dependents await parent outputs, per-task timeouts kill
+  wedged specialists while the graph degrades gracefully (dependents
+  skipped, independent branches unaffected). TWO safety gates: declared
+  policy-critical toolScopes are refused before the specialist runs, and
+  EXECUTOR drafts smuggling a policy-critical action name are refused after
+  the run. Engine verified (12 tests); AgentLoop wiring is the next arc —
+  honestly marked, nothing pretends otherwise.
+- **Proactive background worker (5.4)**: opt-in (ships OFF), constrained
+  (battery-not-low + device-idle, both load-bearing and tested), side-effect
+  free (no dispatch path; suggestions carrying policy-critical actions are
+  discarded before persistence). Room v18 storage with validated migration.
+  Settings toggle is the only scheduling surface. No reading surface yet —
+  stated, not hidden.
+- **Continuous vision driving loop (5.5)**: bounded autonomous drive —
+  MAX_STEPS=5, 30s total timeout, 0.85 per-step confidence floor. The
+  consent gate FAILS CLOSED: policy-critical target labels (Delete / Pay /
+  Send / …) halt with `ConsentRequired` before the gesture, and so do
+  UNLABELED targets (an uninspectable coordinate tap is exactly the class
+  AutoApprovalPolicy holds policy-critical). Privacy: frames exist only as
+  in-memory bitmaps, recycled immediately after each vision call; zero disk
+  I/O. Engine verified (12 tests); agent wiring is the follow-up.
+- **Vector memory (5.1, from the previous arc)**: Room v17 embeddings,
+  cosine-ranked semantic recall over the `EmbeddingProvider` seam — carried
+  forward as part of the God-Tier architecture.
 
-- **Security (C-01)**: the consent boundary is enforced on every
-  non-interactive dispatch path. Policy-critical actions (SEND_SMS, calls,
-  contacts writes, …) inside macros, MCP tool calls, and background plan
-  execution are refused and require interactive confirmation.
-- **Privacy + reliability (M-05/M-06)**: a notification from the user
-  cancels the pending auto-reply; the three-layer switches (global / per-app
-  / per-contact) are re-checked at dispatch time. All user payloads in logs
-  are redacted (`CrashLogRedactor`).
-- **Vision (M-02)**: screenshot grounding returns structured
-  `{target_found, x, y, confidence}`; only confidence > 0.85 dispatches a
-  gesture tap. Low confidence never taps.
-- **Orchestration (M-01)**: the CEO delegates to circuit-breaked, token-
-  budgeted sub-agents; a timed-out or over-budget specialist is a missing
-  brief, never a crash.
-- **b3 goal restoration**: the plan's goal is the user's own words,
-  verbatim — the live planner's paraphrase (which had silently downgraded
-  "create a markdown file called X" into a price lookup) can no longer
-  weaken the artifact signal. 5 unit tests replay the regression.
-- **b6/onboarding stability**: the multi-paragraph answer is read in full;
-  onboarding completes through the multi-attempt IME discipline that
-  survived the worst free-tier days.
+### Ruthless Critic remediation (before release)
 
-### E2E pipeline restructure (the run-37770800170 lesson)
-
-Run 37770800170 exposed a structural flaw: one CI job held BOTH gates, so
-when the free tier throttled (measured: streaming turns stretching from
-~3s median to 60–90s, starvation failures rotating between attempts) the
-whole run went red and the GREEN hermetic gate read as "blocked" to the
-world. The pipeline is now:
-
-- **hermetic-e2e (required release gate)** — its own CI job, parallel to
-  the live job: app launch, the deterministic onboarding → dashboard →
-  tabs → new-chat journey (`HermeticJourneyInstrumentedTest`, new),
-  FakeLLMProvider agent-pipeline gates (circuit breaker, vision gate,
-  consent boundary), accessibility targeting, keystore crypto. ~20 minutes,
-  zero provider dependency, this job alone decides green.
-- **live-e2e (informational)** — `continue-on-error`, honest verdict
-  classification: `RATE_LIMITED` is claimed only with MEASURED degradation
-  (pump latency distribution, starvation signatures — never a guessed
-  "429 count", which this arc proved counts logcat timestamp milliseconds),
-  and `FAIL` without degradation evidence means investigate-as-regression.
-  Both attempts always preserved as artifacts.
-- **e2e-verdict** — writes the combined summary block and re-fails the
-  workflow if the hermetic gate is anything but PASS.
-- Runners pinned to `ubuntu-24.04` (the 2026-10-19 `ubuntu-latest` → 26
-  migration is excluded from this release's verification surface).
+- CanvasUiTest sized its composition with a preferred width the phone
+  window coerces down — it would have run the wide-layout tests against the
+  COMPACT layout on CI (5/8 false failures). Fixed with constraint-
+  overriding sizing + a local Robolectric proof of the technique.
+- The vision consent gate failed OPEN on unlabeled targets — now fails
+  CLOSED with a dedicated test.
+- The swarm's safety gate was declaration-only (empty toolScope passed) —
+  now an output scrub gate refuses EXECUTOR drafts naming policy-critical
+  actions.
+- A real `LinkedHashMap` read/write race in the graph executor — replaced
+  with a `ConcurrentHashMap`.
+- The compact canvas stranded the user without a visible exit — now has a
+  title + back bar; hermetic journey drives the real More → Canvas → back
+  navigation.
 
 ### Test evidence
 
-- Unit: 1,074 tests, 0 failures (Remote CI, green on every commit of the
-  arc).
-- Hermetic E2E: 20/20 on every run of the arc (deterministic).
-- Live E2E: 34/34 achieved on healthy-provider runs (run 37731897885
-  retry); residual red on throttled days is classified `RATE_LIMITED` with
-  measured evidence, never hidden, never blocking.
+- 1,143 unit tests green locally on the release branch (1,074 at
+  1.7.0-rc.1; +69 across the God-Tier Phase 2 arc).
+- Hermetic E2E gate: 29 deterministic tests on the emulator (added
+  CanvasUiTest 8 + the Canvas journey stage), still the required release
+  truth. Live E2E remains informational with honest classification.
+- Safety surfaces re-verified: consent boundary, macro path refusal,
+  auto-reply revocation, redaction — no safety test was weakened or deleted.
 
-### Known limitations
+### Known limitations (see FEATURE_STATUS.md)
 
-- Live E2E depends on the OpenCode Zen free tier and throttles under load;
-  the deterministic hermetic gate is the release truth.
-- Full-UI hermetic chat (fake provider behind the real UI) needs a test DI
-  harness — not in this RC.
-- Node-20 deprecation warnings from pinned actions versions (cosmetic;
-  upgrade after the RC).
-
+- Swarm + vision loop engines have no production caller yet (wiring is the
+  next arc); proactive suggestions have no reading surface yet; text/file
+  canvas artifacts have no producer yet. All stated in FEATURE_STATUS.md —
+  nothing is claimed beyond the code.

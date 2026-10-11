@@ -27,7 +27,8 @@ set -u
 CLASSES="com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.HermeticAgentPipelineInstrumentedTest,com.tsfdroid.ai.e2e.HermeticJourneyInstrumentedTest,com.tsfdroid.ai.ui.CanvasUiTest,com.tsfdroid.ai.accessibility.ClickTargetingAccuracyInstrumentationTest,com.tsfdroid.ai.accessibility.KnownScreenScrapeInstrumentationTest,com.tsfdroid.ai.accessibility.ServiceReadinessInstrumentationTest,com.tsfdroid.ai.core.security.AndroidKeyStoreAeadCipherInstrumentationTest,com.tsfdroid.ai.core.security.AndroidProviderCredentialStoreInstrumentationTest"
 RUNNER="com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner"
 
-# Floor for the PASS verdict: 21 tests as of 1.7.0-rc.1 (20 + the journey).
+# Floor for the PASS verdict: 29 tests as of 1.8.0-rc.1 (21 + 8 CanvasUiTest; the
+# journey gained the Canvas stage inside its existing method).
 # A count below this means class discovery broke — fail loudly, update the
 # floor when tests are added.
 HERMETIC_MIN_TESTS=15
