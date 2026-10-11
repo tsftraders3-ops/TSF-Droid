@@ -72,7 +72,7 @@ class CanvasUiTest {
                 Box(
                     Modifier
                         .requiredWidth(widthDp.dp)
-                        .requiredHeight(800.dp)
+                        .requiredHeight(600.dp)
                 ) {
                     CanvasScreen(
                         viewModel = viewModel,
