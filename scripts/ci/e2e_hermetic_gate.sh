@@ -7,10 +7,17 @@
 # onboarding journey, dashboard navigation, new chat, agent pipeline seams,
 # accessibility targeting, keystore crypto) works on a real device.
 #
+# Run 38107493396 lesson (the fake PASS): (a) the APKs must be INSTALLED on
+# the emulator before `am instrument` — a fresh emulator has nothing on it;
+# (b) instrumentation errors go to stderr, so stdout capture alone sees an
+# EMPTY output and must be judged FAIL, never PASS; (c) PASS requires a
+# parsed test count of at least HERMETIC_MIN_TESTS — "no tests ran" is not
+# a verdict, it is an outage.
+#
 # Outputs:
-#   e2e-screens/hermetic-attempt-1.txt   first pass, full `am instrument` stdout
+#   e2e-screens/hermetic-attempt-1.txt   first pass, full `am instrument` output
 #   e2e-screens/hermetic-attempt-2.txt   retry pass (only if attempt 1 failed)
-#   e2e-screens/instrument-output.txt    final attempt's full stdout (QA report input)
+#   e2e-screens/instrument-output.txt    final attempt's full output (QA report input)
 #   e2e-screens/instrument-logcat.txt   full device logcat
 #   e2e-screens/hermetic-summary.txt    machine-readable verdict (workflow reads this)
 #
@@ -19,6 +26,11 @@ set -u
 
 CLASSES="com.tsfdroid.ai.e2e.AppLaunchInstrumentedTest,com.tsfdroid.ai.e2e.HermeticAgentPipelineInstrumentedTest,com.tsfdroid.ai.e2e.HermeticJourneyInstrumentedTest,com.tsfdroid.ai.accessibility.ClickTargetingAccuracyInstrumentationTest,com.tsfdroid.ai.accessibility.KnownScreenScrapeInstrumentationTest,com.tsfdroid.ai.accessibility.ServiceReadinessInstrumentationTest,com.tsfdroid.ai.core.security.AndroidKeyStoreAeadCipherInstrumentationTest,com.tsfdroid.ai.core.security.AndroidProviderCredentialStoreInstrumentationTest"
 RUNNER="com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner"
+
+# Floor for the PASS verdict: 21 tests as of 1.7.0-rc.1 (20 + the journey).
+# A count below this means class discovery broke — fail loudly, update the
+# floor when tests are added.
+HERMETIC_MIN_TESTS=15
 
 mkdir -p e2e-screens
 
@@ -29,7 +41,8 @@ reinstall() {
 }
 
 run_gate() {
-  timeout 1500 adb shell am instrument -w -e class "$CLASSES" "$RUNNER"
+  # stdout AND stderr: instrumentation failures arrive on stderr
+  timeout 1500 adb shell am instrument -w -e class "$CLASSES" "$RUNNER" 2>&1
 }
 
 collect_artifacts() {
@@ -58,6 +71,10 @@ count_tests() {
   echo "pass=$((run_n - fail_n - err_n)) total=$run_n fails=$fail_n errors=$err_n"
 }
 
+extract_total() {
+  printf '%s\n' "$1" | sed -nE 's/.*total=([0-9]+).*/\1/p' | tail -1
+}
+
 write_summary() {
   # $1 = status, $2 = counts, $3 = attempts, $4 = note (optional)
   {
@@ -67,6 +84,14 @@ write_summary() {
     [ -n "${4:-}" ] && echo "HERMETIC_NOTE: $4"
   } > e2e-screens/hermetic-summary.txt
   cat e2e-screens/hermetic-summary.txt
+}
+
+# ---- install: a fresh emulator has no app on it ---------------------------
+./gradlew installDebug installDebugAndroidTest --no-daemon --stacktrace || {
+  collect_artifacts
+  write_summary "FAIL" "pass=0 total=0 fails=0 errors=0" 0 \
+    "gradle install failed - the APKs never reached the emulator"
+  exit 1
 }
 
 echo "=== GATE 1: HERMETIC (no live provider; deterministic; REQUIRED) ==="
@@ -85,7 +110,7 @@ if [ "$hcode" -eq 124 ]; then
 fi
 
 final="$h"; attempts=1
-if printf '%s\n' "$h" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then
+if [ -z "$h" ] || printf '%s\n' "$h" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then
   echo "=== hermetic retry pass (both attempts preserved) ==="
   reinstall
   final=$(run_gate); fcode=$?
@@ -98,11 +123,23 @@ printf '%s\n' "$final" > e2e-screens/instrument-output.txt
 counts=$(count_tests "$final")
 collect_artifacts
 
-status=PASS
+total=$(extract_total "$counts")
+fails_n=$(printf '%s\n' "$counts" | sed -nE 's/.*fails=([0-9]+).*/\1/p' | tail -1)
+errors_n=$(printf '%s\n' "$counts" | sed -nE 's/.*errors=([0-9]+).*/\1/p' | tail -1)
+status=FAIL
+note=""
 if printf '%s\n' "$final" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then
-  status=FAIL
+  note="instrumentation reported failures (see attempts + logcat)"
+elif [ -z "$final" ]; then
+  note="NO INSTRUMENT OUTPUT - the tests did not run at all (outage, not a pass)"
+elif [ "${fails_n:-0}" -gt 0 ] 2>/dev/null || [ "${errors_n:-0}" -gt 0 ] 2>/dev/null; then
+  note="parsed $fails_n failure(s), $errors_n error(s) - the FAILURES!!! sentinel was not seen but the counts are red"
+elif [ "$total" -lt "$HERMETIC_MIN_TESTS" ] 2>/dev/null; then
+  note="only $total tests ran (floor is $HERMETIC_MIN_TESTS) - class discovery broke; not a pass"
+else
+  status=PASS
 fi
-write_summary "$status" "$counts" "$attempts" ""
+write_summary "$status" "$counts" "$attempts" "$note"
 
 adb uninstall com.tsfdroid.ai >/dev/null 2>&1 || true
 adb uninstall com.tsfdroid.ai.test >/dev/null 2>&1 || true

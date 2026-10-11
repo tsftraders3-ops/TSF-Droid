@@ -6,13 +6,18 @@
 # release-blocking truth), but its verdict is classified and reported with
 # evidence, never faked:
 #
-#   PASS          final attempt clean
+#   PASS          final attempt clean AND at least LIVE_MIN_TESTS ran
 #   RATE_LIMITED  failures exist AND measured provider degradation
 #                 (pump p90 > 15s, or >=3 pumps > 30s, or explicit 429 /
 #                  FreeTierBlocked / RATE_LIMITED lines in logcat)
 #   FAIL          failures WITHOUT provider-degradation evidence - treat as a
-#                 potential real regression and investigate
+#                 potential real regression and investigate; also used when
+#                 the tests did not actually run (outage, never a pass)
 #   FAIL_TIMEOUT  the suite itself timed out (exit 124)
+#
+# Run 38107493396 lesson (the fake PASS): the APKs must be INSTALLED on the
+# fresh emulator, instrumentation errors arrive on stderr, and "no output /
+# zero tests" must classify as FAIL — an empty run is an outage, not a pass.
 #
 # IMPORTANT (measured on run 37770800170): a naive `grep -c 429` over logcat
 # counts TIMESTAMP MILLISECONDS (".429"), not HTTP errors. The honest evidence
@@ -33,6 +38,10 @@ set -u
 CLASSES="com.tsfdroid.ai.e2e.ZenFreeTierInstrumentedTest,com.tsfdroid.ai.e2e.AppUiInteractionInstrumentedTest,com.tsfdroid.ai.e2e.AgentCapabilityE2EInstrumentedTest,com.tsfdroid.ai.e2e.AttachmentPipelineInstrumentedTest,com.tsfdroid.ai.e2e.ChatExportInstrumentedTest,com.tsfdroid.ai.e2e.FieldFixesInstrumentedTest"
 RUNNER="com.tsfdroid.ai.test/androidx.test.runner.AndroidJUnitRunner"
 
+# Floor for the PASS verdict: 34 tests as of 1.7.0-rc.1. Below this the run
+# did not really exercise the suites - classify FAIL, never PASS.
+LIVE_MIN_TESTS=25
+
 mkdir -p e2e-screens
 
 reinstall() {
@@ -42,7 +51,8 @@ reinstall() {
 }
 
 run_suite() {
-  timeout 4200 adb shell am instrument -w -e class "$CLASSES" "$RUNNER"
+  # stdout AND stderr: instrumentation failures arrive on stderr
+  timeout 4200 adb shell am instrument -w -e class "$CLASSES" "$RUNNER" 2>&1
 }
 
 collect_artifacts() {
@@ -66,6 +76,10 @@ count_tests() {
   err_n=$(printf '%s\n' "$1" | sed -nE 's/^Tests run: [0-9]+,[[:space:]]*Failures: [0-9]+,[[:space:]]*Errors: ([0-9]+).*/\1/p' | tail -1)
   run_n=${run_n:-0}; fail_n=${fail_n:-0}; err_n=${err_n:-0}
   echo "pass=$((run_n - fail_n - err_n)) total=$run_n fails=$fail_n errors=$err_n"
+}
+
+extract_total() {
+  printf '%s\n' "$1" | sed -nE 's/.*total=([0-9]+).*/\1/p' | tail -1
 }
 
 failed_tests_list() {
@@ -112,6 +126,20 @@ starvation_failures() {
   printf '%s\n' "$1" | grep -cE 'within [0-9]+s|never (surfaced|appeared|produced)' || true
 }
 
+# ---- install: a fresh emulator has no app on it ---------------------------
+./gradlew installDebug installDebugAndroidTest --no-daemon --stacktrace || {
+  collect_artifacts
+  {
+    echo "LIVE_GATE: FAIL"
+    echo "LIVE_TESTS: pass=0 total=0 fails=0 errors=0"
+    echo "LIVE_ATTEMPTS: 0"
+    echo "FAILED_TESTS: none"
+    echo "RATE_LIMIT_EVIDENCE: gradle install failed - the APKs never reached the emulator"
+  } > e2e-screens/live-summary.txt
+  cat e2e-screens/live-summary.txt
+  exit 1
+}
+
 echo "=== GATE 2: LIVE-PROVIDER SUITE (OpenCode Zen free tier; INFORMATIONAL) ==="
 l=$(run_suite); lcode=$?
 printf '%s\n' "$l" > e2e-screens/live-attempt-1.txt
@@ -122,7 +150,7 @@ if [ "$lcode" -eq 124 ]; then
 fi
 
 final="$l"; attempts=1
-if [ "$lcode" -ne 124 ] && printf '%s\n' "$l" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then
+if [ "$lcode" -ne 124 ] && { [ -z "$l" ] || printf '%s\n' "$l" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; }; then
   echo "=== live retry pass (free-tier latency flakes move between runs; both attempts preserved) ==="
   reinstall
   final=$(run_suite); fcode=$?
@@ -137,6 +165,9 @@ counts=$(count_tests "$final")
 # logcat AFTER the suite so the pumps of both attempts are captured
 collect_artifacts
 
+total=$(extract_total "$counts")
+fails_n=$(printf '%s\n' "$counts" | sed -nE 's/.*fails=([0-9]+).*/\1/p' | tail -1)
+errors_n=$(printf '%s\n' "$counts" | sed -nE 's/.*errors=([0-9]+).*/\1/p' | tail -1)
 stats=$(pump_stats)
 p90=$(printf '%s\n' "$stats" | sed -nE 's/.*p90=([0-9.]+)s.*/\1/p')
 slow=$(printf '%s\n' "$stats" | sed -nE 's/.*slow_pumps=([0-9]+).*/\1/p')
@@ -145,10 +176,15 @@ starved=$(starvation_failures "$final")
 failed=$(failed_tests_list "$final")
 [ -z "$failed" ] && failed="none"
 
-status=PASS
+status=FAIL
+reason=""
 if [ "$lcode" -eq 124 ]; then
   status=FAIL_TIMEOUT
-elif printf '%s\n' "$final" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then
+  reason="live suite timed out (exit 124)"
+elif [ -z "$final" ]; then
+  reason="NO INSTRUMENT OUTPUT - the tests did not run at all (outage, not a pass)"
+elif printf '%s\n' "$final" | grep -qE "FAILURES|INSTRUMENTATION_FAILED" \
+  || [ "${fails_n:-0}" -gt 0 ] 2>/dev/null || [ "${errors_n:-0}" -gt 0 ] 2>/dev/null; then
   # Rate-limit classification requires MEASURED degradation, not a guess:
   # p90 above 15s, or 3+ slow pumps, or explicit 429/FreeTierBlocked lines.
   degraded=0
@@ -158,8 +194,12 @@ elif printf '%s\n' "$final" | grep -qE "FAILURES|INSTRUMENTATION_FAILED"; then
   if [ "$degraded" -eq 1 ]; then
     status=RATE_LIMITED
   else
-    status=FAIL
+    reason="failures WITHOUT measured provider degradation - investigate as a regression"
   fi
+elif [ "$total" -lt "$LIVE_MIN_TESTS" ] 2>/dev/null; then
+  reason="only $total tests ran (floor is $LIVE_MIN_TESTS) - class discovery broke; not a pass"
+else
+  status=PASS
 fi
 
 evidence="pump ${stats:-unknown}; explicit_throttle_lines=${explicit:-0}; starvation_failures=${starved:-0}"
@@ -170,6 +210,7 @@ evidence="pump ${stats:-unknown}; explicit_throttle_lines=${explicit:-0}; starva
   echo "LIVE_ATTEMPTS: $attempts"
   echo "FAILED_TESTS: $failed"
   echo "RATE_LIMIT_EVIDENCE: $evidence"
+  [ -n "$reason" ] && echo "LIVE_NOTE: $reason"
 } > e2e-screens/live-summary.txt
 cat e2e-screens/live-summary.txt
 
@@ -179,6 +220,6 @@ cat e2e-screens/live-summary.txt
 if [ "$status" = "PASS" ]; then
   exit 0
 else
-  echo "::warning::LIVE PROVIDER STATUS: FAIL_${status} (${evidence})"
+  echo "::warning::LIVE PROVIDER STATUS: FAIL_${status} (${reason}; ${evidence})"
   exit 1
 fi
