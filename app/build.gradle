@@ -275,6 +275,9 @@ dependencies {
     // Main dispatcher + virtual-time runTest for concurrency/timeout proofs.
     // Must match the kotlinx-coroutines version resolved on the classpath.
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0'
+    // God-Tier 5.4: WorkManagerTestInitHelper drives the proactive worker's
+    // constraint semantics on the JVM (battery/idle gates, periodic firing).
+    testImplementation 'androidx.work:work-testing:2.11.2'
     // Network-stack tests: MockWebServer (mockwebserver3 packages, JUnit-free core)
     // and okhttp-tls for building the throwaway certificates used by the TLS tests.
     testImplementation platform('com.squareup.okhttp3:okhttp-bom:5.4.0')

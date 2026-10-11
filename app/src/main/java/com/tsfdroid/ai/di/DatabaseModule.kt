@@ -55,7 +55,8 @@ object DatabaseModule {
             OpenDroidDatabase.MIGRATION_13_14,
             OpenDroidDatabase.MIGRATION_14_15,
             OpenDroidDatabase.MIGRATION_15_16,
-            OpenDroidDatabase.MIGRATION_16_17
+            OpenDroidDatabase.MIGRATION_16_17,
+            OpenDroidDatabase.MIGRATION_17_18
         )
         .build()
     }
@@ -79,6 +80,12 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideMemoryEmbeddingDao(db: OpenDroidDatabase): MemoryEmbeddingDao = db.memoryEmbeddingDao()
+
+    /** God-Tier Phase 2 (5.4): the proactive suggestion store. */
+    @Provides
+    @Singleton
+    fun provideProactiveSuggestionDao(db: OpenDroidDatabase): com.tsfdroid.ai.data.db.dao.ProactiveSuggestionDao =
+        db.proactiveSuggestionDao()
 
     /** God-Tier Phase 2 (5.1): the embedding seam - offline local provider by default. */
     @Provides

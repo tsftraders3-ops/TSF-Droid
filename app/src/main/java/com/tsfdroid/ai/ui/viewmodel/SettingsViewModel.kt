@@ -721,6 +721,25 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * God-Tier Phase 2 (5.4): the proactive suggestion opt-in. Ships OFF;
+     * flipping this ON schedules the constrained background worker
+     * (battery-not-low + device-idle), OFF cancels it. The worker only
+     * drafts suggestions — it never dispatches anything.
+     */
+    private val _proactiveSuggestionsEnabled = MutableStateFlow(
+        com.tsfdroid.ai.core.proactive.ProactiveSuggestionWorker.isEnabled(context)
+    )
+    val proactiveSuggestionsEnabled: kotlinx.coroutines.flow.StateFlow<Boolean> =
+        _proactiveSuggestionsEnabled
+
+    fun setProactiveSuggestionsEnabled(enabled: Boolean) {
+        _proactiveSuggestionsEnabled.value = enabled
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.tsfdroid.ai.core.proactive.ProactiveSuggestionWorker.setEnabled(context, enabled)
+        }
+    }
+
     fun updateMultiAgentMode(enabled: Boolean) {
         _llmConfig.value = _llmConfig.value.copy(multiAgentModeEnabled = enabled)
         viewModelScope.launch {

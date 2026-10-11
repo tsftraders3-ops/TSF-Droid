@@ -294,6 +294,53 @@ class OpenDroidDatabaseMigrationTest {
         override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
     }
 
+    /**
+     * God-Tier Phase 2 (5.4): migration 17 -> 18 creates the
+     * proactive_suggestions table (the opt-in background worker's output)
+     * and every pre-existing embedding row survives untouched.
+     */
+    @Test
+    fun `migration 17 to 18 keeps embeddings and creates proactive_suggestions`() {
+        helper.createDatabase(databasePath, 17).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO memory_embeddings (`memoryKey`, `embedding`, `dims`, `model`, `updatedAt`)
+                VALUES ('gold-rule', x'0000803F0000003F', 2, 'local-hash-256', 999)
+                """.trimIndent()
+            )
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            databasePath, 18, true, OpenDroidDatabase.MIGRATION_17_18
+        )
+
+        // Pre-existing embedding survives the migration untouched.
+        migrated.query(
+            "SELECT `dims`, `model` FROM memory_embeddings WHERE `memoryKey` = 'gold-rule'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(2, cursor.getInt(0))
+            assertEquals("local-hash-256", cursor.getString(1))
+        }
+
+        // The new table exists, matches the exported 18.json schema, and
+        // round-trips a suggestion row.
+        migrated.execSQL(
+            """
+            INSERT INTO proactive_suggestions (`title`, `body`, `suggestedAction`, `createdAt`, `status`)
+            VALUES ('Tidy up', 'You have 4 chats', 'CREATE_MACRO', 12345, 'PENDING')
+            """.trimIndent()
+        )
+        migrated.query(
+            "SELECT `title`, `suggestedAction`, `status` FROM proactive_suggestions LIMIT 1"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("Tidy up", cursor.getString(0))
+            assertEquals("CREATE_MACRO", cursor.getString(1))
+            assertEquals("PENDING", cursor.getString(2))
+        }
+    }
+
     private companion object {
         const val TEST_DATABASE = "migration-test"
 

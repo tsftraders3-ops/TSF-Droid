@@ -83,6 +83,7 @@ fun SettingsScreen(
 ) {
     val config by viewModel.llmConfig.collectAsState()
     val connectionResults by viewModel.connectionResults.collectAsState()
+    val proactiveSuggestionsEnabled by viewModel.proactiveSuggestionsEnabled.collectAsState()
     val dbModels by viewModel.allModels.collectAsState()
     val storageInfo by viewModel.storageInfo.collectAsState()
     val hfToken by viewModel.huggingFaceToken.collectAsState()
@@ -1886,6 +1887,47 @@ fun SettingsScreen(
                             Switch(
                                 checked = config.multiAgentModeEnabled,
                                 onCheckedChange = { viewModel.updateMultiAgentMode(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = TextPrimary,
+                                    checkedTrackColor = TextPrimary.copy(alpha = 0.5f)
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(BorderColor)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // God-Tier Phase 2 (5.4): PROACTIVE SUGGESTIONS — the
+                        // opt-in background worker. Ships OFF; ON schedules a
+                        // battery-not-low + device-idle worker that only
+                        // drafts suggestions (never dispatches anything).
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Proactive Suggestions",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "While idle and charging, the agent reviews your local patterns and drafts suggestions. It never acts on its own.",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = proactiveSuggestionsEnabled,
+                                onCheckedChange = { viewModel.setProactiveSuggestionsEnabled(it) },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = TextPrimary,
                                     checkedTrackColor = TextPrimary.copy(alpha = 0.5f)

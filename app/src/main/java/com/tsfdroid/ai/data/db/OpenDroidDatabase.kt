@@ -38,6 +38,7 @@ import com.tsfdroid.ai.data.db.entities.SocialAnalyticsSnapshotEntity
 import com.tsfdroid.ai.data.db.entities.SocialCampaignEntity
 import com.tsfdroid.ai.data.db.entities.SocialAutomationRuleEntity
 import com.tsfdroid.ai.data.db.entities.SocialAuditLogEntity
+import com.tsfdroid.ai.data.db.entities.ProactiveSuggestionEntity
 import com.tsfdroid.ai.data.db.dao.SocialAccountDao
 import com.tsfdroid.ai.data.db.dao.SocialPostDao
 import com.tsfdroid.ai.data.db.dao.SocialCommentDao
@@ -46,6 +47,7 @@ import com.tsfdroid.ai.data.db.dao.SocialAnalyticsDao
 import com.tsfdroid.ai.data.db.dao.SocialCampaignDao
 import com.tsfdroid.ai.data.db.dao.SocialAutomationRuleDao
 import com.tsfdroid.ai.data.db.dao.SocialAuditLogDao
+import com.tsfdroid.ai.data.db.dao.ProactiveSuggestionDao
 import androidx.room.TypeConverters
 
 @Database(
@@ -70,9 +72,10 @@ import androidx.room.TypeConverters
         SocialCampaignEntity::class,
         SocialAutomationRuleEntity::class,
         SocialAuditLogEntity::class,
-        MemoryEmbeddingEntity::class
+        MemoryEmbeddingEntity::class,
+        ProactiveSuggestionEntity::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -97,6 +100,7 @@ abstract class OpenDroidDatabase : RoomDatabase() {
     abstract fun socialAutomationRuleDao(): SocialAutomationRuleDao
     abstract fun socialAuditLogDao(): SocialAuditLogDao
     abstract fun memoryEmbeddingDao(): MemoryEmbeddingDao
+    abstract fun proactiveSuggestionDao(): ProactiveSuggestionDao
 
     companion object {
         // Id of the single session that pre-existing conversation rows are
@@ -357,6 +361,22 @@ abstract class OpenDroidDatabase : RoomDatabase() {
                         (`memoryKey` TEXT NOT NULL, `embedding` BLOB NOT NULL, 
                         `dims` INTEGER NOT NULL, `model` TEXT NOT NULL, 
                         `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`memoryKey`))"""
+                )
+            }
+        }
+
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // God-Tier Phase 2 (5.4): storage for the opt-in proactive
+                // background worker's output. Purely additive — no existing
+                // table is touched, so migrations are safe in both
+                // directions of schema validation.
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `proactive_suggestions` 
+                        (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `title` TEXT NOT NULL, `body` TEXT NOT NULL, 
+                        `suggestedAction` TEXT, `createdAt` INTEGER NOT NULL, 
+                        `status` TEXT NOT NULL)"""
                 )
             }
         }
