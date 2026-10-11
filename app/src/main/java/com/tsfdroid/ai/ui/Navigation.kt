@@ -60,6 +60,7 @@ object OpenDroidRoutes {
     const val CRASH_LOG = "crash_log"
     const val ROUTINES = "routines"
     const val SOCIAL = "social"
+    const val CANVAS = "canvas"
 }
 
 /**
@@ -174,6 +175,9 @@ fun OpenDroidNavigation(
                 },
                 onNavigateToRoutines = {
                     navController.navigate(OpenDroidRoutes.ROUTINES)
+                },
+                onNavigateToCanvas = {
+                    navController.navigate(OpenDroidRoutes.CANVAS)
                 }
             )
         }
@@ -278,6 +282,18 @@ fun OpenDroidNavigation(
         composable(OpenDroidRoutes.SOCIAL) {
             val socialViewModel: SocialViewModel = hiltViewModel()
             SocialScreen(viewModel = socialViewModel)
+        }
+
+        composable(OpenDroidRoutes.CANVAS) {
+            // God-Tier 5.2: the adaptive chat + artifact workspace. Both view
+            // models come from the Hilt graph; the CanvasScreen default chat
+            // pane embeds the real ChatScreen inside its pane.
+            CanvasScreen(
+                viewModel = hiltViewModel(),
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
         }
     }
 }
@@ -399,6 +415,7 @@ private fun AuroraMoreSheet(
     onNavigateToRoutines: () -> Unit,
     onNavigateToPermissions: () -> Unit,
     onNavigateToNotificationHistory: () -> Unit,
+    onNavigateToCanvas: () -> Unit,
     routineCount: Int,
     pendingCount: Int
 ) {
@@ -432,6 +449,7 @@ private fun AuroraMoreSheet(
                 .padding(bottom = 10.dp)
         ) {
             MoreSheetItem(Icons.Default.AutoAwesome, "Routines", "$routineCount detected") { onNavigateToRoutines() }
+            MoreSheetItem(Icons.Default.ListAlt, "Canvas", "Chat + artifact") { onNavigateToCanvas() }
             MoreSheetItem(Icons.Default.Share, "Social", "7 platforms") { onNavigate(Screen.Social) }
             MoreSheetItem(Icons.Default.Notifications, "Notifications", if (pendingCount > 0) "$pendingCount pending" else "All clear") { onNavigateToNotificationHistory() }
             MoreSheetItem(Icons.Default.Lock, "Permissions", null) { onNavigateToPermissions() }
@@ -479,7 +497,8 @@ fun MainDashboard(
     onNavigateToNotificationHistory: () -> Unit = {},
     onNavigateToPermissions: () -> Unit = {},
     onNavigateToCrashLog: () -> Unit = {},
-    onNavigateToRoutines: () -> Unit = {}
+    onNavigateToRoutines: () -> Unit = {},
+    onNavigateToCanvas: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -600,6 +619,10 @@ fun MainDashboard(
         onNavigateToNotificationHistory = {
             moreSheetVisible = false
             onNavigateToNotificationHistory()
+        },
+        onNavigateToCanvas = {
+            moreSheetVisible = false
+            onNavigateToCanvas()
         },
         routineCount = realRoutineCount,
         pendingCount = realPendingCount

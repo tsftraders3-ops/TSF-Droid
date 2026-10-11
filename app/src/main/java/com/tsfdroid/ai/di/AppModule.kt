@@ -15,6 +15,8 @@ import com.tsfdroid.ai.actions.AndroidMediaPlaybackVerifier
 import com.tsfdroid.ai.actions.ActionDispatcher
 import com.tsfdroid.ai.actions.MediaPlaybackVerifier
 import com.tsfdroid.ai.core.agent.ActionSequenceExecutor
+import com.tsfdroid.ai.core.agent.PlanManager
+import com.tsfdroid.ai.data.models.Plan
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -98,6 +100,16 @@ object AppModule {
         },
         hasAction = { action -> actionDispatcher.get().hasAction(action) }
     )
+
+    /**
+     * God-Tier 5.2: the canvas plan publisher consumes PlanManager's live
+     * current-plan flow. Bound as its own type so the publisher (and its
+     * tests) depend on the FLOW, not on PlanManager's constructor graph.
+     */
+    @Provides
+    @Singleton
+    fun provideCurrentPlanFlow(planManager: PlanManager): kotlinx.coroutines.flow.StateFlow<Plan?> =
+        planManager.currentPlan
 
     /** v1.2.0: the harness executes tools through the same real pipeline. */
     @Provides

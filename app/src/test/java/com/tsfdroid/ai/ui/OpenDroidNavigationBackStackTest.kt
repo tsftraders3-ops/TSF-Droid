@@ -139,11 +139,27 @@ class OpenDroidNavigationBackStackTest {
         assertFalse(restored.routeStack.contains(OpenDroidRoutes.SPLASH))
     }
 
+    @Test
+    fun `canvas route is reachable and pops back to main`() {
+        val navController = newController()
+
+        // The Canvas workspace (God-Tier 5.2) is a top-level destination off MAIN.
+        navController.navigate(OpenDroidRoutes.MAIN)
+        navController.navigate(OpenDroidRoutes.CANVAS)
+
+        assertEquals(OpenDroidRoutes.CANVAS, navController.currentDestination?.route)
+        assertTrue(navController.routeStack.contains(OpenDroidRoutes.MAIN))
+
+        assertTrue(navController.popBackStack())
+        assertEquals(OpenDroidRoutes.MAIN, navController.currentDestination?.route)
+    }
+
     private companion object {
         val ALL_ROUTES = listOf(
             OpenDroidRoutes.SPLASH,
             OpenDroidRoutes.ONBOARDING,
             OpenDroidRoutes.MAIN,
+            OpenDroidRoutes.CANVAS,
             OpenDroidRoutes.BENCHMARK,
             OpenDroidRoutes.PRIVACY_POLICY,
             OpenDroidRoutes.TERMS_OF_USE,

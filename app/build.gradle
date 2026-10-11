@@ -271,6 +271,10 @@ dependencies {
     // Robolectric runs the Room migration tests on the JVM - no emulator, so
     // they live in src/test and run under the existing testDebugUnitTest.
     testImplementation 'org.robolectric:robolectric:4.16.1'
+    // ViewModel coroutine tests (Canvas, SubAgentGraph, workers): controllable
+    // Main dispatcher + virtual-time runTest for concurrency/timeout proofs.
+    // Must match the kotlinx-coroutines version resolved on the classpath.
+    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0'
     // Network-stack tests: MockWebServer (mockwebserver3 packages, JUnit-free core)
     // and okhttp-tls for building the throwaway certificates used by the TLS tests.
     testImplementation platform('com.squareup.okhttp3:okhttp-bom:5.4.0')

@@ -5,6 +5,7 @@ import android.util.Log
 import com.tsfdroid.ai.core.crash.CrashLogRecorder
 import com.tsfdroid.ai.core.crash.DeviceMetadata
 import com.tsfdroid.ai.core.crash.OpenDroidCrashHandler
+import com.tsfdroid.ai.core.canvas.CanvasPlanPublisher
 import com.tsfdroid.ai.core.memory.MemoryManager
 import com.tsfdroid.ai.core.security.LegacyPreferenceMigration
 import com.tsfdroid.ai.data.crash.CrashLogRepository
@@ -28,6 +29,10 @@ class OpenDroidApp : Application() {
     @Inject
     lateinit var legacyPreferenceMigration: LegacyPreferenceMigration
 
+    /** God-Tier 5.2: bridges live plan emissions onto the Canvas artifact bus. */
+    @Inject
+    lateinit var canvasPlanPublisher: CanvasPlanPublisher
+
     private val appScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun onCreate() {
@@ -50,6 +55,11 @@ class OpenDroidApp : Application() {
                 // Silently ignore cleanup errors to not block app startup
             }
         }
+
+        // God-Tier 5.2: the canvas artifact bus starts receiving live plan
+        // emissions from app start, so opening the Canvas mid-task shows the
+        // running plan. Pure in-process state: no I/O, nothing to roll back.
+        canvasPlanPublisher.start(appScope)
 
         // v1.3.0: the social schedule consumer is REAL now — the worker existed
         // since v1.0 but NOTHING ever enqueued it, so scheduled posts sat in
