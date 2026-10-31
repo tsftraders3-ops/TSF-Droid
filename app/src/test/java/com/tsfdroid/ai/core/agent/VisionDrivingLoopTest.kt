@@ -1,8 +1,15 @@
 package com.tsfdroid.ai.core.agent
 
 import android.graphics.Bitmap
+import com.tsfdroid.ai.accessibility.MarkKind
+import com.tsfdroid.ai.accessibility.VisionScreenMark
+import com.tsfdroid.ai.core.llm.LLMProvider
+import com.tsfdroid.ai.core.llm.LLMRequest
+import com.tsfdroid.ai.core.llm.LLMResponse
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -270,6 +277,262 @@ class VisionDrivingLoopTest {
         }
         assertFalse("'Settings' is not critical", VisionDrivingLoop.isPolicyCriticalTarget("Settings"))
         assertFalse("null label is not critical", VisionDrivingLoop.isPolicyCriticalTarget(null))
+    }
+
+    // ------------------------------------------------------------------
+    // Milestone 1 (EGM v2.0.0 arc) — Set-of-Mark fast path (spec File 12)
+    // ------------------------------------------------------------------
+
+    private fun somMark(
+        index: Int,
+        label: String?,
+        left: Int = 120,
+        top: Int = 450,
+        right: Int = 340,
+        bottom: Int = 520
+    ) = VisionScreenMark(
+        index = index,
+        kind = MarkKind.BUTTON,
+        label = label,
+        left = left,
+        top = top,
+        right = right,
+        bottom = bottom
+    )
+
+    /** Two benign marks; mark 2's center on a 1080x2400 screen is (550, 875). */
+    private fun twoMarks() = listOf(
+        somMark(1, "Search"),
+        somMark(2, "Wi-Fi", left = 400, top = 800, right = 700, bottom = 950)
+    )
+
+    /** Hermetic SoM locator: scripted answers, last one repeats when exhausted. */
+    private class SomProvider(private val json: String, private val thenJson: String? = null) : LLMProvider {
+        private var served = 0
+        override val name: String = "SomProvider"
+        override val availableModels: List<String> = listOf("fake-som")
+        override suspend fun complete(request: LLMRequest): LLMResponse {
+            val content = if (served == 0) json else (thenJson ?: json)
+            served++
+            return LLMResponse(content = content, tokensUsed = 10, model = "fake-som", provider = name, latencyMs = 1)
+        }
+
+        override fun streamComplete(request: LLMRequest): Flow<String> = flowOf("{}")
+        override suspend fun isAvailable(): Boolean = true
+    }
+
+    private fun recordingTaps(): MutableList<Pair<Float, Float>> {
+        val taps = mutableListOf<Pair<Float, Float>>()
+        loop.gestureDispatch = { x, y ->
+            taps += x to y
+            tapCount.incrementAndGet()
+            true
+        }
+        return taps
+    }
+
+    @Test
+    fun `som marksPresent skipsScreenCapture`() = runTest {
+        loop.somMarks = { twoMarks() }
+        loop.providerAccess = {
+            SomProvider("""{"target_found": true, "node": 2, "confidence": 0.9}""")
+        }
+        val taps = recordingTaps()
+
+        val result = loop.drive("open the Wi-Fi settings", verifier = { true })
+
+        assertTrue("expected GoalReached but was $result", result is VisionDriveResult.GoalReached)
+        assertEquals("zero screenshot captures on the marks path", 0, captureCount.get())
+        assertEquals(1, taps.size)
+        assertEquals("gesture dispatched at mark 2's center", 550f, taps[0].first, 0.01f)
+        assertEquals(875f, taps[0].second, 0.01f)
+        assertEquals(
+            "the step carries the mark's own label",
+            "Wi-Fi",
+            (result as VisionDriveResult.GoalReached).steps[0].label
+        )
+    }
+
+    @Test
+    fun `som nodeOutOfRange isNotFound`() = runTest {
+        loop.somMarks = { twoMarks() }
+        loop.providerAccess = {
+            SomProvider("""{"target_found": true, "node": 7, "confidence": 0.9}""")
+        }
+
+        val result = loop.drive("open the Wi-Fi settings")
+
+        assertTrue("expected LowConfidence but was $result", result is VisionDriveResult.LowConfidence)
+        assertEquals("an invented node number never dispatches", 0, tapCount.get())
+    }
+
+    @Test
+    fun `som xyAnswerInMarksMode isRefused`() = runTest {
+        loop.somMarks = { twoMarks() }
+        loop.providerAccess = {
+            SomProvider("""{"target_found": true, "x": 0.3, "y": 0.4, "confidence": 0.9}""")
+        }
+
+        val result = loop.drive("open the Wi-Fi settings")
+
+        assertTrue("x/y is refused in marks mode — the model never saw the screen", result is VisionDriveResult.LowConfidence)
+        assertEquals(0, tapCount.get())
+    }
+
+    @Test
+    fun `som nodeAnswerWithoutDims isNotFound`() = runTest {
+        loop.somMarks = { twoMarks() }
+        loop.screenDimensions = { null }
+        loop.providerAccess = {
+            SomProvider("""{"target_found": true, "node": 2, "confidence": 0.9}""")
+        }
+
+        val result = loop.drive("open the Wi-Fi settings")
+
+        assertTrue(result is VisionDriveResult.LowConfidence)
+        assertEquals(0, tapCount.get())
+    }
+
+    @Test
+    fun `som criticalLabelWithoutConsent haltsConsentRequired`() = runTest {
+        loop.somMarks = { listOf(somMark(1, "Delete account")) }
+        loop.providerAccess = {
+            SomProvider("""{"target_found": true, "node": 1, "confidence": 0.9}""")
+        }
+
+        val result = loop.drive("remove my account")
+
+        assertTrue("expected ConsentRequired but was $result", result is VisionDriveResult.ConsentRequired)
+        assertEquals("Delete account", (result as VisionDriveResult.ConsentRequired).targetLabel)
+        assertEquals("the halt precedes the gesture", 0, tapCount.get())
+    }
+
+    @Test
+    fun `som criticalLabelWithConsentGate dispatchesOnce`() = runTest {
+        loop.somMarks = {
+            listOf(
+                somMark(1, "Delete account"),
+                somMark(2, "Delete account", left = 400, top = 800, right = 700, bottom = 950)
+            )
+        }
+        loop.providerAccess = {
+            SomProvider(
+                """{"target_found": true, "node": 1, "confidence": 0.9}""",
+                thenJson = """{"target_found": true, "node": 2, "confidence": 0.9}"""
+            )
+        }
+        recordingTaps()
+        var armed = true
+        val oneShotGate: suspend (String) -> Boolean = { label ->
+            if (label == "Delete account" && armed) {
+                armed = false
+                true
+            } else {
+                false
+            }
+        }
+
+        val result = loop.drive("remove my account", consentGate = oneShotGate)
+
+        assertTrue(
+            "a second critical tap in the same run must re-halt, was $result",
+            result is VisionDriveResult.ConsentRequired
+        )
+        assertEquals("exactly one authorized tap", 1, tapCount.get())
+        assertEquals(1, (result as VisionDriveResult.ConsentRequired).steps.size)
+    }
+
+    @Test
+    fun `som criticalLabelConsentGateWrongLabel stillHalts`() = runTest {
+        loop.somMarks = { listOf(somMark(1, "Delete account")) }
+        loop.providerAccess = {
+            SomProvider("""{"target_found": true, "node": 1, "confidence": 0.9}""")
+        }
+        val wrongLabelGate: suspend (String) -> Boolean = { it == "Pay" }
+
+        val result = loop.drive("remove my account", consentGate = wrongLabelGate)
+
+        assertTrue(result is VisionDriveResult.ConsentRequired)
+        assertEquals("a gate armed for another label never authorizes", 0, tapCount.get())
+    }
+
+    @Test
+    fun `som unlabeledMark alwaysConsentRequired evenWithGate`() = runTest {
+        loop.somMarks = { listOf(somMark(1, null)) }
+        loop.providerAccess = {
+            SomProvider("""{"target_found": true, "node": 1, "confidence": 0.95}""")
+        }
+        val approveAnything: suspend (String) -> Boolean = { true }
+
+        val result = loop.drive("continue the setup", consentGate = approveAnything)
+
+        assertTrue("an unlabeled target cannot be pre-approved", result is VisionDriveResult.ConsentRequired)
+        assertTrue((result as VisionDriveResult.ConsentRequired).targetLabel.contains("unlabeled"))
+        assertEquals(0, tapCount.get())
+    }
+
+    @Test
+    fun `som emptyMarks fallsBackToBitmapCapture`() = runTest {
+        loop.somMarks = { emptyList() }
+        locateScript = MutableList(1) { { target(x = 0.3, y = 0.4) } }
+        val taps = recordingTaps()
+
+        val result = loop.drive("open the settings screen", verifier = { true })
+
+        assertTrue("expected GoalReached but was $result", result is VisionDriveResult.GoalReached)
+        assertEquals("empty marks keep the bitmap path", 1, captureCount.get())
+        assertEquals(1, taps.size)
+        assertEquals(0.3f * 1080, taps[0].first, 0.01f)
+        assertEquals(0.4f * 2400, taps[0].second, 0.01f)
+    }
+
+    @Test
+    fun `drive verifierParam goalReachedAfterFirstStep`() = runTest {
+        loop.somMarks = { twoMarks() }
+        loop.providerAccess = {
+            SomProvider("""{"target_found": true, "node": 2, "confidence": 0.9}""")
+        }
+        recordingTaps()
+
+        val result = loop.drive("open the Wi-Fi settings", verifier = { true })
+
+        assertTrue(result is VisionDriveResult.GoalReached)
+        assertEquals("the verifier param stops the run at the first verified step", 1, (result as VisionDriveResult.GoalReached).steps.size)
+        assertEquals(1, tapCount.get())
+    }
+
+    @Test
+    fun `drive maxStepsParam boundsTheRun`() = runTest {
+        loop.somMarks = { twoMarks() }
+        loop.providerAccess = {
+            SomProvider("""{"target_found": true, "node": 1, "confidence": 0.9}""")
+        }
+        recordingTaps()
+
+        val result = loop.drive("never satisfied goal", verifier = { false }, maxSteps = 2)
+
+        assertTrue("expected MaxStepsExceeded but was $result", result is VisionDriveResult.MaxStepsExceeded)
+        assertEquals("exactly 2 steps", 2, (result as VisionDriveResult.MaxStepsExceeded).steps.size)
+        assertEquals(2, tapCount.get())
+    }
+
+    @Test
+    fun `drive maxStepsParam clampedToEngineMax`() = runTest {
+        loop.somMarks = { twoMarks() }
+        loop.providerAccess = {
+            SomProvider("""{"target_found": true, "node": 1, "confidence": 0.9}""")
+        }
+        recordingTaps()
+
+        val result = loop.drive("never satisfied goal", verifier = { false }, maxSteps = 99)
+
+        assertTrue(result is VisionDriveResult.MaxStepsExceeded)
+        assertEquals(
+            "maxSteps above the engine max behaves as MAX_STEPS",
+            VisionDrivingLoop.MAX_STEPS,
+            (result as VisionDriveResult.MaxStepsExceeded).steps.size
+        )
+        assertEquals(VisionDrivingLoop.MAX_STEPS, tapCount.get())
     }
 
     // ------------------------------------------------------------------

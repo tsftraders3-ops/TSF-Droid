@@ -669,6 +669,22 @@ class OpenDroidAccessibilityService : AccessibilityService() {
         return text
     }
 
+    /**
+     * Milestone 1 (EGM v2.0.0 arc) — Set-of-Mark accessor for the vision
+     * driving loop's fast path: the numbered interactive-element list read
+     * from the SAME [nodeTraversal] instance [getScreenText] uses. No
+     * screenshot is taken on this path — the locator picks a mark, the mark's
+     * bounds carry the coordinates.
+     */
+    fun getInteractiveMarks(maxMarks: Int = 25): List<VisionScreenMark> {
+        val root = rootInActiveWindow ?: return emptyList()
+        try {
+            return nodeTraversal.interactiveMarks(root, maxMarks)
+        } finally {
+            root.recycle()
+        }
+    }
+
     suspend fun takeScreenshotAndEncode(): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             return null

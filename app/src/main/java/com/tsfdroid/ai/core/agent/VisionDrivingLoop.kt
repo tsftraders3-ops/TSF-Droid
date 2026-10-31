@@ -3,7 +3,10 @@ package com.tsfdroid.ai.core.agent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
+import com.tsfdroid.ai.accessibility.GenericAppAutomator
 import com.tsfdroid.ai.accessibility.OpenDroidAccessibilityService
+import com.tsfdroid.ai.accessibility.SetOfMarkRenderer
+import com.tsfdroid.ai.accessibility.VisionScreenMark
 import com.tsfdroid.ai.core.llm.LLMProviderFactory
 import com.tsfdroid.ai.core.llm.LLMRequest
 import com.tsfdroid.ai.core.llm.ResponseFormat
@@ -32,6 +35,20 @@ data class VisionDriveTarget(
     val y: Double?,
     val confidence: Float,
     val label: String? = null
+)
+
+/**
+ * Milestone 1 (EGM v2.0.0 arc) — raw locator answer before grounding.
+ * [node] is the numbered Set-of-Mark the model picked (1-based), null when
+ * the model answered coordinates or nothing.
+ */
+internal data class VisionLocateAnswer(
+    val found: Boolean,
+    val x: Double?,
+    val y: Double?,
+    val node: Int?,
+    val confidence: Float,
+    val label: String?
 )
 
 /** One executed driving step (a gesture was dispatched). */
@@ -113,13 +130,23 @@ class VisionDrivingLoop @Inject constructor(
     internal var visionLocate: suspend (Bitmap, String) -> VisionDriveTarget =
         { bitmap, goal -> locateOnFrame(bitmap, goal) }
     internal var gestureDispatch: suspend (Float, Float) -> Boolean = { x, y ->
-        OpenDroidAccessibilityService.getInstance()?.clickCoordinates(x, y) ?: false
+        GenericAppAutomator.clickCoordinates(x, y)
     }
     internal var screenDimensions: () -> Pair<Int, Int>? = {
         val service = OpenDroidAccessibilityService.getInstance()
         service?.resources?.displayMetrics?.let { it.widthPixels to it.heightPixels }
     }
     internal var waitForUiSettle: suspend () -> Unit = { delay(UI_SETTLE_MS) }
+
+    /**
+     * Milestone 1 (EGM v2.0.0 arc) — Set-of-Mark fast path: the numbered
+     * interactive-element list read from the accessibility tree. Non-empty
+     * marks make every locate step TEXT-ONLY (zero screenshot captures);
+     * empty marks fall back to the unchanged bitmap path.
+     */
+    internal var somMarks: suspend () -> List<VisionScreenMark> = {
+        OpenDroidAccessibilityService.getInstance()?.getInteractiveMarks() ?: emptyList()
+    }
 
     /**
      * Conservative goal verifier. Default: NO signal — the loop NEVER
@@ -132,53 +159,80 @@ class VisionDrivingLoop @Inject constructor(
     /**
      * Runs the loop for [goal]. Returns a [VisionDriveResult] — never throws
      * for driving-level failures.
+     *
+     * Milestone 1 (EGM v2.0.0 arc): [verifier] defaults to the internal
+     * [goalVerifier] seam (backward-compatible with the 12 existing tests);
+     * [consentGate] is the one-shot approval hook the DRIVE_SCREEN_GOAL
+     * action injects — a critical/unlabeled target passes ONLY when the
+     * gate says so (unlabeled targets NEVER pass: an uninspectable tap
+     * cannot be pre-approved); [maxSteps] bounds THIS run and is clamped to
+     * [MAX_STEPS] — callers may lower the budget, never raise it.
      */
-    suspend fun drive(goal: String): VisionDriveResult {
+    suspend fun drive(
+        goal: String,
+        verifier: suspend () -> Boolean = this.goalVerifier,
+        consentGate: (suspend (String) -> Boolean)? = null,
+        maxSteps: Int = MAX_STEPS
+    ): VisionDriveResult {
+        val boundedMaxSteps = maxSteps.coerceAtMost(MAX_STEPS)
         val steps = mutableListOf<VisionDriveStep>()
         val outcome: VisionDriveResult? = withTimeoutOrNull(TOTAL_TIMEOUT_MS) {
-            while (steps.size < MAX_STEPS) {
+            while (steps.size < boundedMaxSteps) {
                 val stepIndex = steps.size + 1
 
-                // 1. Capture — in-memory only.
-                val bitmap = screenCapture()
-                    ?: return@withTimeoutOrNull VisionDriveResult.Halted(
-                        steps.toList(),
-                        "screen capture unavailable — refusing to drive blind"
-                    )
-
-                // 2. Vision locate. The frame is recycled IMMEDIATELY after
-                //    analysis — before any gesture, before the next capture.
-                val target: VisionDriveTarget
-                try {
-                    target = visionLocate(bitmap, goal)
-                } finally {
-                    bitmap.recycle()
+                // 1. LOCATE. Set-of-Mark fast path first: interactive marks
+                //    from the accessibility tree make the step TEXT-ONLY —
+                //    zero screenshot captures. Empty marks (custom-rendered
+                //    or FLAG_SECURE screens) keep the unchanged bitmap path:
+                //    in-memory capture, vision locate, immediate recycle.
+                val marks = somMarks()
+                val target: VisionDriveTarget = if (marks.isNotEmpty()) {
+                    locateFromMarks(marks, goal)
+                } else {
+                    val bitmap = screenCapture()
+                        ?: return@withTimeoutOrNull VisionDriveResult.Halted(
+                            steps.toList(),
+                            "screen capture unavailable — refusing to drive blind"
+                        )
+                    try {
+                        visionLocate(bitmap, goal)
+                    } finally {
+                        bitmap.recycle()
+                    }
                 }
 
-                // 3. CONSENT GATE (before confidence): a policy-critical
+                // 2. CONSENT GATE (before confidence): a policy-critical
                 //    label under the finger means the user must confirm — and
                 //    so does an UNLABELED target: a coordinate tap that
                 //    cannot be inspected before it fires is exactly the
                 //    class AutoApprovalPolicy holds policy-critical
                 //    (CLICK_COORDINATES). The gate FAILS CLOSED — a missing
                 //    label is a missing safety verdict, never a free tap.
+                //    An injected consentGate authorizes exactly the label it
+                //    was armed for (the action builds it one-shot); an
+                //    unlabeled target NEVER passes any gate.
                 if (target.found && (target.label == null || isPolicyCriticalTarget(target.label))) {
                     val label = target.label
-                    return@withTimeoutOrNull VisionDriveResult.ConsentRequired(
-                        steps = steps.toList(),
-                        targetLabel = label ?: "(unlabeled target)",
-                        atStep = stepIndex,
-                        reason = if (label == null) {
-                            "the next gesture targets an element the vision model could not label — " +
-                                "an uninspectable coordinate tap requires explicit user consent"
-                        } else {
-                            "the next gesture targets '$label' — a policy-critical control " +
-                                "that requires explicit user consent"
-                        }
-                    )
+                    val authorized = label != null &&
+                        consentGate != null &&
+                        consentGate(label)
+                    if (!authorized) {
+                        return@withTimeoutOrNull VisionDriveResult.ConsentRequired(
+                            steps = steps.toList(),
+                            targetLabel = label ?: "(unlabeled target)",
+                            atStep = stepIndex,
+                            reason = if (label == null) {
+                                "the next gesture targets an element the vision model could not label — " +
+                                    "an uninspectable coordinate tap requires explicit user consent"
+                            } else {
+                                "the next gesture targets '$label' — a policy-critical control " +
+                                    "that requires explicit user consent"
+                            }
+                        )
+                    }
                 }
 
-                // 4. Confidence gate: below the floor, or nothing located at
+                // 3. Confidence gate: below the floor, or nothing located at
                 //    all — the loop halts instead of guessing.
                 if (!target.found || target.confidence < CONFIDENCE_FLOOR) {
                     return@withTimeoutOrNull VisionDriveResult.LowConfidence(
@@ -188,7 +242,7 @@ class VisionDrivingLoop @Inject constructor(
                     )
                 }
 
-                // 5. Dispatch the gesture (fractions -> pixels).
+                // 4. Dispatch the gesture (fractions -> pixels).
                 val dims = screenDimensions()
                 if (dims == null || target.x == null || target.y == null) {
                     return@withTimeoutOrNull VisionDriveResult.Halted(
@@ -214,11 +268,11 @@ class VisionDrivingLoop @Inject constructor(
                     label = target.label
                 )
 
-                // 6. Wait (bounded) for the UI to settle before re-sensing.
+                // 5. Wait (bounded) for the UI to settle before re-sensing.
                 waitForUiSettle()
 
-                // 7. Goal check: stop the moment the goal is verifiably met.
-                if (goalVerifier()) {
+                // 6. Goal check: stop the moment the goal is verifiably met.
+                if (verifier()) {
                     return@withTimeoutOrNull VisionDriveResult.GoalReached(steps.toList())
                 }
             }
@@ -226,6 +280,58 @@ class VisionDrivingLoop @Inject constructor(
         }
         return outcome
             ?: VisionDriveResult.Halted(steps.toList(), "driving timeout: the goal was not reached within ${TOTAL_TIMEOUT_MS}ms")
+    }
+
+    /**
+     * Milestone 1 (EGM v2.0.0 arc) — Set-of-Mark locate: ONE text-only LLM
+     * call. The model sees the numbered mark list (no pixels) and answers a
+     * node number; the chosen mark's bounds ground the coordinates
+     * deterministically. Fail-closed in every undefined case:
+     *  - the model answered x/y instead of a node → REFUSED (it never saw
+     *    the screen, a coordinate it reports is ungrounded);
+     *  - node out of `1..marks.size` or screen dimensions unavailable →
+     *    not-found;
+     *  - provider exception or unparsable answer → not-found.
+     */
+    private suspend fun locateFromMarks(marks: List<VisionScreenMark>, goal: String): VisionDriveTarget {
+        val dims = screenDimensions()
+        return try {
+            val response = providerAccess().complete(
+                LLMRequest(
+                    systemPrompt = SOM_LOCATOR_SYSTEM_PROMPT +
+                        SetOfMarkRenderer.render(marks).prependIndent("\n") +
+                        (dims?.let { "\nThe screen is ${it.first}x${it.second} pixels." } ?: ""),
+                    messages = listOf(
+                        ChatMessage(
+                            id = UUID.randomUUID().toString(),
+                            text = "Locate the element that best advances this goal and answer with the JSON object only. Goal: $goal",
+                            sender = ChatMessage.Sender.USER
+                        )
+                    ),
+                    temperature = 0.1f,
+                    maxTokens = 200,
+                    responseFormat = ResponseFormat.JSON,
+                    requireVision = false
+                )
+            )
+            val answer = parseLocateAnswer(response.content)
+            val node = answer.node
+            if (!answer.found || node == null || node !in 1..marks.size || dims == null) {
+                return VisionDriveTarget(found = false, x = null, y = null, confidence = 0f, label = null)
+            }
+            val mark = marks[node - 1]
+            VisionDriveTarget(
+                found = true,
+                x = mark.centerXFrac(dims.first),
+                y = mark.centerYFrac(dims.second),
+                confidence = answer.confidence.coerceIn(0f, 1f),
+                label = mark.label
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            VisionDriveTarget(found = false, x = null, y = null, confidence = 0f, label = null)
+        }
     }
 
     /**
@@ -264,37 +370,57 @@ class VisionDrivingLoop @Inject constructor(
     }
 
     /**
-     * Tolerant parser for the locator answer: markdown fences and prose are
-     * tolerated, anything unparsable is a NOT-FOUND target — the loop never
-     * acts on a guessed coordinate.
+     * Tolerant parser for the raw locator answer: markdown fences and prose
+     * are tolerated, anything unparsable is an all-empty answer. Reads the
+     * optional integer "node" (Set-of-Mark pick) alongside the bitmap-path
+     * fields; [parseLocateResponse] grounds the bitmap-path fields on top of
+     * it.
      */
-    internal fun parseLocateResponse(raw: String, dims: Pair<Int, Int>?): VisionDriveTarget {
+    internal fun parseLocateAnswer(raw: String): VisionLocateAnswer {
         if (raw.isBlank()) {
-            return VisionDriveTarget(false, null, null, 0f, null)
+            return VisionLocateAnswer(false, null, null, null, 0f, null)
         }
         val start = raw.indexOf('{')
         val end = raw.lastIndexOf('}')
         if (start < 0 || end <= start) {
-            return VisionDriveTarget(false, null, null, 0f, null)
+            return VisionLocateAnswer(false, null, null, null, 0f, null)
         }
         return try {
             val obj = Json.parseToJsonElement(raw.substring(start, end + 1)).jsonObject
             val found = obj["target_found"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
             val x = obj["x"]?.jsonPrimitive?.content?.toDoubleOrNull()
             val y = obj["y"]?.jsonPrimitive?.content?.toDoubleOrNull()
+            val node = obj["node"]?.jsonPrimitive?.content?.toIntOrNull()
             val confidence = obj["confidence"]?.jsonPrimitive?.content?.toFloatOrNull() ?: 0f
             val label = obj["label"]?.jsonPrimitive?.content
-            val normalized = normalize(x, y, dims)
-            VisionDriveTarget(
+            VisionLocateAnswer(
                 found = found,
-                x = normalized?.first,
-                y = normalized?.second,
+                x = x,
+                y = y,
+                node = node,
                 confidence = confidence.coerceIn(0f, 1f),
                 label = label
             )
         } catch (e: Exception) {
-            VisionDriveTarget(false, null, null, 0f, null)
+            VisionLocateAnswer(false, null, null, null, 0f, null)
         }
+    }
+
+    /**
+     * Bitmap-path grounding of [parseLocateAnswer]: identical behavior to
+     * the pre-SoM parser (the 12 existing tests pin it), reimplemented as a
+     * thin wrapper over the shared tolerant extractor.
+     */
+    internal fun parseLocateResponse(raw: String, dims: Pair<Int, Int>?): VisionDriveTarget {
+        val answer = parseLocateAnswer(raw)
+        val normalized = normalize(answer.x, answer.y, dims)
+        return VisionDriveTarget(
+            found = answer.found,
+            x = normalized?.first,
+            y = normalized?.second,
+            confidence = answer.confidence,
+            label = answer.label
+        )
     }
 
     /** Models sometimes answer in pixels; values > 1.0 are mapped back to fractions. */
@@ -325,6 +451,20 @@ y is the vertical center as a FRACTION of the screen height (0.0 = top edge, 1.0
 confidence is 0.0 to 1.0 — how certain you are that the element is exactly at that position.
 label is the element's own visible text, exactly as shown (used for the safety consent gate).
 If no element advances the goal, or it is ambiguous or off-screen, set target_found to false and x/y to 0."""
+
+    /**
+     * Milestone 1 (EGM v2.0.0 arc) — the Set-of-Mark locator contract. The
+     * model NEVER sees pixels on this path; a coordinate answer is therefore
+     * ungrounded by construction and refused downstream. node 0 means "no
+     * listed element advances the goal".
+     */
+    internal val SOM_LOCATOR_SYSTEM_PROMPT = """You are the screen driver of an autonomous Android agent.
+The screen's interactive elements are listed below as numbered marks — one per line:
+[index] Kind "label" (left,top..right,bottom)
+Pick the ONE mark that best advances the user's goal and answer with ONLY a JSON object — no prose, no markdown fences:
+{"target_found": <true|false>, "node": <mark number>, "confidence": <0.0-1.0>}
+node must be a mark number from the list — NEVER invent a number, NEVER answer coordinates (you cannot see the screen).
+If no listed element advances the goal, or it is ambiguous, answer target_found false with node 0."""
 
     /**
      * The policy-critical UI vocabulary: labels that mean irreversible

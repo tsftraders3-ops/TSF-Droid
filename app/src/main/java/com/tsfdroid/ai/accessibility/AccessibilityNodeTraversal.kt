@@ -1,5 +1,6 @@
 package com.tsfdroid.ai.accessibility
 
+import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
 import javax.inject.Inject
 
@@ -100,5 +101,73 @@ class AccessibilityNodeTraversal @Inject constructor() {
             child.recycle()
         }
         return false
+    }
+
+    /**
+     * Milestone 1 (EGM v2.0.0 arc) — Set-of-Mark collection: a depth-first
+     * walk that numbers every interactive, on-screen element into a
+     * [VisionScreenMark].
+     *
+     * A node becomes a mark when it `isClickable || isEditable ||
+     * isScrollable` AND its [AccessibilityNodeInfo.getBoundsInScreen] rect
+     * has positive width and height (off-screen / zero-size nodes are noise,
+     * not marks). The walk aborts as soon as [maxMarks] marks are collected
+     * — node visits are bounded by the walk terminating, not by tree size.
+     *
+     * Kind resolution (evaluated in order): `isEditable → TEXT_FIELD`;
+     * `isCheckable → CHECKBOX`; `isScrollable → SCROLLABLE`; className
+     * ending `Spinner → SPINNER`; ending `Switch → SWITCH`; ending
+     * `Button → BUTTON`; else `OTHER`. Label = `text ?: contentDescription`,
+     * trimmed, null when blank.
+     *
+     * Same recycling contract as the other walkers: intermediate child nodes
+     * are recycled here; the caller recycles the root.
+     */
+    fun interactiveMarks(root: AccessibilityNodeInfo?, maxMarks: Int = 25): List<VisionScreenMark> {
+        if (root == null) return emptyList()
+        val marks = mutableListOf<VisionScreenMark>()
+        collectInteractiveMarks(root, maxMarks, marks)
+        return marks
+    }
+
+    private fun collectInteractiveMarks(
+        node: AccessibilityNodeInfo,
+        maxMarks: Int,
+        marks: MutableList<VisionScreenMark>
+    ) {
+        if (marks.size >= maxMarks) return
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+        val interactive = node.isClickable || node.isEditable || node.isScrollable
+        if (interactive && rect.width() > 0 && rect.height() > 0) {
+            marks += VisionScreenMark(
+                index = marks.size + 1,
+                kind = resolveMarkKind(node),
+                label = (node.text?.toString() ?: node.contentDescription?.toString())
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() },
+                left = rect.left,
+                top = rect.top,
+                right = rect.right,
+                bottom = rect.bottom
+            )
+        }
+        for (i in 0 until node.childCount) {
+            if (marks.size >= maxMarks) break
+            val child = node.getChild(i) ?: continue
+            collectInteractiveMarks(child, maxMarks, marks)
+            child.recycle()
+        }
+    }
+
+    private fun resolveMarkKind(node: AccessibilityNodeInfo): MarkKind {
+        if (node.isEditable) return MarkKind.TEXT_FIELD
+        if (node.isCheckable) return MarkKind.CHECKBOX
+        if (node.isScrollable) return MarkKind.SCROLLABLE
+        val className = node.className?.toString() ?: return MarkKind.OTHER
+        if (className.endsWith("Spinner")) return MarkKind.SPINNER
+        if (className.endsWith("Switch")) return MarkKind.SWITCH
+        if (className.endsWith("Button")) return MarkKind.BUTTON
+        return MarkKind.OTHER
     }
 }
