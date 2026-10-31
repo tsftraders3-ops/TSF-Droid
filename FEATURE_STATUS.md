@@ -114,6 +114,34 @@ Phase 2 architecture complete).
   Room with no screen or notification rendering them (the DAO is ready);
   the engine is deliberately template-based (no LLM in the background).
 
+### God-Tier Phase 2 / EGM v2.0.0 arc — Continuous vision driving loop, WIRED (5.5 + Milestone 1)
+- `DRIVE_SCREEN_GOAL` (ADVANCED, schema-validated): the bounded driving
+  loop is now a plan action. Set-of-Mark fast path — when the accessibility
+  tree yields interactive marks, every locate step is TEXT-ONLY (zero
+  screenshot captures; the model picks a numbered mark, the mark's bounds
+  ground the gesture); empty trees keep the unchanged in-memory bitmap
+  path (immediate recycle, fail-closed unlabeled-target consent).
+- Production goal verifier: `VisionGoalVerifier` — deterministic
+  contains-check against the post-settle tree first, vision fallback ONLY
+  on an empty tree, strict `{"goal_reached": bool}` contract,
+  FLAG_SECURE-aware; unparsable/failed → false (never a guessed success).
+  The action refuses to run without `expectedScreenText` (verify-or-fail)
+  and pre-checks the baseline (expected text already visible → Success,
+  0 steps).
+- Consent ask-loop: mid-drive `ConsentRequired` halts surface as
+  interactive `NeedsInput` questions (chips "Yes, tap it" / "No, stop
+  driving") riding the existing answer-injection machinery. Approvals are
+  one-shot, label-bound, goal-bound, 10-min TTL, gesture-budget-bound
+  (≤ 5 taps per invocation); unlabeled targets are never pre-approvable
+  (`UserActionRequired`); non-affirmative answers are explicit declines
+  (conservative token logic — "not allow"/"never approve"/"sure" all
+  decline). `DRIVE_SCREEN_GOAL` is in `POLICY_CRITICAL_ACTIONS` (plan gate
+  + macro/MCP/sub-agent refusal; unit: consent boundary tests).
+  (Unit: `VisionScreenMarkTest` 5, `VisionGoalVerifierTest` 9,
+  `VisionDrivingLoopTest` 24 (12 engine + 12 SoM), `DriveScreenGoalActionTest`
+  18; hermetic: `DriveScreenGoalHermeticTest` — honest halt with no
+  accessibility service.)
+
 ### E2E infrastructure
 - `FakeLLMProvider` + `HermeticTestProviderFactory` — deterministic,
   network-free agent-pipeline tests on a real emulator.
@@ -125,10 +153,10 @@ Phase 2 architecture complete).
   classification (PASS / RATE_LIMITED / FAIL / FAIL_TIMEOUT) backed by
   measured evidence (provider pump latency distribution, starvation-failure
   signature; no fake greens, no guessed rate limits).
-- 1,143 unit tests green on the feature branch (1,074 at 1.7.0-rc.1 + 69
-  added across the God-Tier Phase 2 arc: 26 vector memory, 8 canvas
-  unit/layout, 12 swarm, 13 proactive, 12 vision driving — minus
-  2 reworked router-era tests that the new suites supersede).
+- 1,191 unit tests green on the feature branch (1,143 at v1.8.0-rc.1 + 48
+  added by the EGM v2.0.0 arc Milestone 1: 12 SoM loop additions, 9 goal
+  verifier, 5 SoM model, 18 drive action, 2 policy gate, 1 executor consent
+  boundary, 1 GoalContract consent passthrough).
 
 ---
 
@@ -148,22 +176,19 @@ follow-up is wiring them into `AgentLoop`:
   nothing in `AgentLoop` builds task graphs — the CEO still does sequential
   `researchSafely` → `draftSafely` delegation. The planner integration is
   the next arc.
-- **Continuous vision driving loop (5.5)** — `VisionDrivingLoop`: bounded
-  multi-step drive (MAX_STEPS=5, 30s total timeout, 0.85 confidence floor),
-  the fail-closed consent gate above, per-frame in-memory privacy. Unit:
-  `VisionDrivingLoopTest` (12). What is missing: `AgentLoop` still uses the
-  one-shot `VisionEngine.tapLocatedTarget`; wiring the loop into the agent's
-  vision action path is the follow-up, and a real production goal verifier
-  must be injected then (the default fails closed — the loop never claims
-  success without one).
+- **Continuous vision driving loop (5.5)** — moved to "Verified
+  Implemented" above: the EGM v2.0.0 Milestone 1 wired it end to end
+  (`DRIVE_SCREEN_GOAL` + SoM grounding + the production goal verifier +
+  the consent ask-loop). The one-shot `VisionEngine.tapLocatedTarget`
+  remains engine-level (it never had a production caller — the earlier
+  claim here that "AgentLoop uses it" was wrong; production taps were
+  always tree-based `CLICK_*` actions).
 
 ## Not Implemented
 
 - **Autonomous multi-agent swarm EXECUTION** — the engine exists (above);
   the orchestration does not. Sequential delegation remains the CEO's only
   multi-agent path today.
-- **Continuous vision driving in the agent** — same shape: engine verified,
-  production path still one-shot.
 - **Proactive suggestion reading surface** — worker + storage are real;
   no UI or notification renders the stored suggestions yet.
 
