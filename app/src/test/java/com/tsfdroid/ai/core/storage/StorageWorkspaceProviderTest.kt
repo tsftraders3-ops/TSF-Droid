@@ -130,7 +130,17 @@ class StorageWorkspaceProviderTest {
 
     @Test
     fun `advanced control actions file operations execute seamlessly`() = runBlocking {
-        val actions = AdvancedControlActions()
+        // Milestone 1 (EGM v2.0.0 arc): AdvancedControlActions now takes the
+        // driving loop + goal verifier (constructor injection for
+        // DRIVE_SCREEN_GOAL). This test only exercises file actions — the
+        // drive path is never resolved, so a never-resolving factory suffices
+        // (spec File 17, mechanical update).
+        val neverFactory = TestFactories.neverProviderFactory()
+        val visionEngine = com.tsfdroid.ai.core.agent.VisionEngine(neverFactory)
+        val actions = AdvancedControlActions(
+            visionDrivingLoop = com.tsfdroid.ai.core.agent.VisionDrivingLoop(visionEngine, neverFactory),
+            visionGoalVerifier = com.tsfdroid.ai.core.agent.VisionGoalVerifier(visionEngine, neverFactory)
+        )
         val actionsMap = actions.getActions().associateBy { it.name }
 
         // Write

@@ -39,7 +39,13 @@ object AutoApprovalPolicy {
         // or send depending on what is under the finger. Vision-grounded or
         // blind, it enters the confirmation gate like every other irreversible
         // side effect.
-        "CLICK_COORDINATES"
+        "CLICK_COORDINATES",
+        // Milestone 1 (EGM v2.0.0 arc): the bounded autonomous driving loop.
+        // Same uninspectable-tap rationale as CLICK_COORDINATES — a driven
+        // tap sequence is coordinate taps under a different planner. Defense
+        // in depth with the loop's in-flight label-level consent gate; the
+        // interactive NeedsInput re-ask is the ONLY approval surface.
+        "DRIVE_SCREEN_GOAL"
     )
 
     /**

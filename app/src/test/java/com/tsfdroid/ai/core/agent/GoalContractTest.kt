@@ -270,4 +270,16 @@ class GoalContractTest {
         assertEquals("csv", GoalContract.extensionForGoal("extract all the raw performance numbers into a table"))
         assertEquals("md", GoalContract.extensionForGoal("write me a comprehensive research report"))
     }
+
+    // ── Milestone 1 (EGM v2.0.0 arc): the consent question passthrough ──
+
+    @Test
+    fun `humanizeParamPrompt consent passes the question through`() {
+        // A generic rewrite ("What should I use for 'consent'?") would destroy
+        // the approval copy — the label being approved must survive verbatim.
+        val original = "Screen driving needs your approval before it taps 'Delete account'. Continue?"
+        val result = GoalContract.humanizeParamPrompt("DRIVE_SCREEN_GOAL", "consent", original)
+        assertEquals(original, result)
+        assertTrue(result.contains("Delete account"))
+    }
 }

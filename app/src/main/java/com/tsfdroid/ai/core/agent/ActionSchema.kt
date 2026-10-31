@@ -1242,6 +1242,26 @@ object ActionSchema {
             category = ActionCategory.ADVANCED
         ),
         ActionDefinition(
+            name = "DRIVE_SCREEN_GOAL",
+            description = """Drives the screen step by step toward a goal: reads
+                the interactive elements (Set-of-Mark) or takes a screenshot, taps
+                the element that best advances the goal, waits for the screen to
+                settle, and re-checks until the goal text is verified. One run:
+                max 5 taps, 30 seconds total; consent re-asks are bounded by the
+                plan's prompt budget and the same 5-tap total. Policy-critical:
+                requires plan approval and asks again before any
+                destructive-looking control.""",
+            params = listOf(
+                ParamDefinition("goal", ParamType.STRING, true,
+                    "What the driving should achieve on screen, e.g. 'open the Wi-Fi settings screen'"),
+                ParamDefinition("expectedScreenText", ParamType.STRING, true,
+                    "Text that will be visible when the goal is reached — used to verify success (must NOT be visible on the starting screen)")
+            ),
+            examples = listOf("drive the screen until the Wi-Fi settings are open"),
+            category = ActionCategory.ADVANCED,
+            isSimple = false
+        ),
+        ActionDefinition(
             name = "PRESS_ENTER",
             description = """Performs the IME 'enter/search/go' action on the currently
                 focused text field to submit it. ALWAYS use this after TYPE_TEXT or

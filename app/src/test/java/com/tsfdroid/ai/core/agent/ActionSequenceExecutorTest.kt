@@ -141,6 +141,32 @@ class ActionSequenceExecutorTest {
     }
 
     @Test
+    fun `consentBoundary backgroundMacroWithDriveScreenGoalIsRefused`() = runBlocking {
+        // Milestone 1 (EGM v2.0.0 arc): DRIVE_SCREEN_GOAL is in the policy-
+        // critical set — the driving loop's interactive NeedsInput consent
+        // re-ask can never be satisfied by a background macro, so the step is
+        // refused here at the last point before dispatch, like SEND_SMS.
+        val calls = mutableListOf<String>()
+        val executor = executor { action, _, _ ->
+            calls += action
+            ActionResult.Success(mapOf("message" to "$action ok"))
+        }
+
+        val result = executor.execute(
+            steps = listOf(
+                step("first", order = 1, action = "OPEN_APP"),
+                step("second", order = 2, action = "DRIVE_SCREEN_GOAL")
+            ),
+            context = context
+        )
+
+        assertFalse(result.success)
+        assertEquals("nothing after the refusal executes", listOf("OPEN_APP"), calls)
+        assertTrue(result.error!!.contains("DRIVE_SCREEN_GOAL"))
+        assertTrue(result.error!!.contains("interactive confirmation"))
+    }
+
+    @Test
     fun `macro step with a policy-critical fallback is refused before any dispatch`() = runBlocking {
         val calls = mutableListOf<String>()
         val executor = executor { action, _, _ ->

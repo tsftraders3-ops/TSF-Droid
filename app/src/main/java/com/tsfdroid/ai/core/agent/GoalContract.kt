@@ -286,6 +286,11 @@ internal object GoalContract {
     fun humanizeParamPrompt(actionName: String, paramKey: String, originalQuestion: String): String {
         val key = paramKey.lowercase()
         val ask = when (key) {
+            // Milestone 1 (EGM v2.0.0 arc): consent questions are already
+            // human-written — the label being approved must survive verbatim
+            // (it appears deep in the question; a generic rewrite like "What
+            // should I use for 'consent'?" would destroy the approval copy).
+            "consent" -> return originalQuestion
             "searchtext", "text", "totap", "elementtext" -> "Which text should I tap on the screen?"
             "content", "message", "texttotype", "typethis" -> "What should I type there?"
             "direction" -> "Which way should I scroll — down or up?"

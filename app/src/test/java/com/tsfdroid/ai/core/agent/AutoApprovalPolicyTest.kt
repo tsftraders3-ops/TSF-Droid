@@ -93,6 +93,30 @@ class AutoApprovalPolicyTest {
         )
     }
 
+    // ── Milestone 1 (EGM v2.0.0 arc): the driving loop enters the gate ──
+
+    @Test
+    fun `DRIVE_SCREEN_GOAL is policy-critical - the driven tap sequence needs plan approval`() {
+        // Defense in depth with the loop's in-flight label-level consent gate:
+        // the plan-level gate is the OUTER lock; the NeedsInput re-ask is the
+        // inner one. Neither can be waived by AUTO/YOLO or a grant.
+        assertTrue(AutoApprovalPolicy.isPolicyCriticalAction("DRIVE_SCREEN_GOAL"))
+        assertTrue(AutoApprovalPolicy.isCritical(step("s0", "DRIVE_SCREEN_GOAL")))
+    }
+
+    @Test
+    fun `planWithDriveScreenGoal neverAutoApproves - even with it in the granted set`() {
+        val grantedWithDrive = granted + "DRIVE_SCREEN_GOAL"
+        assertFalse(
+            "AUTO with DRIVE_SCREEN_GOAL granted must still confirm",
+            AutoApprovalPolicy.shouldAutoApprove(AutoMode.AUTO, grantedWithDrive, plan("DRIVE_SCREEN_GOAL"))
+        )
+        assertFalse(
+            "YOLO with DRIVE_SCREEN_GOAL granted must still confirm",
+            AutoApprovalPolicy.shouldAutoApprove(AutoMode.YOLO, grantedWithDrive, plan("DRIVE_SCREEN_GOAL"))
+        )
+    }
+
     @Test
     fun `isPolicyCriticalAction matches the critical set for name-only callers`() {
         listOf("SEND_SMS", "MAKE_CALL", "PAY_UPI", "DELETE_FILE", "CLICK_COORDINATES").forEach {

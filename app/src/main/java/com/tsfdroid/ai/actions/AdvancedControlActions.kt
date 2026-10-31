@@ -25,6 +25,9 @@ import com.tsfdroid.ai.accessibility.GenericAppAutomator
 import com.tsfdroid.ai.actions.base.Action
 import com.tsfdroid.ai.actions.base.ActionResult
 import com.tsfdroid.ai.core.agent.GoalContract
+import com.tsfdroid.ai.core.agent.VisionDrivingLoop
+import com.tsfdroid.ai.core.agent.VisionDriveResult
+import com.tsfdroid.ai.core.agent.VisionGoalVerifier
 import com.tsfdroid.ai.core.storage.StorageWorkspaceProvider
 import com.tsfdroid.ai.core.util.DeviceCapabilities
 import java.io.File
@@ -37,7 +40,10 @@ import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.delay
 
 @Singleton
-class AdvancedControlActions @Inject constructor() {
+class AdvancedControlActions @Inject constructor(
+    private val visionDrivingLoop: VisionDrivingLoop,
+    private val visionGoalVerifier: VisionGoalVerifier
+) {
 
     companion object {
         /** Hard ceiling for the WAIT action so a plan can never stall execution indefinitely. */
@@ -82,6 +88,7 @@ class AdvancedControlActions @Inject constructor() {
         ScrollAction(),
         GetScreenTextAction(),
         ClickCoordinatesAction(),
+        DriveScreenGoalAction(visionDrivingLoop, visionGoalVerifier),
         PressEnterAction(),
         WaitAction()
     )
@@ -774,6 +781,198 @@ class AdvancedControlActions @Inject constructor() {
             val zipFilePath = params["zipFilePath"] ?: return ActionResult(false, null, "zipFilePath parameter is missing")
             val destDirPath = params["destDirPath"] ?: return ActionResult(false, null, "destDirPath parameter is missing")
             return StorageWorkspaceProvider.unzipFile(context, zipFilePath, destDirPath)
+        }
+    }
+
+    /**
+     * Milestone 1 (EGM v2.0.0 arc) — the DRIVE_SCREEN_GOAL action: the
+     * bounded autonomous driving loop exposed to plans.
+     *
+     * SAFETY CHAIN (defense in depth): DRIVE_SCREEN_GOAL is in
+     * AutoApprovalPolicy.POLICY_CRITICAL_ACTIONS — plans containing it never
+     * auto-run (they fall back to the interactive plan-approval gate) and
+     * macros / MCP / sub-agents / proactive suggestions refuse it. Inside a
+     * run: the loop's label-level consent gate, the 0.85 confidence floor,
+     * MAX_STEPS=5 / 30 s budgets, and the one-shot label-bound approval
+     * below. An approval is honored only when ALL of: the consent token is
+     * affirmative (isApproval), the pending record's goal matches, the halt
+     * was labeled, and the record is fresh (CONSENT_TTL_MS). A honored
+     * approval authorizes exactly ONE tap of the exact approved label — a
+     * second critical tap, same label or not, re-halts. Unlabeled targets
+     * are NEVER pre-approvable (UserActionRequired, no re-ask loop).
+     *
+     * GESTURE BUDGET: gesturesSpent accumulates result.steps.size across the
+     * ask-loop of ONE invocation (a fresh step / re-run resets it); the next
+     * drive() gets maxSteps = MAX_STEPS - gesturesSpent (min 1) — total
+     * gestures per invocation never exceed 5.
+     */
+    internal class DriveScreenGoalAction(
+        private val loop: VisionDrivingLoop,
+        private val goalVerifier: VisionGoalVerifier
+    ) : Action {
+        override val name: String = "DRIVE_SCREEN_GOAL"
+
+        private var pendingConsentGoal: String? = null
+        private var pendingConsentLabel: String? = null
+        private var pendingConsentAt: Long = 0L
+        private var gesturesSpent: Int = 0
+
+        /** Test seam for the TTL check (default: the real clock). */
+        internal var nowProvider: () -> Long = { System.currentTimeMillis() }
+
+        override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
+            // 1. goal (required)
+            val goal = params["goal"]?.trim()?.takeIf { it.isNotEmpty() }
+                ?: return ActionResult(false, null, "goal parameter is missing")
+
+            // 2. expectedScreenText (required — the drive refuses to claim
+            //    success it cannot verify)
+            val expected = params["expectedScreenText"]?.trim()?.takeIf { it.isNotEmpty() }
+                ?: return ActionResult(
+                    false, null,
+                    "expectedScreenText parameter is required — the drive refuses to claim success it cannot verify"
+                )
+
+            // 3. Baseline pre-check: expected text already visible → the
+            //    goal is already met, zero gestures. (expectedAbsentFromBaseline
+            //    is therefore always true by construction for every drive.)
+            val baseline = goalVerifier.currentScreenText()
+            if (baseline != null && baseline.contains(expected, ignoreCase = true)) {
+                return ActionResult(true, "Goal already met on the current screen — 0 steps driven: $goal", null)
+            }
+
+            // 4. Consent resolution (fresh run vs approval re-execution).
+            val consentAnswer = params["consent"]?.trim()
+            var honoredLabel: String? = null
+            if (consentAnswer == null) {
+                // A fresh invocation (new plan step, plan re-run, first run):
+                // the gesture budget starts full.
+                gesturesSpent = 0
+            } else if (!isApproval(consentAnswer)) {
+                // Explicit decline — honest Failure, no re-drive.
+                val declinedLabel = pendingConsentLabel
+                clearPendingConsent()
+                return ActionResult(
+                    false, null,
+                    "You declined the tap on '${declinedLabel ?: "the critical control"}' — drive stopped."
+                )
+            } else {
+                // Affirmative answer — honor ONLY a fresh, goal-bound,
+                // labeled pending record; anything else is stale/mismatched:
+                // clear it and drive without approval (the loop re-asks if
+                // it still halts).
+                val pendingGoal = pendingConsentGoal
+                val pendingLabel = pendingConsentLabel
+                val fresh = nowProvider() - pendingConsentAt <= CONSENT_TTL_MS
+                if (pendingGoal == goal && pendingLabel != null && fresh) {
+                    honoredLabel = pendingLabel
+                }
+                clearPendingConsent()
+            }
+
+            // 5. Drive with the depleted (or full) gesture budget and the
+            //    one-shot label-bound approval gate.
+            val oneShotGate = honoredLabel?.let { approved ->
+                var armed = true
+                val gate: suspend (String) -> Boolean = { candidate ->
+                    // Consumes ONLY on a label EQUAL to the approved label —
+                    // wrong-label calls leave the gate armed.
+                    if (armed && candidate == approved) {
+                        armed = false
+                        true
+                    } else {
+                        false
+                    }
+                }
+                gate
+            }
+            val result = loop.drive(
+                goal = goal,
+                verifier = { goalVerifier.isReached(goal, expected, expectedAbsentFromBaseline = true) },
+                consentGate = oneShotGate,
+                maxSteps = (VisionDrivingLoop.MAX_STEPS - gesturesSpent)
+                    .coerceIn(1, VisionDrivingLoop.MAX_STEPS)
+            )
+            gesturesSpent += stepsOf(result).size
+
+            // 6. Result mapping (exact, honest messages).
+            return when (result) {
+                is VisionDriveResult.GoalReached ->
+                    ActionResult(true, "Goal reached after ${result.steps.size} step(s): $goal", null)
+
+                is VisionDriveResult.ConsentRequired ->
+                    if (result.targetLabel != UNLABELED_SENTINEL) {
+                        pendingConsentGoal = goal
+                        pendingConsentLabel = result.targetLabel
+                        pendingConsentAt = nowProvider()
+                        ActionResult.NeedsInput(
+                            question = "Screen driving needs your approval before it taps '${result.targetLabel}'. ${result.reason} Continue?",
+                            options = listOf("Yes, tap it", "No, stop driving"),
+                            metadata = mapOf("param" to "consent", "type" to "vision_drive_consent")
+                        )
+                    } else {
+                        // An uninspectable tap can NEVER be pre-approved.
+                        ActionResult.UserActionRequired("I stopped the screen drive: ${result.reason}")
+                    }
+
+                is VisionDriveResult.MaxStepsExceeded ->
+                    ActionResult(
+                        false, null,
+                        "Drove ${result.steps.size} step(s) toward '$goal' but could not verify the goal — stopping instead of guessing."
+                    )
+
+                is VisionDriveResult.LowConfidence ->
+                    ActionResult(
+                        false, null,
+                        "Stopped at step ${result.atStep}: the next tap target was unclear " +
+                            "(confidence ${result.confidence}, floor ${VisionDrivingLoop.CONFIDENCE_FLOOR}) — refusing to guess."
+                    )
+
+                is VisionDriveResult.Halted ->
+                    ActionResult(false, null, "Driving halted: ${result.reason}")
+            }
+        }
+
+        private fun clearPendingConsent() {
+            pendingConsentGoal = null
+            pendingConsentLabel = null
+            pendingConsentAt = 0L
+        }
+
+        /** VisionDriveResult carries steps per-subclass; extract for the budget. */
+        private fun stepsOf(result: VisionDriveResult): List<com.tsfdroid.ai.core.agent.VisionDriveStep> =
+            when (result) {
+                is VisionDriveResult.GoalReached -> result.steps
+                is VisionDriveResult.MaxStepsExceeded -> result.steps
+                is VisionDriveResult.LowConfidence -> result.steps
+                is VisionDriveResult.ConsentRequired -> result.steps
+                is VisionDriveResult.Halted -> result.steps
+            }
+
+        companion object {
+            internal const val CONSENT_TTL_MS = 10 * 60_000L
+
+            /** Must stay string-identical to VisionDrivingLoop's consent payload sentinel. */
+            internal const val UNLABELED_SENTINEL = "(unlabeled target)"
+
+            private val NEGATIONS =
+                setOf("not", "no", "never", "dont", "don't", "stop", "cancel", "refuse", "n")
+            private val AFFIRMATIVES =
+                setOf("yes", "approve", "allow", "continue", "ok")
+
+            /**
+             * Conservative token logic: tokenize on non-letters; any negation
+             * token rejects; otherwise the FIRST token must be affirmative (or
+             * the full answer "tap it"). Everything else — "sure", "maybe" —
+             * is a decline. The chip is the intended interface.
+             */
+            internal fun isApproval(answer: String): Boolean {
+                val tokens = answer.trim().lowercase().split(Regex("[^a-z']+"))
+                    .filter { it.isNotEmpty() }
+                if (tokens.isEmpty()) return false
+                if (tokens.any { it in NEGATIONS }) return false
+                return tokens.first() in AFFIRMATIVES || answer.trim().lowercase() == "tap it"
+            }
         }
     }
 }

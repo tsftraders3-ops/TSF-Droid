@@ -415,12 +415,11 @@ class VisionDrivingLoopTest {
                 somMark(2, "Delete account", left = 400, top = 800, right = 700, bottom = 950)
             )
         }
-        loop.providerAccess = {
-            SomProvider(
-                """{"target_found": true, "node": 1, "confidence": 0.9}""",
-                thenJson = """{"target_found": true, "node": 2, "confidence": 0.9}"""
-            )
-        }
+        val scripted = SomProvider(
+            """{"target_found": true, "node": 1, "confidence": 0.9}""",
+            thenJson = """{"target_found": true, "node": 2, "confidence": 0.9}"""
+        )
+        loop.providerAccess = { scripted }
         recordingTaps()
         var armed = true
         val oneShotGate: suspend (String) -> Boolean = { label ->
